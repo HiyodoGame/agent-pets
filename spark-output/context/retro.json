@@ -1,0 +1,74 @@
+{
+  "skill": "retro",
+  "generated_at": "2026-11-14T01:20:00+08:00",
+  "project_name": "Agent Pets",
+  "project_summary": {
+    "started_at": "2026-11-13",
+    "delivered_at": "2026-11-14（阶段交付：原型+adapter+SSE+设计链11/27，未上线）",
+    "planned": "1 周 spike 验证集成可行性",
+    "actual": "spike <1 天完成（observe+inject 闭环实证）",
+    "duration_delta": "spike 提前；设计链与实现并行",
+    "team_size": 1,
+    "retro_timing": "阶段复盘（未上线，无真实 NSM 数据）",
+    "milestone_changes": "用户跳过用研(probe/test)直接开发；stories/sitemap 后补补强 PRD"
+  },
+  "decision_validation": [
+    { "decision": "押方向 B 接力秘书（不押 A 纯监控 / C 全自动）", "source": "frame.lean_direction", "actual_outcome": "spike 实证 codex→opencode 跨 Agent 接力闭环；竞品接力层空白", "verdict": "validated", "lesson": "接力是唯一无人设防的高优先级机会，spike 证明可行；A 作壳保留正确。" },
+    { "decision": "C 全自动管线延后", "source": "frame.directions", "actual_outcome": "集成仅 CLI 全链路、网页仅观察，不支持全自动", "verdict": "validated", "lesson": "全自动需深度集成+信任，今天不存在；延后正确。" },
+    { "decision": "IA 项目→任务→会话三级", "source": "brief.strategy_dimensions", "actual_outcome": "Flow3 实现+QA state-coverage/responsive pass", "verdict": "validated", "lesson": "项目优先心智成立。" },
+    { "decision": "交互 接力一键确认≤3步", "source": "brief.strategy_dimensions", "actual_outcome": "Flow4 预览+一键发送实现，spike 闭环", "verdict": "validated", "lesson": "≤3步可达成。" },
+    { "decision": "情感化 calm tech + DND 分级", "source": "brief.strategy_dimensions", "actual_outcome": "DND 实现；「通知像轻拍」未上线验证", "verdict": "partially-validated", "lesson": "机制落地但体验承诺需上线/可用性测试验证。" },
+    { "decision": "动效 四态可关可减弱", "source": "brief.strategy_dimensions", "actual_outcome": "四态+OS reduced-motion；用户级开关缺(minor)", "verdict": "partially-validated", "lesson": "「可关」应含用户级开关，Flow 阶段就纳入 AC。" },
+    { "decision": "out_of_scope 不做 macOS/鸿蒙/团队", "source": "brief.out_of_scope", "actual_outcome": "聚焦 Windows MVP，资源集中", "verdict": "validated", "lesson": "单人全职砍范围正确。" },
+    { "decision": "stories.priority P0=接力/监控", "source": "stories.priority", "actual_outcome": "MVP=S1/2/5/6 与 spike 能力匹配", "verdict": "validated", "lesson": "优先级与集成能力对齐。" },
+    { "decision": "edge 延后 offline-partial-sync(nice)", "source": "edge.critical_missing", "actual_outcome": "未上线，不知弱网占比", "verdict": "inconclusive", "lesson": "上线后看 mobile/弱网数据再定。" },
+    { "decision": "跳过用研直接开发", "source": "用户决策", "actual_outcome": "创始人亲历支撑方向；群体规模/付费意愿无数据", "verdict": "partially-validated", "lesson": "方向可由亲历驱动，但 Value/Viability 假设必须上线后校准。" }
+  ],
+  "assumption_validation": [
+    { "assumption": "集成可行性：状态可读/产物可拿/提示词可注入", "target_metric": "每类 Agent 至少 observe + 1 类完整接力闭环", "actual_metric": "spike：codex/claude observe 实证；opencode inject 稳定闭环；网页仅观察", "verdict": "validated", "next_action": "网页注入侧继续攻，MVP 用剪贴板降级。" },
+    { "assumption": "OPC 愿为接力付费", "target_metric": "接力付费转化≥5%（B3）", "actual_metric": "未上线，无转化数据；埋点 missing", "verdict": "inconclusive", "next_action": "上线后 4 周看转化；先落 relay 埋点。" },
+    { "assumption": "NSM 人均日接力≥3 成立", "target_metric": "≥3（60天）", "actual_metric": "未上线，无实际值；Metric 蓝图已定但埋点 missing", "verdict": "inconclusive", "next_action": "MVP 先埋 relay_done/relay_inject_result，上线后 daily 盯。" }
+  ],
+  "what_worked": [
+    { "item": "spike 先行验证关键假设再画 UI", "why": "避免在不可行集成上设计；spike <1 天给出 GO", "keep_doing": "第三方集成产品先 1 周 spike，再进 Brief/Flow。" },
+    { "item": "能力分级 full/observe-only/manual + 剪贴板降级", "why": "把集成不确定性变成产品分级而非阻塞", "keep_doing": "集成类产品设计分级降级路径。" },
+    { "item": "TDD adapter 层 27 测试 + SSE 双模式浏览器实证", "why": "QA 复跑 0 major；live/mock 自动回退不白屏", "keep_doing": "纯逻辑先 RED；浏览器验证用 DOM 级。" },
+    { "item": "链式 context 双通道 + dashboard", "why": "11 skill 不漂移；PRD thin 可被 stories/sitemap 补强", "keep_doing": "每 skill 写盘+marker，下游消费上游。" },
+    { "item": "check→qa→edge 闭环修 3 major", "why": "复跑 0 blocker/0 major", "keep_doing": "edge 补全后复跑 check/qa 验证解决率。" }
+  ],
+  "what_didnt": [
+    { "item": "凭 skill 组件映射写 import 致白屏（Sheet/SidebarMenu/Response）", "root_cause": "skill 文档落后于 installed 包", "avoid_next_time": "写 Spark import 前读 registry d.ts；已记 memory。" },
+    { "item": "埋点全 missing 直到 Metric 才定", "root_cause": "Metric 跑太晚（设计后）", "avoid_next_time": "Brief 后立即 Metric，must 事件随 MVP 埋。" },
+    { "item": "stories/sitemap 后补导致 PRD 先 thin", "root_cause": "链顺序跳步（先 flow 后 stories）", "avoid_next_time": "按 Brief→Stories→Sitemap→Flow 顺序。" },
+    { "item": "用户级动效开关/语义heading/stepper 留 minor", "root_cause": "edge 优先核心态，次要 a11y 延后", "avoid_next_time": "a11y 语义标签在 Flow 阶段纳入 AC。" },
+    { "item": "bridge 端口 5174 被占冲突", "root_cause": "未先探测端口", "avoid_next_time": "本地服务启动前探测+env 可配置端口。" }
+  ],
+  "surprises": [
+    { "surprise": "Spark skill 组件映射过时致白屏", "learning": "以 installed registry d.ts 为唯一 API 来源，skill 映射仅参考。" },
+    { "surprise": "Radix Tabs 在隐藏 in-app viewport 不激活", "learning": "自动化验证用 evaluate/DOM 而非 CDP click；Tabs 改 aria-pressed Button group。" },
+    { "surprise": "codex exec inject 不稳但 observe 稳", "learning": "observe/inject 分离分级；inject 优先稳定 CLI（opencode/claude）。" },
+    { "surprise": "5174 被另一项目占用", "learning": "端口先探测+可配置；不杀他人进程。" }
+  ],
+  "skill_usage": [
+    { "skill": "frame", "used": true, "value_delivered": "high", "friction_points": [], "suggestion": "保留 spike Gate。" },
+    { "skill": "brief", "used": true, "value_delivered": "high", "friction_points": [], "suggestion": "—" },
+    { "skill": "flow-web", "used": true, "value_delivered": "high", "friction_points": ["组件映射过时致白屏"], "suggestion": "component-map 需与 installed 包版本对齐。" },
+    { "skill": "check", "used": true, "value_delivered": "high", "friction_points": [], "suggestion": "—" },
+    { "skill": "qa", "used": true, "value_delivered": "high", "friction_points": [], "suggestion": "—" },
+    { "skill": "edge", "used": true, "value_delivered": "high", "friction_points": [], "suggestion": "—" },
+    { "skill": "metric", "used": true, "value_delivered": "high", "friction_points": ["跑太晚"], "suggestion": "前置到 Brief 后。" },
+    { "skill": "prd", "used": true, "value_delivered": "moderate", "friction_points": ["先 thin 后补"], "suggestion": "上游齐后再跑。" },
+    { "skill": "stories", "used": true, "value_delivered": "moderate", "friction_points": ["后补"], "suggestion": "Flow 前跑。" },
+    { "skill": "sitemap", "used": true, "value_delivered": "moderate", "friction_points": ["后补"], "suggestion": "Flow 前跑。" },
+    { "skill": "retro", "used": true, "value_delivered": "high", "friction_points": [], "suggestion": "—" },
+    { "skill": "probe/test", "used": false, "value_delivered": "na", "friction_points": [], "suggestion": "用户跳过；上线后补 /test 验证「轻拍」体验。" },
+    { "skill": "scope/audit", "used": false, "value_delivered": "na", "friction_points": [], "suggestion": "全新产品无 PRD/旧版，na。" },
+    { "skill": "pitch", "used": false, "value_delivered": "na", "friction_points": [], "suggestion": "单人无汇报对象；融资/合作时再跑。" }
+  ],
+  "recommendations": [
+    { "audience": "self", "recommendation": "下个项目 Brief 后立即跑 Metric 并把 must 埋点随 MVP 交付；写 Spark import 前读 registry d.ts。", "rationale": "本次埋点事后补、白屏返工，皆因顺序/来源错误。" },
+    { "audience": "team", "recommendation": "建立「installed 包 API 快照」memory，skill component-map 仅作候选；本地服务端口先探测+env 可配置。", "rationale": "白屏与端口冲突都是可预防的环境/来源问题。" },
+    { "audience": "next-project", "recommendation": "按 Brief→Stories→Sitemap→Flow 顺序跑链；集成类先 spike+能力分级；a11y 语义进 Flow AC。", "rationale": "跳步导致 PRD thin 与 minor 遗留。" },
+    { "audience": "organization", "recommendation": "把「flow-web component-map 与包版本对齐」「Metric 前置」沉淀为 skill 改进项。", "rationale": "本次 what_didnt 反向链到具体 skill 待改进点。" }
+  ]
+}

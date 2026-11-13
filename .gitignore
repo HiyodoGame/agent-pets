@@ -1,0 +1,15 @@
+# dependencies / build
+node_modules/
+dist/
+
+# derived archive bundles (regenerable; keep INDEX.md)
+*.tar.gz
+
+# sandbox / inherited copies
+spike/tmp-relay/
+petdeck/spark-output/
+petdeck/.tmp-observe/
+
+# os
+.DS_Store
+Thumbs.db

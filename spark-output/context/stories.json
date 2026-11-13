@@ -1,0 +1,114 @@
+{
+  "skill": "stories",
+  "generated_at": "2026-11-13T23:40:00+08:00",
+  "project_name": "Agent Pets",
+  "direction": "B 接力秘书：环境化监控是壳，跨 Agent 接力是核",
+  "persona": {
+    "name": "阿哲",
+    "description": "OPC 开发者，一人跑整条产品线，5+ 异构 Agent、多项目并行",
+    "jtbd": "当多项目多 Agent 并行运行时，阿哲想用余光掌握状态并便捷接力任务，从而不盯窗口也能让多项目推进，感到轻松、掌控、被陪伴。"
+  },
+  "stories": [
+    {
+      "id": "story-1",
+      "title": "阿哲一键把素材交接给下一个 Agent",
+      "size": "story",
+      "persona": "阿哲",
+      "scenario": "Codex 刚生成完素材包，阿哲要把它交给 Qoder 部署，不想再手动复制上下文",
+      "acceptance_criteria": [
+        "阿哲从点「接力」到发送完成 ≤3 步、≤30 秒（D1 完成率≥80%）",
+        "预览里上下文/产物/指令已自动打包，阿哲只需确认或改一句指令",
+        "发送后阿哲能看到目标 Agent 实时进度，完成时收到回执",
+        "注入不可用时阿哲能一键复制交接包手动粘贴，不丢上下文"
+      ],
+      "design_touchpoints": ["screen:Trigger Relay", "screen:Handoff Preview", "screen:Send & Track", "screen:Complete", "component:Drawer", "component:FileCard", "component:Response", "state:loading-submit", "state:error-validation", "pattern:form-flow"],
+      "related_strategy_dimension": "交互设计",
+      "risk": "接力是核但依赖注入稳定性；codex exec 不稳时降级剪贴板会削弱「一键」承诺，需把降级文案做得不丢信任。",
+      "priority": "p0",
+      "critical_assumption": true
+    },
+    {
+      "id": "story-2",
+      "title": "阿哲做别的事时扫一眼宠物即知全局",
+      "size": "story",
+      "persona": "阿哲",
+      "scenario": "阿哲在写文案，多个 Agent 后台跑，他不想切窗口盯进度",
+      "acceptance_criteria": [
+        "阿哲 3 秒瞥见即知「几运行/几完成/几待处理」，识别准确率≥90%",
+        "状态变化不刷新页面实时更新（SSE）",
+        "计数超 999 显示 999+，长标题截断不撑破布局"
+      ],
+      "design_touchpoints": ["screen:Ambient Idle", "screen:Event Tap", "screen:Poke Expand", "component:PetAvatar", "component:Tag", "component:Tooltip", "state:running", "state:done", "state:stuck", "state:offline", "pattern:ambient"],
+      "related_strategy_dimension": "动效设计",
+      "risk": "四态动画若太抢注意就违背 calm tech；需克制微动效+可关，否则用户会关掉宠物。",
+      "priority": "p0",
+      "critical_assumption": false
+    },
+    {
+      "id": "story-3",
+      "title": "阿哲从项目钻到会话继续指挥",
+      "size": "story",
+      "persona": "阿哲",
+      "scenario": "阿哲想知道某个项目整体推到哪、卡在哪个环节，并给卡住的 Agent 续指令",
+      "acceptance_criteria": [
+        "阿哲从项目→任务→会话 ≤2 次点击到会话线程",
+        "observe-only 会话输入框禁用并标「仅观察」，阿哲不会误以为能指挥",
+        "删除/归档可撤销，误操作不丢会话"
+      ],
+      "design_touchpoints": ["screen:Project Home", "screen:Panel Shell", "screen:Session Thread", "component:Sidebar树", "component:Empty", "component:AlertDialog", "state:empty", "state:not-found", "state:read-only", "pattern:drilldown"],
+      "related_strategy_dimension": "信息架构 IA",
+      "risk": "三级树在窄屏易挤；需 truncate+折叠，否则 Windows 小窗体验差。",
+      "priority": "p1",
+      "critical_assumption": false
+    },
+    {
+      "id": "story-4",
+      "title": "阿哲五分钟内接入第一个 Agent",
+      "size": "story",
+      "persona": "阿哲",
+      "scenario": "阿哲第一次用，想快速把常用 Agent 接进来看到状态",
+      "acceptance_criteria": [
+        "阿哲首个 Agent 接入≤5 分钟（中位≤300s）",
+        "检测被拒/限流时阿哲看到 inline 原因+倒计时+手动降级，不卡死",
+        "接入成功阿哲看到该 Agent 能力分级（full/observe-only/manual）"
+      ],
+      "design_touchpoints": ["screen:Cold Home", "screen:Select Agent", "screen:Detect & Authorize", "screen:Success", "component:Progress", "component:EdgeAlert", "component:Tag", "state:empty-search", "state:error-permission", "state:rateLimit", "pattern:onboarding"],
+      "related_strategy_dimension": "交互设计",
+      "risk": "网页 Agent 检测可能长期受阻；若首接入卡在网页类，会直接拉高放弃率，需手动 check-in 兜底。",
+      "priority": "p1",
+      "critical_assumption": false
+    },
+    {
+      "id": "story-5",
+      "title": "阿哲被轻拍而不是被弹窗轰炸",
+      "size": "micro",
+      "persona": "阿哲",
+      "scenario": "阿哲在专注写代码，Agent 干完/卡住/等拍板，他想只在必要时被打扰",
+      "acceptance_criteria": [
+        "阿哲开免打扰后只有「需拍板」事件轻拍，其余静默计入 inbox",
+        "完成庆祝/卡住安抚像轻拍，不弹窗轰炸；DND 开启率≤30%"
+      ],
+      "design_touchpoints": ["screen:Ambient Idle", "screen:Event Tap", "component:Switch", "component:Inbox Tag", "state:dnd-silent", "pattern:notification-grading"],
+      "related_strategy_dimension": "情感化设计",
+      "risk": "分级若太粗会把「卡住」也静默，导致阿哲错过关键事；需默认 decision+stuck 轻拍。",
+      "priority": "p0",
+      "critical_assumption": false
+    },
+    {
+      "id": "story-6",
+      "title": "阿哲断网/限流时交接包不丢",
+      "size": "micro",
+      "persona": "阿哲",
+      "scenario": "阿哲在地铁/弱网或目标 Agent 限流时发起接力，不想丢上下文",
+      "acceptance_criteria": [
+        "断网时交接包本地暂存，恢复后阿哲一键重试不丢包",
+        "限流时阿哲看到倒计时自动重试；「停止」可中断追踪回退"
+      ],
+      "design_touchpoints": ["screen:Send & Track", "component:EdgeAlert", "component:Button", "state:offline-stash", "state:rateLimit", "state:stopped", "pattern:graceful-degradation"],
+      "related_strategy_dimension": "交互设计",
+      "risk": "暂存若只放内存，关窗即丢；需落本地盘，否则「不丢包」承诺破产。",
+      "priority": "p1",
+      "critical_assumption": true
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "skill": "brief",
+  "generated_at": "2026-11-13T19:05:55+08:00",
+  "project_name": "Agent Pets",
+  "project_type": "产品设计",
+  "project_subtype": "全新产品",
+  "business_context": "Agent 专业化让「一人+一群 Agent」成为 OPC 标配，开发者却沦为 Agent 间的人肉消息总线：监控靠切窗口，接力靠复制粘贴。大厂桌宠验证了形态但互不相通，接力层无人设防，Windows 相对空白。设计由创始人亲历痛点驱动，押方向 B「接力秘书」。",
+  "business_goal": [
+    "上线 4 周种子用户 ≥100（OPC 社群）",
+    "周活跃留存 ≥40%",
+    "接力功能付费转化 ≥5%",
+    "人均日接力 ≥3 次（核心行为）"
+  ],
+  "user": [
+    "OPC 开发者，一人跑整条产品线",
+    "5+ 异构 Agent、多项目并行",
+    "干别的事时想余光掌握进度",
+    "接力靠手动复制粘贴，不堪其扰"
+  ],
+  "strategy_dimensions": [
+    { "dimension": "信息架构 IA", "thesis": "项目→任务→会话三级，余光可读", "tactics": ["宠物即全局入口", "项目卡片聚合会话", "瞥见→展开→钻取披露"], "rationale": "对应 B4；用户心智项目优先" },
+    { "dimension": "交互设计", "thesis": "接力一键确认，指挥不离开宠物", "tactics": ["上下文/产物自动打包", "交接预览+一键发送", "戳宠物续指令追问"], "rationale": "对应 B3/B4；消灭人肉消息总线" },
+    { "dimension": "情感化设计", "thesis": "陪伴式 calm tech，通知即轻拍", "tactics": ["宠物人格+状态情绪", "完成庆祝、卡住安抚", "通知分级+免打扰"], "rationale": "情感 JTBD：轻松掌控被陪伴" },
+    { "dimension": "动效设计", "thesis": "状态动画余光可辨，克制不抢注意", "tactics": ["思考/运行/完成/卡住四态", "微动效常驻、大动作仅事件", "动效可关可减弱"], "rationale": "对应 B2；环境化感知入口" }
+  ],
+  "design_criteria": {
+    "quantitative": ["接力交接 ≤3 步、30 秒内完成", "3 秒瞥见状态，识别准确率 ≥90%", "新用户首个 Agent 接入 ≤5 分钟"],
+    "qualitative": ["通知像轻拍肩膀，而非打断"]
+  },
+  "constraints": [
+    "单人全职，Windows 先行",
+    "技术栈 Tauri2+React+TS（待确认）",
+    "集成能力以 spike 结果为准",
+    "不改 Agent 源码，本地桥接",
+    "会话数据本地优先，红线待定"
+  ],
+  "out_of_scope": [
+    "不做全自动管线编排（方向 C）",
+    "不替代 Agent 本体对话界面",
+    "MVP 不做 macOS/鸿蒙",
+    "不做团队多人协作",
+    "不做无宠物纯面板"
+  ],
+  "style": "script",
+  "ratio": "16-9",
+  "scale": "md",
+  "reference_directions": ["UniPet 本地桥接", "AgentBell 陪伴感", "calm tech 环境化感知"],
+  "rejected_directions": ["通知轰炸", "重编排控制台", "无宠物纯面板"],
+  "critical_assumption": "⚠️ 集成可行性（状态可读/产物可拿/提示词可注入）待 1 周 spike 验证；需求由创始人亲历确认，群体规模与付费意愿上线后校准",
+  "upstream": ["frame"]
+}

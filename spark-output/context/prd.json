@@ -1,0 +1,38 @@
+{
+  "skill": "prd",
+  "generated_at": "2026-11-13T23:10:00+08:00",
+  "project_name": "Agent Pets",
+  "direction": "B 接力秘书",
+  "prd_file": "spark-output/prd/agent-pets.md",
+  "sections_summary": {
+    "summary": "OPC 桌宠：余光聚合多 Agent 状态+一键接力，NSM 人均日接力≥3",
+    "primary_persona": "阿哲（OPC 开发者）",
+    "product_goal": "不盯窗口推进多项目，Agent 接力零手动搬运",
+    "success_metrics": [
+      { "metric": "人均日接力次数(NSM)", "target": "≥3", "timeframe": "60天" },
+      { "metric": "接力30秒·≤3步完成率", "target": "≥80%", "timeframe": "30天" },
+      { "metric": "3秒瞥见识别准确率", "target": "≥90%", "timeframe": "30天" },
+      { "metric": "首Agent接入时长中位数", "target": "≤300s", "timeframe": "30天" },
+      { "metric": "周活跃留存", "target": "≥40%", "timeframe": "持续" }
+    ],
+    "feature_count": 6,
+    "in_scope_features": ["S1接力交接", "S2桌宠环境化", "S3项目会话面板", "S4Agent接入", "S5本地bridge+adapter", "S6埋点"],
+    "out_of_scope_features": ["方向C全自动管线", "macOS/鸿蒙", "团队协作", "网页Agent注入侧"],
+    "critical_assumption": "集成可行性：spike 已实证 CLI 全链路、网页仅观察侧；受阻则接力降级剪贴板",
+    "mvp_stories": ["S1接力交接", "S2桌宠环境化", "S5本地bridge+adapter", "S6埋点"]
+  },
+  "source_skills": {
+    "brief": true,
+    "stories": true,
+    "sitemap": true,
+    "flow_web": true,
+    "flow_mobile": false,
+    "frame": true,
+    "scope": false,
+    "check": true,
+    "qa": true,
+    "edge": true,
+    "metric": true
+  },
+  "thin_sections": []
+}

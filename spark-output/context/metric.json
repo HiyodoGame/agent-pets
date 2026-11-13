@@ -1,0 +1,117 @@
+{
+  "skill": "metric",
+  "generated_at": "2026-11-13T22:40:00+08:00",
+  "project_name": "Agent Pets",
+  "analytics_baseline": {
+    "tool": "自建轻量埋点·本地优先（前端行为事件→本地 SQLite/JSON，不报会话内容）",
+    "existing_events_count": 0,
+    "coverage_estimate": "none"
+  },
+  "north_star_metric": {
+    "name": "人均日接力次数",
+    "formula": "count(relay_done) / 活跃用户数 / 天数（按周滚动）",
+    "target": "≥3",
+    "timeframe": "60 天达成",
+    "business_alignment": "brief.business_goal[3]「人均日接力≥3（核心行为）」；牵引 B2 留存与 B3 付费",
+    "why_this_one": "方向 B 的核心价值交换是「接力替代人肉消息总线」。人均日接力直接度量该价值是否成立：比 DAU 好（消除规模噪音、是行为不是态度），比付费转化好（领先指标），比瞥见时长好（直指核而非壳）。可被接力 UX 改动影响；配 Counter 防刷量/防误接力。"
+  },
+  "driver_metrics": [
+    {
+      "name": "接力 30 秒·≤3 步完成率",
+      "relation_to_nsm": "接力越快越省力，用户越愿意高频接力，直接拉高人均日接力",
+      "formula": "count(relay_done 且 duration≤30s 且 steps≤3) / count(relay_started)",
+      "target": "≥80%",
+      "timeframe": "30 天验证",
+      "slice_dimensions": ["capability tier(full/observe-only)", "agent 形态(cli/web)", "首次 vs 回访"],
+      "events_needed": ["relay_started", "relay_preview_confirmed", "relay_inject_result", "relay_done"],
+      "instrumentation_status": "missing",
+      "related_strategy_dimension": "交互设计"
+    },
+    {
+      "name": "3 秒瞥见状态识别准确率",
+      "relation_to_nsm": "环境化监控是接力的入场壳；瞥见可信才敢不盯窗口，维持活跃从而支撑接力频次",
+      "formula": "可用性测试中 3s 内正确识别状态的次数 / 总瞥见次数",
+      "target": "≥90%",
+      "timeframe": "上线前 /test 基线 + 30 天复测",
+      "slice_dimensions": ["四态(思考/运行/完成/卡住)", "动效开/关"],
+      "events_needed": ["ambient_glance", "glance_identify_result"],
+      "instrumentation_status": "missing",
+      "related_strategy_dimension": "动效设计"
+    },
+    {
+      "name": "首个 Agent 接入时长中位数",
+      "relation_to_nsm": "接入是激活漏斗第一关；≤5 分钟降低放弃，扩大可接力用户池",
+      "formula": "median(connect_success.ts - connect_started.ts)",
+      "target": "≤300 秒",
+      "timeframe": "30 天",
+      "slice_dimensions": ["agent 形态(cli/web)", "能力 tier"],
+      "events_needed": ["connect_started", "agent_detected", "connect_success"],
+      "instrumentation_status": "missing",
+      "related_strategy_dimension": "用户引导"
+    },
+    {
+      "name": "种子首周首次接力激活率",
+      "relation_to_nsm": "growth 意图：种子完成首次接力才进入人均日接力统计，是 NSM 的入口杠杆",
+      "formula": "count(首周 relay_done≥1 的种子) / count(种子注册)",
+      "target": "≥50%（B1 种子≥100 的质量门槛）",
+      "timeframe": "上线 4 周",
+      "slice_dimensions": ["渠道(OPC 社群)", "agent 数量分桶"],
+      "events_needed": ["app_session_start", "connect_success", "relay_done"],
+      "instrumentation_status": "missing",
+      "related_strategy_dimension": "信息架构 IA"
+    }
+  ],
+  "counter_metrics": [
+    {
+      "name": "接力降级/失败率",
+      "what_to_prevent": "为拉接力速度跳过预览/确认，或注入不稳导致误接力，破坏「一键确认」信任",
+      "formula": "count(relay_inject_result.mode=clipboard 或 ok=false) / count(relay_started)",
+      "threshold": "≤20%（超过即重估 inject 稳定性/降级文案）"
+    },
+    {
+      "name": "通知打扰率（DND 开启率）",
+      "what_to_prevent": "为拉瞥见/活跃而推通知轰炸，违背「通知像轻拍」calm tech 承诺",
+      "formula": "count(dnd_toggle=on 的 user) / 活跃 user；辅以 notification_suppressed 占比",
+      "threshold": "DND 开启率≤30% 且 通知关闭率≤10%"
+    },
+    {
+      "name": "接入放弃率",
+      "what_to_prevent": "为拉接入速度用强制 modal/跳过检测，导致用户中途放弃或接错 Agent",
+      "formula": "count(connect_started 无 connect_success) / count(connect_started)",
+      "threshold": "≤25%"
+    },
+    {
+      "name": "周流失率",
+      "what_to_prevent": "为拉种子激活做增长黑客（强制 onboarding/诱导），拉高短期激活但流失反噬",
+      "formula": "1 - 周活跃留存",
+      "threshold": "≤60%（即留存≥40%，B2 底线）"
+    }
+  ],
+  "health_metrics": [
+    { "name": "bridge observe→SSE 延迟 P95", "what_it_protects": "环境化实时感知的底线（Flow1/3/4 同通道）", "threshold": "≤5 秒", "alert_when": "连续 2 天 P95>5s" },
+    { "name": "full-tier inject 失败率", "what_it_protects": "接力核心动作可达性", "threshold": "≤10%", "alert_when": "单日>20% 触发告警" },
+    { "name": "首屏加载 P95（Tauri webview）", "what_it_protects": "可用性基线", "threshold": "≤3 秒", "alert_when": "连续 2 天>3s" },
+    { "name": "JS 错误率 / SSE 断连率", "what_it_protects": "整体稳定性与实时通道", "threshold": "JS≤0.5% session；SSE 断连≤1%", "alert_when": "单日新增错误>10 或断连>3%" }
+  ],
+  "instrumentation_gaps": [
+    { "event": "relay_started", "where_to_add": "src/flows/flow-4-relay/flow4-relay.tsx Screen1 onOpen(setScreen2)", "priority": "must", "related_metric": "接力30秒完成率 + NSM" },
+    { "event": "relay_preview_confirmed", "where_to_add": "flow4-relay.tsx Screen2 confirm/onSend", "priority": "must", "related_metric": "接力30秒完成率" },
+    { "event": "relay_inject_result", "where_to_add": "flow4-relay.tsx onSend inject.then + server/bridge.mjs /api/inject 响应(mode/ok)", "priority": "must", "related_metric": "接力降级/失败率 Counter + inject失败率 Health" },
+    { "event": "relay_done", "where_to_add": "flow4-relay.tsx Screen3 onDone / Screen4 挂载", "priority": "must", "related_metric": "NSM 人均日接力 + 种子激活率" },
+    { "event": "connect_started", "where_to_add": "src/flows/flow-2-connect-agent/flow2-connect-agent.tsx SelectAgent/Detect 入口", "priority": "must", "related_metric": "首接入时长 + 接入放弃率" },
+    { "event": "connect_success", "where_to_add": "flow2-connect-agent.tsx Success 屏挂载", "priority": "must", "related_metric": "首接入时长 + 种子激活率" },
+    { "event": "ambient_glance", "where_to_add": "src/flows/flow-1-pet-surface/flow1-pet-surface.tsx Screen1 挂载/poke", "priority": "must", "related_metric": "瞥见识别准确率" },
+    { "event": "app_session_start", "where_to_add": "src/flows/petdeck/petdeck.tsx Shell 挂载", "priority": "must", "related_metric": "种子激活率 + 活跃分母" },
+    { "event": "dnd_toggle", "where_to_add": "flow1-pet-surface.tsx DND Switch onDndChange", "priority": "should", "related_metric": "通知打扰率 Counter" },
+    { "event": "notification_suppressed", "where_to_add": "flow1-pet-surface.tsx DND 抑制分支(setSuppressed)", "priority": "should", "related_metric": "通知打扰率 Counter" },
+    { "event": "relay_stopped", "where_to_add": "flow4-relay.tsx Screen3 onStop", "priority": "should", "related_metric": "接力降级/失败率 Counter" },
+    { "event": "pet_poke", "where_to_add": "flow1-pet-surface.tsx onPoke", "priority": "nice-to-have", "related_metric": "环境化入口使用分析" },
+    { "event": "panel_drilldown", "where_to_add": "src/flows/flow-3-panel/flow3-panel.tsx Screen1 onOpen", "priority": "nice-to-have", "related_metric": "瞥见→展开→钻取路径分析" }
+  ],
+  "dashboard": {
+    "primary_view": ["🌟 人均日接力次数(NSM)", "🚀 接力30秒完成率", "🚀 首接入时长中位数", "⚠️ 接力降级/失败率", "💊 full-tier inject失败率"],
+    "drill_down_dimensions": ["capability tier(full/observe-only/manual)", "agent 形态(cli/desktop/web)", "平台(Windows)", "首次 vs 回访", "按周/按月"],
+    "review_cadence": "v1 头 2 周 daily，稳定后 weekly",
+    "owner_role": "创始人/设计师自己（单人 OPC，自 own 埋点+复盘）"
+  }
+}

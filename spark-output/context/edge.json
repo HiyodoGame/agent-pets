@@ -1,0 +1,797 @@
+{
+  "skill": "edge",
+  "generated_at": "2026-11-13T12:47:38.696Z",
+  "project_name": "Agent Pets",
+  "target_flows": [
+    "flow-1-pet-surface",
+    "flow-2-connect-agent",
+    "flow-3-panel",
+    "flow-4-relay",
+    "shell"
+  ],
+  "states_matrix": [
+    {
+      "screen": "F1S1 AmbientIdle",
+      "states": [
+        {
+          "screen": "F1S1 AmbientIdle",
+          "category": "offline",
+          "state_type": "offline-no-network",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "blocker",
+          "design_description": "宠物灰化+离线badge+重连CTA；保留最后缓存状态",
+          "fallback_behavior": "点击重连进接入flow检测；缓存状态可查看",
+          "visual_hint": "PetAvatar offline + Tag error + Button 重连",
+          "copy_hint": "Agent 失联 · 点击重连"
+        },
+        {
+          "screen": "F1S1 AmbientIdle",
+          "category": "boundary",
+          "state_type": "boundary-zero",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "计数0弱化为slate不误导",
+          "fallback_behavior": "无操作，仅展示",
+          "visual_hint": "Tag slate tabular-nums",
+          "copy_hint": "暂无运行中任务"
+        },
+        {
+          "screen": "F1S1 AmbientIdle",
+          "category": "boundary",
+          "state_type": "boundary-overflow",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "计数999+封顶缩写",
+          "fallback_behavior": "无操作",
+          "visual_hint": "Tag tabular-nums + 999+",
+          "copy_hint": "999+"
+        },
+        {
+          "screen": "F1S1 AmbientIdle",
+          "category": "loading",
+          "state_type": "loading-refresh",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "状态刷新badge微spinner",
+          "fallback_behavior": "刷新完成自动消失",
+          "visual_hint": "Spinner 12px on badge",
+          "copy_hint": "同步中…"
+        },
+        {
+          "screen": "F1S1 AmbientIdle",
+          "category": "empty",
+          "state_type": "dnd-silent-inbox",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "DND静默事件进收件箱badge计数",
+          "fallback_behavior": "点收件箱查看静默事件",
+          "visual_hint": "宠物安静 + inbox dot 计数",
+          "copy_hint": "免打扰中 · N 条静默进收件箱"
+        }
+      ]
+    },
+    {
+      "screen": "F1S2 EventTap",
+      "states": [
+        {
+          "screen": "F1S2 EventTap",
+          "category": "error",
+          "state_type": "error-network",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "事件拉取失败inline+Retry",
+          "fallback_behavior": "重试保留上下文",
+          "visual_hint": "Alert error inline + Retry",
+          "copy_hint": "事件没拉取到 · 重试"
+        },
+        {
+          "screen": "F1S2 EventTap",
+          "category": "boundary",
+          "state_type": "boundary-long-text",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "事件文本超长截断+展开",
+          "fallback_behavior": "点展开看全文",
+          "visual_hint": "line-clamp-2 + 展开按钮",
+          "copy_hint": "…展开"
+        }
+      ]
+    },
+    {
+      "screen": "F1S3 PokeExpand",
+      "states": [
+        {
+          "screen": "F1S3 PokeExpand",
+          "category": "empty",
+          "state_type": "empty-collection",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "无项目Empty+连接CTA",
+          "fallback_behavior": "去接入flow",
+          "visual_hint": "Empty + Button 连接Agent",
+          "copy_hint": "还没有项目 · 连接Agent"
+        },
+        {
+          "screen": "F1S3 PokeExpand",
+          "category": "boundary",
+          "state_type": "boundary-long-text",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "项目名截断+tooltip",
+          "fallback_behavior": "hover看全名",
+          "visual_hint": "truncate + Tooltip",
+          "copy_hint": "…"
+        },
+        {
+          "screen": "F1S3 PokeExpand",
+          "category": "loading",
+          "state_type": "loading-submit",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "快捷指令发送disabled+spinner",
+          "fallback_behavior": "禁止重复点击",
+          "visual_hint": "ChatInput sendButtonStatus=generating",
+          "copy_hint": "发送中…"
+        },
+        {
+          "screen": "F1S3 PokeExpand",
+          "category": "error",
+          "state_type": "error-network",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "指令发送失败inline+Retry保留草稿",
+          "fallback_behavior": "重试不重填",
+          "visual_hint": "Alert error + Retry",
+          "copy_hint": "发送失败 · 重试"
+        }
+      ]
+    },
+    {
+      "screen": "F2S1 ColdHome",
+      "states": [
+        {
+          "screen": "F2S1 ColdHome",
+          "category": "empty",
+          "state_type": "empty-first-time",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "Empty+建议Chips+连接CTA",
+          "fallback_behavior": "点Chip或CTA进选择",
+          "visual_hint": "Empty + PromptSuggestions + Button",
+          "copy_hint": "还没有连接任何Agent"
+        },
+        {
+          "screen": "F2S1 ColdHome",
+          "category": "offline",
+          "state_type": "offline-no-network",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "离线仍可看缓存引导",
+          "fallback_behavior": "连接需网络提示",
+          "visual_hint": "Alert info",
+          "copy_hint": "离线 · 连接需网络"
+        }
+      ]
+    },
+    {
+      "screen": "F2S2 SelectAgent",
+      "states": [
+        {
+          "screen": "F2S2 SelectAgent",
+          "category": "empty",
+          "state_type": "empty-search",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "搜索无结果Empty+换关键词+清除",
+          "fallback_behavior": "清除搜索恢复列表",
+          "visual_hint": "Empty + Button 清除搜索",
+          "copy_hint": "没找到 · 换个关键词"
+        },
+        {
+          "screen": "F2S2 SelectAgent",
+          "category": "empty",
+          "state_type": "empty-filter",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "某形态筛选无结果提示",
+          "fallback_behavior": "切换形态",
+          "visual_hint": "TypographyMuted",
+          "copy_hint": "该形态暂无可接Agent"
+        },
+        {
+          "screen": "F2S2 SelectAgent",
+          "category": "boundary",
+          "state_type": "boundary-long-text",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "agent名/detectHint截断",
+          "fallback_behavior": "hover全名",
+          "visual_hint": "truncate",
+          "copy_hint": "…"
+        },
+        {
+          "screen": "F2S2 SelectAgent",
+          "category": "permission",
+          "state_type": "permission-tier-limited",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "能力分级Tag+unsupported待适配Alert",
+          "fallback_behavior": "unsupported记录需求不跳转",
+          "visual_hint": "Tag success/info/slate + Alert",
+          "copy_hint": "观察+接力 / 仅观察 / 手动"
+        }
+      ]
+    },
+    {
+      "screen": "F2S3 Detect",
+      "states": [
+        {
+          "screen": "F2S3 Detect",
+          "category": "loading",
+          "state_type": "loading-initial",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "检测状态流逐步可读",
+          "fallback_behavior": "自动推进",
+          "visual_hint": "状态流 icon+Spinner+Progress",
+          "copy_hint": "检测本地安装…"
+        },
+        {
+          "screen": "F2S3 Detect",
+          "category": "error",
+          "state_type": "error-network",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "检测失败inline+Retry+手动兜底",
+          "fallback_behavior": "重试或手动配置",
+          "visual_hint": "Alert error + Retry + 手动",
+          "copy_hint": "检测失败 · 重试或手动"
+        },
+        {
+          "screen": "F2S3 Detect",
+          "category": "error",
+          "state_type": "error-permission",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "用户拒绝授权inline说明+去系统设置",
+          "fallback_behavior": "去系统设置授权后重试",
+          "visual_hint": "Alert warning + Button 去设置",
+          "copy_hint": "未授权 · 去系统设置开启"
+        },
+        {
+          "screen": "F2S3 Detect",
+          "category": "loading",
+          "state_type": "loading-submit",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "授权并连接disabled+spinner",
+          "fallback_behavior": "禁止重复点击",
+          "visual_hint": "Button loading",
+          "copy_hint": "连接中…"
+        },
+        {
+          "screen": "F2S3 Detect",
+          "category": "error",
+          "state_type": "error-rate-limit",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "桥接限流退避重试倒计时",
+          "fallback_behavior": "倒计时后自动重试",
+          "visual_hint": "Progress + 倒计时",
+          "copy_hint": "请求过频 · Ns后重试"
+        }
+      ]
+    },
+    {
+      "screen": "F2S4 Success",
+      "states": [
+        {
+          "screen": "F2S4 Success",
+          "category": "error",
+          "state_type": "error-server",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "首次同步失败inline+retry",
+          "fallback_behavior": "重试同步",
+          "visual_hint": "Alert error + Retry",
+          "copy_hint": "同步失败 · 重试"
+        },
+        {
+          "screen": "F2S4 Success",
+          "category": "boundary",
+          "state_type": "boundary-null",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "agent无图标/名字fallback",
+          "fallback_behavior": "显示默认avatar+名字占位",
+          "visual_hint": "AvatarFallback",
+          "copy_hint": "未命名Agent"
+        }
+      ]
+    },
+    {
+      "screen": "F3S1 ProjectHome",
+      "states": [
+        {
+          "screen": "F3S1 ProjectHome",
+          "category": "empty",
+          "state_type": "empty-collection",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "无项目Empty+连接CTA+模拟预览",
+          "fallback_behavior": "去接入flow",
+          "visual_hint": "Empty + Button",
+          "copy_hint": "还没有项目"
+        },
+        {
+          "screen": "F3S1 ProjectHome",
+          "category": "loading",
+          "state_type": "loading-initial",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "项目卡Skeleton占位",
+          "fallback_behavior": "加载完替换",
+          "visual_hint": "Skeleton h-24 ×3",
+          "copy_hint": "加载中"
+        },
+        {
+          "screen": "F3S1 ProjectHome",
+          "category": "boundary",
+          "state_type": "boundary-overflow",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "会话数999+",
+          "fallback_behavior": "无操作",
+          "visual_hint": "Tag tabular-nums",
+          "copy_hint": "999+"
+        }
+      ]
+    },
+    {
+      "screen": "F3S2 PanelTree",
+      "states": [
+        {
+          "screen": "F3S2 PanelTree",
+          "category": "empty",
+          "state_type": "empty-filter",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "项目下无会话树空态+新建",
+          "fallback_behavior": "新建会话",
+          "visual_hint": "TypographyMuted + Button",
+          "copy_hint": "该项目暂无会话"
+        },
+        {
+          "screen": "F3S2 PanelTree",
+          "category": "boundary",
+          "state_type": "boundary-long-text",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "会话标题truncate+tooltip",
+          "fallback_behavior": "hover全名",
+          "visual_hint": "truncate + Tooltip",
+          "copy_hint": "…"
+        },
+        {
+          "screen": "F3S2 PanelTree",
+          "category": "error",
+          "state_type": "error-not-found",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "会话被删仍选中→not-found+回列表",
+          "fallback_behavior": "回列表选其他",
+          "visual_hint": "Alert warning + Button 回列表",
+          "copy_hint": "会话已删除 · 回列表"
+        },
+        {
+          "screen": "F3S2 PanelTree",
+          "category": "permission",
+          "state_type": "permission-read-only",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "observe-only会话只读标识+禁用指挥",
+          "fallback_behavior": "仅查看不能下指令",
+          "visual_hint": "Tag info 仅观察 + disabled",
+          "copy_hint": "仅观察 · 不可指挥"
+        }
+      ]
+    },
+    {
+      "screen": "F3S3 SessionThread",
+      "states": [
+        {
+          "screen": "F3S3 SessionThread",
+          "category": "loading",
+          "state_type": "loading-initial",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "线程Skeleton段落占位",
+          "fallback_behavior": "加载完替换",
+          "visual_hint": "Skeleton 多行",
+          "copy_hint": "加载中"
+        },
+        {
+          "screen": "F3S3 SessionThread",
+          "category": "error",
+          "state_type": "error-network",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "blocker",
+          "design_description": "线程加载失败inline+Retry保留草稿",
+          "fallback_behavior": "重试不重填",
+          "visual_hint": "Alert error + Retry",
+          "copy_hint": "加载失败 · 重试"
+        },
+        {
+          "screen": "F3S3 SessionThread",
+          "category": "error",
+          "state_type": "error-not-found",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "404/已删→not-found+回列表",
+          "fallback_behavior": "回列表",
+          "visual_hint": "Alert warning + Button",
+          "copy_hint": "会话不存在 · 回列表"
+        },
+        {
+          "screen": "F3S3 SessionThread",
+          "category": "boundary",
+          "state_type": "boundary-long-text",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "消息/产物名截断或换行不破坏布局",
+          "fallback_behavior": "展开/tooltip",
+          "visual_hint": "line-clamp / break-words",
+          "copy_hint": "…"
+        },
+        {
+          "screen": "F3S3 SessionThread",
+          "category": "loading",
+          "state_type": "loading-submit",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "追问发送disabled+spinner",
+          "fallback_behavior": "禁止重复点击",
+          "visual_hint": "ChatInput generating",
+          "copy_hint": "发送中…"
+        },
+        {
+          "screen": "F3S3 SessionThread",
+          "category": "permission",
+          "state_type": "permission-read-only",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "observe-only→Composer禁用+仅观察提示",
+          "fallback_behavior": "仅查看",
+          "visual_hint": "ChatInput disabled + Tag",
+          "copy_hint": "仅观察 · 不可追问"
+        },
+        {
+          "screen": "F3S3 SessionThread",
+          "category": "offline",
+          "state_type": "offline-partial-sync",
+          "required": true,
+          "severity": "nice",
+          "implemented": false,
+          "critical_severity": null,
+          "design_description": "离线缓存线程+N条待同步",
+          "fallback_behavior": "恢复后同步",
+          "visual_hint": "Alert info + 计数",
+          "copy_hint": "离线 · N条待同步"
+        }
+      ]
+    },
+    {
+      "screen": "F4S1 Trigger",
+      "states": [
+        {
+          "screen": "F4S1 Trigger",
+          "category": "empty",
+          "state_type": "empty-collection",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "无产物仅文案不渲染空卡",
+          "fallback_behavior": "无操作",
+          "visual_hint": "TypographyMuted",
+          "copy_hint": "无产物"
+        }
+      ]
+    },
+    {
+      "screen": "F4S2 PreviewDrawer",
+      "states": [
+        {
+          "screen": "F4S2 PreviewDrawer",
+          "category": "error",
+          "state_type": "error-validation",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "指令为空→发送disabled+字段提示",
+          "fallback_behavior": "填指令后可发送",
+          "visual_hint": "FieldError + Button disabled",
+          "copy_hint": "请填写下一步指令"
+        },
+        {
+          "screen": "F4S2 PreviewDrawer",
+          "category": "boundary",
+          "state_type": "boundary-long-text",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "上下文摘要超长scroll/截断",
+          "fallback_behavior": "展开编辑",
+          "visual_hint": "Textarea rows + scroll",
+          "copy_hint": "…"
+        },
+        {
+          "screen": "F4S2 PreviewDrawer",
+          "category": "boundary",
+          "state_type": "boundary-null",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "无产物占位「无产物」",
+          "fallback_behavior": "无操作",
+          "visual_hint": "TypographyMuted",
+          "copy_hint": "无产物"
+        },
+        {
+          "screen": "F4S2 PreviewDrawer",
+          "category": "loading",
+          "state_type": "loading-submit",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "high",
+          "design_description": "确认发送disabled+spinner",
+          "fallback_behavior": "禁止重复点击",
+          "visual_hint": "Button loading",
+          "copy_hint": "发送中…"
+        },
+        {
+          "screen": "F4S2 PreviewDrawer",
+          "category": "permission",
+          "state_type": "permission-tier-limited",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "目标manual→剪贴板降级提示",
+          "fallback_behavior": "复制交接包手动粘贴",
+          "visual_hint": "Tag slate + Alert",
+          "copy_hint": "手动Agent · 剪贴板交接"
+        }
+      ]
+    },
+    {
+      "screen": "F4S3 Tracking",
+      "states": [
+        {
+          "screen": "F4S3 Tracking",
+          "category": "error",
+          "state_type": "error-network",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "注入失败inline+Retry+复制交接包",
+          "fallback_behavior": "重试或手动",
+          "visual_hint": "Alert error + Retry + Copy",
+          "copy_hint": "注入失败 · 重试或复制"
+        },
+        {
+          "screen": "F4S3 Tracking",
+          "category": "loading",
+          "state_type": "loading-initial",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "流式Response可读进度",
+          "fallback_behavior": "自动推进",
+          "visual_hint": "Response streaming",
+          "copy_hint": "正在处理交接包…"
+        },
+        {
+          "screen": "F4S3 Tracking",
+          "category": "error",
+          "state_type": "error-rate-limit",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "目标限流退避+倒计时",
+          "fallback_behavior": "倒计时重试",
+          "visual_hint": "Progress + 倒计时",
+          "copy_hint": "目标限流 · Ns后重试"
+        },
+        {
+          "screen": "F4S3 Tracking",
+          "category": "offline",
+          "state_type": "offline-no-network",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": "blocker",
+          "design_description": "追踪中断网→保留交接包+离线暂存+恢复重试",
+          "fallback_behavior": "恢复后重试不丢包",
+          "visual_hint": "Alert warning + 暂存标识",
+          "copy_hint": "离线 · 交接包已暂存"
+        },
+        {
+          "screen": "F4S3 Tracking",
+          "category": "loading",
+          "state_type": "loading-stop",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "停止按钮中断追踪回退",
+          "fallback_behavior": "中断回预览",
+          "visual_hint": "Button 停止",
+          "copy_hint": "停止"
+        }
+      ]
+    },
+    {
+      "screen": "F4S4 Complete",
+      "states": [
+        {
+          "screen": "F4S4 Complete",
+          "category": "error",
+          "state_type": "error-server",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "回执拉取失败inline+retry",
+          "fallback_behavior": "重试",
+          "visual_hint": "Alert error + Retry",
+          "copy_hint": "回执失败 · 重试"
+        }
+      ]
+    },
+    {
+      "screen": "Shell",
+      "states": [
+        {
+          "screen": "Shell",
+          "category": "offline",
+          "state_type": "offline-no-network",
+          "required": true,
+          "severity": "should",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "全局离线banner+缓存查看",
+          "fallback_behavior": "恢复自动同步",
+          "visual_hint": "Alert info banner",
+          "copy_hint": "当前离线 · 查看缓存"
+        },
+        {
+          "screen": "Shell",
+          "category": "error",
+          "state_type": "error-server",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "ErrorBoundary兜底错误面板+重试",
+          "fallback_behavior": "刷新/重试",
+          "visual_hint": "ErrorBoundary panel",
+          "copy_hint": "页面发生错误"
+        },
+        {
+          "screen": "Shell",
+          "category": "permission",
+          "state_type": "permission-anonymous",
+          "required": true,
+          "severity": "must",
+          "implemented": true,
+          "critical_severity": null,
+          "design_description": "N/A：local-first无登录系统",
+          "fallback_behavior": "无需登录",
+          "visual_hint": "—",
+          "copy_hint": "—"
+        }
+      ]
+    }
+  ],
+  "coverage": {
+    "total_screens": 15,
+    "total_states_planned": 53,
+    "by_severity": {
+      "must": 33,
+      "should": 19,
+      "nice": 1
+    },
+    "by_category": {
+      "empty": 8,
+      "loading": 10,
+      "error": 14,
+      "boundary": 11,
+      "permission": 5,
+      "offline": 5
+    },
+    "implemented": 52,
+    "critical_missing": []
+  }
+}

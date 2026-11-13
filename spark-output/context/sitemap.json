@@ -1,0 +1,40 @@
+{
+  "skill": "sitemap",
+  "generated_at": "2026-11-14T00:10:00+08:00",
+  "project_name": "Agent Pets",
+  "platform": "web",
+  "primary_navigation": [
+    { "id": "pet", "label": "桌宠", "route": "/pet", "icon_hint": "paw-print", "children": ["page-pet-ambient", "page-pet-event", "page-pet-expand"] },
+    { "id": "connect", "label": "接入", "route": "/connect", "icon_hint": "plug", "children": ["page-connect-home", "page-connect-select", "page-connect-detect", "page-connect-success"] },
+    { "id": "panel", "label": "面板", "route": "/panel", "icon_hint": "layout-dashboard", "children": ["page-panel-home", "page-panel-shell", "page-panel-thread"] },
+    { "id": "relay", "label": "接力", "route": "/relay", "icon_hint": "arrow-right-left", "children": ["page-relay-trigger", "page-relay-preview", "page-relay-track", "page-relay-complete"] }
+  ],
+  "pages": [
+    { "id": "page-pet-ambient", "route": "/pet", "label": "环境化常驻", "purpose": "余光聚合多 Agent 状态，有事才轻拍", "parent": "pet", "access": "authenticated", "related_features": ["动效设计", "情感化设计"], "related_stories": ["story-2", "story-5"] },
+    { "id": "page-pet-event", "route": "/pet/event", "label": "事件轻拍", "purpose": "完成/卡住/需拍板事件的不打断通知", "parent": "pet", "access": "authenticated", "related_features": ["情感化设计"], "related_stories": ["story-2", "story-5"] },
+    { "id": "page-pet-expand", "route": "/pet/expand", "label": "戳展开", "purpose": "从宠物一键展开项目概览", "parent": "pet", "access": "authenticated", "related_features": ["信息架构 IA"], "related_stories": ["story-2", "story-3"] },
+    { "id": "page-connect-home", "route": "/connect", "label": "接入冷启动", "purpose": "引导接入第一个 Agent", "parent": "connect", "access": "authenticated", "related_features": ["交互设计"], "related_stories": ["story-4"] },
+    { "id": "page-connect-select", "route": "/connect/select", "label": "选 Agent 类型", "purpose": "按形态/cli/web 选择接入方式", "parent": "connect", "access": "authenticated", "related_features": ["交互设计"], "related_stories": ["story-4"] },
+    { "id": "page-connect-detect", "route": "/connect/detect", "label": "检测与授权", "purpose": "本地检测+授权，失败 inline 降级", "parent": "connect", "access": "authenticated", "related_features": ["交互设计"], "related_stories": ["story-4"] },
+    { "id": "page-connect-success", "route": "/connect/success", "label": "接入成功", "purpose": "显示能力分级并进入监控", "parent": "connect", "access": "authenticated", "related_features": ["交互设计"], "related_stories": ["story-4"] },
+    { "id": "page-panel-home", "route": "/panel", "label": "项目概览", "purpose": "项目卡片聚合会话，空态引导", "parent": "panel", "access": "authenticated", "related_features": ["信息架构 IA"], "related_stories": ["story-3"] },
+    { "id": "page-panel-shell", "route": "/panel/[projectId]", "label": "项目会话树", "purpose": "任务→会话两级树钻取", "parent": "panel", "access": "authenticated", "related_features": ["信息架构 IA"], "related_stories": ["story-3"] },
+    { "id": "page-panel-thread", "route": "/panel/[projectId]/[sessionId]", "label": "会话线程", "purpose": "查看线程+续指令，observe-only 只读", "parent": "panel", "access": "authenticated", "related_features": ["信息架构 IA", "交互设计"], "related_stories": ["story-3"] },
+    { "id": "page-relay-trigger", "route": "/relay", "label": "发起接力", "purpose": "从已完成会话发起交接", "parent": "relay", "access": "authenticated", "related_features": ["交互设计"], "related_stories": ["story-1"] },
+    { "id": "page-relay-preview", "route": "/relay/preview", "label": "交接预览", "purpose": "自动打包上下文/产物/指令，一键确认", "parent": "relay", "access": "authenticated", "related_features": ["交互设计"], "related_stories": ["story-1"] },
+    { "id": "page-relay-track", "route": "/relay/track", "label": "发送与追踪", "purpose": "SSE 实时追踪，断网暂存/限流重试", "parent": "relay", "access": "authenticated", "related_features": ["交互设计"], "related_stories": ["story-1", "story-6"] },
+    { "id": "page-relay-complete", "route": "/relay/complete", "label": "完成+继续", "purpose": "回执+产物，继续接力下一环", "parent": "relay", "access": "authenticated", "related_features": ["交互设计"], "related_stories": ["story-1"] }
+  ],
+  "key_flows": [
+    { "name": "Relay Handoff", "page_sequence": ["page-relay-trigger", "page-relay-preview", "page-relay-track", "page-relay-complete"] },
+    { "name": "Ambient Glance", "page_sequence": ["page-pet-ambient", "page-pet-event", "page-pet-expand"] },
+    { "name": "Connect First Agent", "page_sequence": ["page-connect-home", "page-connect-select", "page-connect-detect", "page-connect-success"] },
+    { "name": "Project Drilldown", "page_sequence": ["page-panel-home", "page-panel-shell", "page-panel-thread"] }
+  ],
+  "routing_table": ["/pet", "/pet/event", "/pet/expand", "/connect", "/connect/select", "/connect/detect", "/connect/success", "/panel", "/panel/[projectId]", "/panel/[projectId]/[sessionId]", "/relay", "/relay/preview", "/relay/track", "/relay/complete"],
+  "metadata": {
+    "depth_max": 3,
+    "page_count": 14,
+    "platform_notes": "Windows 先行（Vite/Tauri webview）；主导航 4 项与已实现 App Shell 一致；子屏当前以 screen state 实现，路由表为逻辑 IA，工程可逐步映射为真实 route。"
+  }
+}

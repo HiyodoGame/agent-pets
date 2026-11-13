@@ -1,0 +1,13 @@
+// Adapter layer public surface.
+export { createEventBus } from './bus'
+export type { BusEvent, EventBus } from './bus'
+export { selectSource, gateInject } from './registry'
+export type { SourceMode } from './registry'
+export { DataSourceProvider, usePetData } from './data'
+export { mergeSessions } from './live-sessions'
+export type { SessionOverlay } from './live-sessions'
+export { deriveTracking } from './relay-tracking'
+export type { TrackingStatus } from './relay-tracking'
+export { mockPetData } from './mock-adapter'
+export * from './bridge-client'
+export type { AgentAdapter, InjectDecision, InjectPayload, ObservedSession, PetData, RawAgentEvent } from './types'

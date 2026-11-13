@@ -1,0 +1,45 @@
+{
+  "skill": "flow-web",
+  "generated_at": "2026-11-13T19:55:00+08:00",
+  "project_name": "Agent Pets",
+  "scenario": "AI Product",
+  "component_library": "Spark Design",
+  "tech_stack": "Vite + React + Spark Design(npm) + Tailwind CSS 4 + react-router-dom + lucide-react",
+  "project_dir": "petdeck",
+  "navigation": "双 surface：宠物 Minimal 环境化外壳 + 面板 Sidebar 两级树；顶部 NavLink 屏幕选择器；常驻宠物 chip",
+  "flows": [
+    {
+      "name": "Pet Ambient Surface",
+      "file_path": "src/flows/flow-1-pet-surface/flow1-pet-surface.tsx",
+      "screens": ["Ambient Idle", "Event Tap", "Poke Expand"],
+      "state_variants": ["idle", "thinking", "running", "done", "stuck", "offline"]
+    },
+    {
+      "name": "Connect Agent",
+      "file_path": "src/flows/flow-2-connect-agent/flow2-connect-agent.tsx",
+      "screens": ["Cold Home", "Select Agent Type", "Detect & Authorize", "Success"]
+    },
+    {
+      "name": "Project & Session Panel",
+      "file_path": "src/flows/flow-3-panel/flow3-panel.tsx",
+      "screens": ["Project Home", "Panel Shell (Sidebar tree)", "Session Thread", "Manage branches (rename/archive/delete)"]
+    },
+    {
+      "name": "Relay Handoff",
+      "file_path": "src/flows/flow-4-relay/flow4-relay.tsx",
+      "screens": ["Trigger Relay", "Handoff Preview (Drawer)", "Send & Track", "Complete + Loop"]
+    }
+  ],
+  "app_shell": "src/flows/petdeck/petdeck.tsx",
+  "shared": ["src/flows/shared/types.ts", "src/flows/shared/mock-data.ts"],
+  "capability_tiering": "full=API 双向 / observe-only=读状态+剪贴板辅助注入 / manual=手动 check-in；注入失败降级复制交接包",
+  "spark_gotchas": [
+    "Sheet 未导出→Drawer",
+    "SidebarMenuItem 入口未 re-export→结构 li",
+    "入口 SidebarMenu 为 data-driven(items)→外层 ul + children-based 树子组件",
+    "Response 默认 ThinkingIndicator 渲染 lottie UMD 对象→传 thinkingIndicator 覆盖",
+    "Radix trigger 监听 pointerdown，自动化测试需 dispatch PointerEvent"
+  ],
+  "upstream": ["frame", "brief"],
+  "critical_assumption": "⚠️ 集成可行性待 1 周 spike 验证；UI 已按能力分级降级设计"
+}

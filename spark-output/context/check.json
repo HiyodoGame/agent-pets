@@ -1,0 +1,70 @@
+{
+  "skill": "check",
+  "generated_at": "2026-11-13T12:47:38.713Z",
+  "project_name": "Agent Pets",
+  "target": "flow-1-pet-surface / flow-2-connect-agent / flow-3-panel / flow-4-relay / petdeck shell",
+  "mode": "A",
+  "findings": [
+    {
+      "category": "flow-continuity",
+      "severity": "minor",
+      "description": "Flow2(4屏)/Flow4(4屏) 多步流程无 step indicator",
+      "suggestion": "加 Stepper 或步骤 Progress（检测 Progress 仅表检测进度，非 wizard 步骤）",
+      "location": "flow2-connect-agent / flow4-relay"
+    },
+    {
+      "category": "visual-hierarchy",
+      "severity": "minor",
+      "description": "全 flow 无语义 heading（h1/h2），屏幕主标题用 span/CardTitle",
+      "suggestion": "每屏主标题改 h1/h2 语义标签，保持层级不跨级",
+      "location": "全部 flow 文件"
+    },
+    {
+      "category": "edge-states",
+      "severity": "minor",
+      "description": "长会话标题/产物名未 truncate；聚合计数无 999+ 截断，极端数据可能撑破布局",
+      "suggestion": "标题加 truncate/EllipsisText；计数 999+ 封顶",
+      "location": "flow3-panel 树 + FileCard 调用处 / flow1 聚合 Tag"
+    },
+    {
+      "category": "feedback",
+      "severity": "minor",
+      "description": "Flow4 发送追踪（长操作）无停止/取消通道",
+      "suggestion": "加「停止」Button 中断追踪并回退（场景 Stop generating 共识）",
+      "location": "flow4-relay Screen3_Tracking"
+    },
+    {
+      "category": "accessibility",
+      "severity": "minor",
+      "description": "Flow3 树四态圆点仅靠颜色传达状态，色盲用户无法区分",
+      "suggestion": "圆点加 aria-label/title 或旁附状态文字（颜色+文字双重）",
+      "location": "flow3-panel STATUS_DOT span"
+    },
+    {
+      "category": "brief-consistency",
+      "severity": "minor",
+      "description": "动效「可关」仅 OS prefers-reduced-motion（getReducedMotion），无用户级开关",
+      "suggestion": "设置加动效开关，落实 Brief 动效 tactic「可关可减弱」",
+      "location": "flow1 PetAvatar"
+    }
+  ],
+  "summary": {
+    "blocker": 0,
+    "major": 0,
+    "minor": 6,
+    "pass": 4
+  },
+  "rerun": {
+    "at": "2026-11-13T12:17:48.667Z",
+    "resolved_majors": [
+      "Flow3 项目概览 Home 无空状态：mockProjects 为空时渲染空白 grid，无引导",
+      "Flow1 戳展开面板 w-80 固定 320px，叠加父级 p-6 在 320px 视口（iPhone SE）溢出",
+      "Brief 情感化维度 tactic「通知分级 + 免打扰」未落地：无 DND 开关/分级设置（仅 decision 持久/done 淡出）"
+    ],
+    "note": "qa-1/2/3 已修复并运行时验证（空态+CTA / w-full max-w-sm / 免打扰Switch+分级门控）"
+  },
+  "rerun2": {
+    "at": "2026-11-13T12:47:38.713Z",
+    "note": "edge 矩阵代码补全后复跑：23 critical 全实现；truncate/停止/圆点aria/指令死端 已修"
+  }
+}

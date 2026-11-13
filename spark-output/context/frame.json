@@ -1,0 +1,117 @@
+{
+  "skill": "frame",
+  "generated_at": "2026-11-13T18:40:41+08:00",
+  "project_name": "Agent Pets",
+  "persona": {
+    "name": "阿哲",
+    "description": "OPC（一人公司）开发者，用 10+ 个各有所长的 AI Agent 跑整条产品线（素材生成 → 开发 → 功能设计 → 宣传 → 维护），自己是中间唯一的项目经理。代表画像，锚定用户本人。",
+    "situation": "多个项目并行、多个 Agent 同时在后台执行任务，而他正在做别的事（写文案、做设计、休息）时",
+    "goal": "用余光掌握所有项目/Agent 的状态，不用一直盯窗口；任务在 Agent 之间接力时，不用手动重新打包上下文、产物和指令",
+    "workaround": "切窗口盯进度、翻终端日志、等弹窗通知；在 Agent 之间手动复制粘贴提示词、上下文和素材，充当人肉消息总线",
+    "frustrations": [
+      "并行任务太多看不过来，注意力不够用",
+      "每次接力都要手动序列化上下文，提示词/产物/指令全靠自己搬运",
+      "每个 Agent 各有桌宠但互不相通，桌面变成宠物园却没人看得懂全局",
+      "Agent 干完、卡住、等拍板时，没有不打断的方式及时被告知",
+      "多项目整体推进到哪、卡在哪个环节，无法一眼看清"
+    ],
+    "what_good_looks_like": "多个项目维护直观方便；可爱的桌宠住在余光里，做其他事时扫一眼就知道会话状态，出了事才被轻拍肩膀通知"
+  },
+  "jtbd": {
+    "functional": "当多项目多 Agent 并行运行时，阿哲想用余光掌握各 Agent 任务状态、并便捷完成 Agent 间的上下文/产物/指令接力，从而不用一直盯窗口也能让多个项目持续向前推进",
+    "social": "N/A（用户未提及社交维度；OPC 开发者独立工作，待补充）",
+    "emotional": "感到轻松、掌控、被陪伴 / 避免「不知道发生了什么」的焦虑和不停切窗口的打断烦躁",
+    "combined": "当多项目多 Agent 并行运行时，阿哲想用余光掌握状态并便捷接力任务，从而不盯窗口也能让多项目推进；感到轻松、掌控、被陪伴，避免焦虑与打断烦躁"
+  },
+  "opportunities": [
+    { "title": "我没法在干别的事时，用余光掌握所有 Agent 的状态", "importance": "H", "satisfaction": "L", "priority": "高" },
+    { "title": "Agent 干完、卡住、等我拍板时，没有不打断我的方式及时告诉我", "importance": "H", "satisfaction": "L", "priority": "高" },
+    { "title": "每次任务接力，我都得手动搬运产物、重新给下一个 Agent 解释上下文", "importance": "H", "satisfaction": "L", "priority": "高" },
+    { "title": "我没法一眼看清每个项目整体推到哪了、卡在哪个环节", "importance": "M", "satisfaction": "L", "priority": "中" },
+    { "title": "我没法从一个入口给不同 Agent 派活、追问、让它继续", "importance": "M", "satisfaction": "L", "priority": "中" }
+  ],
+  "competitive_landscape": [
+    { "product": "UniPet (github.com/ydyangdan/UniPet)", "bet_on": "通用本地视觉状态层，HTTP/WebSocket 桥接多 coding agent", "got_right": "Win/mac/Linux 全平台、不改 Agent 源码、MIT 开源", "gap_left": "明确只做可见性、不做重交互与上下文传递；仅 coding agent；早期（18 stars）" },
+    { "product": "AgentBell (chuchuang.work)", "bet_on": "多 Agent 认知守护中台，缓解并行焦虑", "got_right": "跨 IDE 生命周期感知、子 Agent 监控、语音包陪伴", "gap_left": "仅 macOS；仅 coding agent；无接力能力" },
+    { "product": "OC-Claw / Clawd-on-desk / AgentPet", "bet_on": "单只宠物实时反映 Agent 状态", "got_right": "余光一扫即知状态", "gap_left": "止步于看，无编排、无项目视图" },
+    { "product": "Dev-Mochi", "bet_on": "反向押注：高密度状态线取代宠物动画", "got_right": "信息密度（mission/roadmap/SitRep）", "gap_left": "信号：部分用户要结构化信息多于可爱" },
+    { "product": "Vibe Kanban (BloopAI)", "bet_on": "看板式并行编排 coding agent", "got_right": "多 agent 并行、review-ready 注意力切换、开源", "gap_left": "主动注意工具非环境化；任务独立无上下文接力；仅 coding" },
+    { "product": "Claude Squad", "bet_on": "终端多会话管理（tmux + git worktree）", "got_right": "终端原生、轻量", "gap_left": "无宠物形态、无接力、仅 coding" },
+    { "product": "ClawPanel", "bet_on": "OpenClaw 生态可视化管理面板", "got_right": "已支持 DeepSeek Harness、OpenCode（可作接入参考）", "gap_left": "绑定特定生态；面板非宠物；无接力" },
+    { "product": "各厂自带桌宠（Qoder/Kimi/Codex/Claude）", "bet_on": "自家 Agent 的伴侣与状态指示", "got_right": "验证了桌宠形态的市场接受度", "gap_left": "互不相通，多 Agent 桌面变宠物园，无全局视图" }
+  ],
+  "business_angle": {
+    "why_now": "Agent 专业化让「一个人 + 一群 Agent」成为 OPC 标配；大厂验证了桌宠形态但各自为政；接力层无人设防；Windows 相对空白",
+    "who_pays": "OPC 开发者本人（对价格敏感但愿为省时间付费，时间即产能）",
+    "monetization": "Freemium 假设：监控免费获客，接力 + 项目记忆付费（待验证）",
+    "strategic_intent": "growth"
+  },
+  "directions": [
+    {
+      "id": "A",
+      "one_liner": "环境化项目管家：一只宠物把所有 Agent 聚合成项目→任务→会话层级，住在余光里，有事才拍肩膀",
+      "addresses_opportunity": "1,2,4",
+      "user_value": "不再切窗口，一眼掌握全局",
+      "business_value": "门槛低、MVP 快、受众广",
+      "riskiest_assumption": "网页形态 Agent 能否暴露状态；监控已是红海，差异化薄"
+    },
+    {
+      "id": "B",
+      "one_liner": "接力秘书：宠物记得每个项目的上下文/产物/进度，任务交接时打包好一切，用户一键确认完成接力；环境化监控是壳，接力是核",
+      "addresses_opportunity": "3,5",
+      "user_value": "不再当人肉消息总线",
+      "business_value": "占据唯一无人设防的高优先级机会；项目记忆积累切换成本；天然付费点",
+      "riskiest_assumption": "异构 Agent 的上下文/产物能否被读出、指令能否被送入下一个（尤其网页形态 Agent）"
+    },
+    {
+      "id": "C",
+      "one_liner": "管线指挥家：把发版→素材→部署→宣传→网站做成可复用管线模板，宠物沿管线自动接力，人只在检查点拍板",
+      "addresses_opportunity": "3,4,5",
+      "user_value": "从管 Agent 升级为管管线，一个人真正变成一家公司",
+      "business_value": "锁定最强、天花板最高",
+      "riskiest_assumption": "OPC 工作流可重复到能模板化；全自动接力需深度集成 + 用户信任，两者今天都不存在"
+    }
+  ],
+  "lean_direction": "B",
+  "lean_rationale": "机会匹配：接力是高重要+零满足+无人押注的唯一蓝海；风险/收益：B 可分期（MVP 先做半自动接力），技术风险可拆；防御性：项目记忆（上下文图谱）越用越厚，形成切换成本护城河。A 是 B 的入场体验与 MVP 第一里程碑，不是被丢弃。",
+  "critical_assumption": "⚠️ 未验证：大多数主流 Agent 的状态与上下文能被第三方工具可靠读取，且产物/指令能被送入下一个 Agent——尤其网页形态 Agent（kimi work、MiniMaxDesign、小艺work）与指挥/注入侧。UniPet 仅证明了 CLI 类 Agent 的观察侧。",
+  "assumptions": [
+    { "assumption": "集成可行性：状态可读、产物可拿、提示词可注入（3 类 Agent 形态）", "risk_type": "Feasibility", "confidence": "Med", "cheapest_test": "1 周技术 spike：3 代表性 Agent × 3 能力矩阵" },
+    { "assumption": "OPC 开发者愿为接力付费，而非只用免费监控", "risk_type": "Value", "confidence": "Low", "cheapest_test": "3-5 个 OPC 开发者访谈 + 落地页 waitlist（/probe）" },
+    { "assumption": "桌宠形态的环境化感知对该群体优于面板", "risk_type": "Usability", "confidence": "Med-High", "cheapest_test": "已被大厂桌宠 + 用户本人 outcome 部分验证；原型可用性测试（/test）补证" },
+    { "assumption": "Freemium 转化模型成立", "risk_type": "Viability", "confidence": "Low", "cheapest_test": "上线后转化数据" }
+  ],
+  "constraints": {
+    "team": "单人开发",
+    "time": "全职投入",
+    "platform": "Windows 先行，后续 macOS、鸿蒙",
+    "red_lines": "待确认（建议明确：代码/会话内容是否上第三方服务器——影响架构与信任）"
+  },
+  "spike_plan": {
+    "duration": "1 周",
+    "goal": "在画任何 UI 之前验证集成可行性（关键假设）",
+    "matrix": {
+      "agents": ["CLI 类（Qoder 或 Codex）", "桌面应用类（如 kimi code / zcode）", "网页服务类（kimi work 或 MiniMaxDesign）"],
+      "capabilities": ["状态能读吗（观察侧）", "产物能拿到吗（上下文/文件）", "提示词能注入吗（指挥侧）"]
+    },
+    "success_criteria": "每类 Agent 至少跑通观察侧；至少 1 类跑通完整接力闭环（读状态→拿产物→注入下一个）",
+    "decision_rules": {
+      "all_pass": "关键假设升级为有证据，进 /brief 落定方向，MVP 含半自动接力",
+      "observe_only": "MVP 先做环境化监控 + 项目视图（方向 A 壳），接力降级为剪贴板辅助半自动，继续攻注入侧",
+      "web_agents_blocked": "网页 Agent 用浏览器扩展或手动 check-in 兜底，明确标注覆盖边界，不承诺全适配"
+    }
+  },
+  "pressure_test": {
+    "ran": false,
+    "verdict": "holds_with_conditions",
+    "conditions": [
+      "关键假设（集成可行性）未验证：先跑 1 周技术 spike（3 代表性 Agent × 读状态/拿产物/注入提示词），再进设计",
+      "建议补 3-5 个 OPC 开发者访谈验证「为接力付费」的 Value 假设（/probe）",
+      "隐私红线待确认：代码/会话内容是否允许上第三方服务器"
+    ]
+  },
+  "hmw_cards": {
+    "ran": false,
+    "cards": []
+  }
+}

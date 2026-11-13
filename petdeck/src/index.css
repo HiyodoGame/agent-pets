@@ -1,0 +1,10 @@
+@import "tailwindcss";
+@import 'sparkdesign/theme.css';
+@import 'sparkdesign/scale.css';
+
+body {
+  margin: 0;
+  font-family: var(--font-ui, system-ui, -apple-system, sans-serif);
+  background-color: var(--color-bg-base);
+  color: var(--color-text);
+}
