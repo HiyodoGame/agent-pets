@@ -178,8 +178,13 @@ function Screen3_SessionThread({
   const [loadedId, setLoadedId] = useState<string | null | undefined>(undefined)
   const [loadError, setLoadError] = useState(false)
   const [sending, setSending] = useState(false)
-  // stale 新鲜度基准：挂载时取一次（render 期调用 Date.now 违反 react/purity）
-  const [staleNow] = useState(() => Date.now())
+  // stale 新鲜度基准：挂载取一次 + 每 30s 推进（组件不按会话重挂载，冻结基准会把陈旧数据误报「刚刚」；
+  // Date.now 只在 interval 回调里读，render 期调用违反 react/purity）
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(timer)
+  }, [])
   // 加载态派生自 loadedId，避免在 effect 内同步 setState（set-state-in-effect）
   useEffect(() => {
     const t = setTimeout(() => setLoadedId(session?.id ?? null), 400)
@@ -249,7 +254,7 @@ function Screen3_SessionThread({
         <MessageSquare className="h-4 w-4 text-text-secondary" />
         <h1 className="text-text truncate font-semibold">{session.title}</h1>
         <Tag color={STATUS_TAG[session.status].color}>{STATUS_TAG[session.status].label}</Tag>
-        {session.stale && <Tag color="slate">stale · {fmtAgo(session.lastSeen ?? staleNow, staleNow)}</Tag>}
+        {session.stale && <Tag color="slate">stale · {fmtAgo(session.lastSeen ?? now, now)}</Tag>}
         <TypographyMuted>{agent?.name}</TypographyMuted>
         {readOnly && <Tag color="info">仅观察 · 不可指挥</Tag>}
         <div className="ml-auto">
