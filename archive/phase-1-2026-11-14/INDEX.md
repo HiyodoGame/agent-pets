@@ -37,7 +37,8 @@
 
 ## Phase 2 待办
 
-- sitemap 逻辑路由映射真实 route；网页 Agent 注入侧；macOS/鸿蒙；团队；offline-partial-sync
+- ~~offline-partial-sync~~ ✅ 完成（2026-11-14，commits d0b1ce3..5acb767）：bridge pollOnce 新鲜度权威（stale 保留 + sources 健康）+ 前端连接状态机/快照缓存/事件去重 + demo 显式化 + UI 四态/stale 标记；68 测试、E2E 5 条实证 + 埋点隐私核查通过；spec/plan 见 docs/superpowers/。
+- sitemap 逻辑路由映射真实 route；网页 Agent 注入侧；macOS/鸿蒙；团队
 - 上线后 4-8 周跑 /retro 对照 NSM/留存/付费（当前 inconclusive）
 
 ## 收尾（2026-11-14 闭环）
