@@ -10,6 +10,9 @@ spike/tmp-relay/
 petdeck/spark-output/
 petdeck/.tmp-observe/
 
+# SDD scratch workspaces (ledger/briefs/reports; git history is the record)
+.superpowers/
+
 # os
 .DS_Store
 Thumbs.db
