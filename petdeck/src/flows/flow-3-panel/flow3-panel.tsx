@@ -59,7 +59,8 @@ import { MoreHorizontal, FolderOpen, MessageSquare, Archive, Trash2, Pencil, Arr
 import type { Session, SessionStatus } from '../shared/types'
 import { usePetData, mergeSessions, type SessionOverlay } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
-import { fmtCount, EdgeAlert } from '../shared/edge-kit'
+import { EdgeAlert } from '../shared/edge-kit'
+import { fmtCount } from '../shared/ui-logic'
 
 const STATUS_TAG: Record<SessionStatus, { label: string; color: 'info' | 'warning' | 'success' | 'error' | 'slate' }> = {
   active: { label: '运行中', color: 'info' },
@@ -174,14 +175,15 @@ function Screen3_SessionThread({
   onClearSession: () => void
 }) {
   const [draft, setDraft] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [loadedId, setLoadedId] = useState<string | null | undefined>(undefined)
   const [loadError, setLoadError] = useState(false)
   const [sending, setSending] = useState(false)
+  // 加载态派生自 loadedId，避免在 effect 内同步 setState（set-state-in-effect）
   useEffect(() => {
-    setLoading(true)
-    const t = setTimeout(() => setLoading(false), 400)
+    const t = setTimeout(() => setLoadedId(session?.id ?? null), 400)
     return () => clearTimeout(t)
   }, [session?.id])
+  const loading = loadedId !== (session?.id ?? null)
   const { getAgent, getArtifact } = usePetData()
 
   if (notFound) {

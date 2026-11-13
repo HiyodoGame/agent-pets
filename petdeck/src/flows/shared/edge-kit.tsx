@@ -6,9 +6,6 @@ import { Alert, AlertTitle, AlertDescription, Button, TypographyMuted } from 'sp
 import { RefreshCw } from 'lucide-react'
 import { stepperState } from './ui-logic'
 
-/** 计数 999+ 封顶（boundary-overflow） */
-export const fmtCount = (n: number): string => (n > 999 ? '999+' : String(n))
-
 /** 长文本截断 + 展开（boundary-long-text） */
 export function ClampText({ text, lines = 2 }: { text: string; lines?: number }) {
   const [expanded, setExpanded] = useState(false)

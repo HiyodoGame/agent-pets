@@ -1,5 +1,8 @@
 // Pure a11y/UX logic (unit-tested): stepper state + user-level motion preference.
 
+/** 计数 999+ 封顶（boundary-overflow）。纯函数，独立于组件文件以利 fast-refresh。 */
+export const fmtCount = (n: number): string => (n > 999 ? '999+' : String(n))
+
 export type StepStatus = 'done' | 'current' | 'todo'
 
 /** i<current done, i===current current, else todo. */

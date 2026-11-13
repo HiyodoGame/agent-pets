@@ -14,7 +14,8 @@ import { Flow3_Panel } from '../flow-3-panel/flow3-panel'
 import { Flow4_Relay } from '../flow-4-relay/flow4-relay'
 import { DataSourceProvider, usePetData } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
-import { EdgeAlert, fmtCount } from '../shared/edge-kit'
+import { EdgeAlert } from '../shared/edge-kit'
+import { fmtCount } from '../shared/ui-logic'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   state = { hasError: false, error: null as Error | null }
@@ -45,9 +46,8 @@ function Shell({ appearance, onToggleAppearance }: { appearance: 'light' | 'dark
   const navigate = useNavigate()
   const [offline, setOffline] = useState(false)
   const { sessions, mode } = usePetData()
+  // mount-only：useRef 初始值即挂载时 mode，effect 内读取（不在 render 期写 ref）
   const modeRef = useRef(mode)
-  modeRef.current = mode
-  // mount-only：用 ref 读 mode，避免把 mode 进 deps 导致重复上报 session_start
   useEffect(() => { track('shell', EVENT.appSessionStart, { mode: modeRef.current }) }, [])
   const running = sessions.filter((s) => s.status === 'active').length
   const waiting = sessions.filter((s) => s.status === 'waiting' || s.status === 'stuck').length

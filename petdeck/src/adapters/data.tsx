@@ -1,11 +1,12 @@
 // Data-source seam: live bridge when healthy, mock fallback otherwise.
-// Flows consume usePetData() instead of importing mock-data directly.
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Agent, Artifact, PetEvent, Project, Session } from '../flows/shared/types'
+// Only exports the provider component; context/hook live in pet-data-context.ts.
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { PetEvent, Session } from '../flows/shared/types'
 import { mockPetData } from './mock-adapter'
 import { fetchAgents, fetchHealth, fetchSessions, inject as bridgeInject, subscribeEvents } from './bridge-client'
 import { selectSource } from './registry'
-import type { InjectDecision, InjectPayload, ObservedSession, PetData, RawAgentEvent } from './types'
+import { PetDataCtx, type PetDataContextValue } from './pet-data-context'
+import type { ObservedSession, PetData, RawAgentEvent } from './types'
 
 const STATUS_MAP: Record<string, Session['status']> = {
   done: 'done', running: 'active', stuck: 'stuck', waiting: 'waiting', unknown: 'active',
@@ -25,19 +26,6 @@ function observedToSessions(rows: ObservedSession[]): Session[] {
     updatedAt: new Date().toISOString(),
   }))
 }
-
-export interface PetDataContextValue extends PetData {
-  getAgent(id: string): Agent | undefined
-  getProject(id: string): Project | undefined
-  getSession(id: string): Session | undefined
-  getArtifact(id: string): Artifact | undefined
-  sessionsOfProject(pid: string): Session[]
-  unhandledEvents(): PetEvent[]
-  agentEvents: RawAgentEvent[]
-  inject(p: InjectPayload): Promise<InjectDecision>
-}
-
-const Ctx = createContext<PetDataContextValue | null>(null)
 
 export function DataSourceProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<PetData>(() => mockPetData())
@@ -107,11 +95,5 @@ export function DataSourceProvider({ children }: { children: ReactNode }) {
     },
   }), [data, agentEvents])
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
-}
-
-export function usePetData(): PetDataContextValue {
-  const v = useContext(Ctx)
-  if (!v) throw new Error('usePetData must be used within DataSourceProvider')
-  return v
+  return <PetDataCtx.Provider value={value}>{children}</PetDataCtx.Provider>
 }

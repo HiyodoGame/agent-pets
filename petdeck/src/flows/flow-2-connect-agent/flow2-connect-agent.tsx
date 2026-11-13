@@ -24,7 +24,7 @@ import {
   Separator,
   TypographyMuted,
 } from 'sparkdesign'
-import { Check, AlertTriangle, Plug, RefreshCw, ArrowLeft, Terminal, Monitor, Globe, Settings, WifiOff } from 'lucide-react'
+import { Check, AlertTriangle, Plug, ArrowLeft, Terminal, Monitor, Globe, Settings, WifiOff } from 'lucide-react'
 import type { AgentCatalogEntry, AgentForm, CapabilityTier } from '../shared/types'
 import { mockCatalog } from '../shared/mock-data'
 import { PetAvatar } from '../flow-1-pet-surface/flow1-pet-surface'

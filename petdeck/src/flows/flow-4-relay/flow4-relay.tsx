@@ -32,7 +32,7 @@ import {
   Toaster,
   toast,
 } from 'sparkdesign'
-import { ArrowRightLeft, Copy, RefreshCw, Check, Package, StopCircle, WifiOff } from 'lucide-react'
+import { ArrowRightLeft, Copy, Check, Package, StopCircle, WifiOff } from 'lucide-react'
 import type { Agent, RelayDraft, Session } from '../shared/types'
 import { usePetData, deriveTracking, type TrackingStatus } from '../../adapters'
 import { track, EVENT } from '../../telemetry'

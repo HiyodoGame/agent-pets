@@ -30,8 +30,8 @@ import { Bell, Check, AlertTriangle, X, MessageCircle, RefreshCw, Inbox } from '
 import type { AgentStatus, PetEvent, Project } from '../shared/types'
 import { usePetData } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
-import { fmtCount, ClampText, EdgeAlert } from '../shared/edge-kit'
-import { resolveMotionEnabled, getMotionPref, setMotionPref, type MotionPref } from '../shared/ui-logic'
+import { ClampText, EdgeAlert } from '../shared/edge-kit'
+import { resolveMotionEnabled, getMotionPref, setMotionPref, fmtCount, type MotionPref } from '../shared/ui-logic'
 
 const STATUS_COLOR: Record<AgentStatus, string> = {
   idle: 'var(--color-primary)',
