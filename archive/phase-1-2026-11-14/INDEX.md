@@ -39,3 +39,11 @@
 
 - sitemap 逻辑路由映射真实 route；网页 Agent 注入侧；macOS/鸿蒙；团队；offline-partial-sync
 - 上线后 4-8 周跑 /retro 对照 NSM/留存/付费（当前 inconclusive）
+
+## 收尾（2026-11-14 闭环）
+
+- **版本管理**：git init + 4 commits（c60f73b 原型 → a499567 CI → b71c09c/d1cd838 lint 清零）；tag `phase-1`。
+- **远程**：私有仓库 https://github.com/HiyodoGame/agent-pets （master 受保护，必需检查 `ci`，禁 force-push/删除）。
+- **CI**：GitHub Actions Node24（npm test 39 + build + oxlint），全绿。
+- **质量门**：oxlint 0 warnings/0 errors；QA 0/0/0；Check 6/6；39/39 测试。
+- **结论**：Phase 1 完整收尾。设计链 11/27 闭环、PRD strong、可运行原型+adapter+SSE+埋点、spike 实证接力可行。
