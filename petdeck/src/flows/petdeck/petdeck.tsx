@@ -3,15 +3,18 @@
 // Integrates all 4 flows with dual-surface layout
 // Edge 补全：offline-no-network 全局 banner + 缓存提示；ErrorBoundary 兜底
 // =============================================
-import { Component, useEffect, useRef, useState } from 'react'
+import { Component, lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Routes, Route, Navigate, NavLink, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeStyleProvider, Button, Tag } from 'sparkdesign'
 import { Sun, Moon, FlaskConical } from 'lucide-react'
-import { Flow1_PetSurface, PetAvatar } from '../flow-1-pet-surface/flow1-pet-surface'
-import { Flow2_ConnectAgent } from '../flow-2-connect-agent/flow2-connect-agent'
-import { Flow3_Panel } from '../flow-3-panel/flow3-panel'
-import { Flow4_Relay } from '../flow-4-relay/flow4-relay'
+import type { Session } from '../shared/types'
+import { PetAvatar } from '../shared/pet-avatar'
+// 代码分包：四个 flow 懒加载，非首屏的 sparkdesign 重组件（Response/mermaid 等）移出主入口。
+const Flow1_PetSurface = lazy(() => import('../flow-1-pet-surface/flow1-pet-surface').then((m) => ({ default: m.Flow1_PetSurface })))
+const Flow2_ConnectAgent = lazy(() => import('../flow-2-connect-agent/flow2-connect-agent').then((m) => ({ default: m.Flow2_ConnectAgent })))
+const Flow3_Panel = lazy(() => import('../flow-3-panel/flow3-panel').then((m) => ({ default: m.Flow3_Panel })))
+const Flow4_Relay = lazy(() => import('../flow-4-relay/flow4-relay').then((m) => ({ default: m.Flow4_Relay })))
 import { DataSourceProvider, usePetData } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { EdgeAlert } from '../shared/edge-kit'
@@ -41,6 +44,15 @@ const NAV = [
   { path: '/panel', label: '面板' },
   { path: '/relay', label: '接力' },
 ]
+
+// Relay gets its source session from navigation state (real panel selection), not a mock default.
+function RelayRoute({ onExit }: { onExit: () => void }) {
+  const location = useLocation()
+  const { getSession } = usePetData()
+  const sessionId = (location.state as { sessionId?: string } | null)?.sessionId
+  const sourceSession: Session | undefined = sessionId ? getSession(sessionId) : undefined
+  return <Flow4_Relay sourceSession={sourceSession} onExit={onExit} />
+}
 
 function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appearance: 'light' | 'dark'; onToggleAppearance: () => void; demo: boolean; onToggleDemo: () => void }) {
   const navigate = useNavigate()
@@ -106,13 +118,15 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appeara
       )}
 
       <main className="flex-1 overflow-auto">
-        <Routes>
-          <Route path="/" element={<Navigate to="/panel" replace />} />
-          <Route path="/pet" element={<Flow1_PetSurface onOpenPanel={() => navigate('/panel')} onReconnect={() => navigate('/connect')} />} />
-          <Route path="/connect" element={<Flow2_ConnectAgent onConnected={() => navigate('/panel')} />} />
-          <Route path="/panel" element={<Flow3_Panel onRelay={() => navigate('/relay')} />} />
-          <Route path="/relay" element={<Flow4_Relay onExit={() => navigate('/panel')} />} />
-        </Routes>
+        <Suspense fallback={<div className="p-6 text-text-secondary">加载中…</div>}>
+          <Routes>
+            <Route path="/" element={<Navigate to="/panel" replace />} />
+            <Route path="/pet" element={<Flow1_PetSurface onOpenPanel={() => navigate('/panel')} onReconnect={() => navigate('/connect')} />} />
+            <Route path="/connect" element={<Flow2_ConnectAgent onConnected={() => navigate('/panel')} />} />
+            <Route path="/panel" element={<Flow3_Panel onRelay={(s) => navigate('/relay', { state: { sessionId: s.id } })} />} />
+            <Route path="/relay" element={<RelayRoute onExit={() => navigate('/panel')} />} />
+          </Routes>
+        </Suspense>
       </main>
 
       <button

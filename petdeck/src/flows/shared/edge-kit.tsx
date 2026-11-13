@@ -35,8 +35,10 @@ export function EdgeAlert({
   retryLabel?: string
   extra?: React.ReactNode
 }) {
+  // Map the friendly EdgeAlert vocabulary to Spark Alert's accepted variants.
+  const alertVariant = variant === 'error' ? 'destructive' : variant
   return (
-    <Alert variant={variant}>
+    <Alert variant={alertVariant}>
       <AlertTitle>{title}</AlertTitle>
       <AlertDescription>{desc}</AlertDescription>
       {(onRetry || extra) && (

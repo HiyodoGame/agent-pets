@@ -3,7 +3,7 @@
 // Scenario: AI Product（自定义环境化外壳）
 // Edge 补全：offline重连 / 999+ / loading-refresh / DND收件箱 / 事件error+截断 / S3空态+截断+loading-submit+error
 // =============================================
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Tag,
   Tooltip,
@@ -17,7 +17,6 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
-  getReducedMotion,
   Switch,
   Spinner,
   Empty,
@@ -31,57 +30,9 @@ import type { AgentStatus, PetEvent, Project } from '../shared/types'
 import { usePetData } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { ClampText, EdgeAlert } from '../shared/edge-kit'
-import { resolveMotionEnabled, getMotionPref, setMotionPref, fmtCount, type MotionPref } from '../shared/ui-logic'
-
-const STATUS_COLOR: Record<AgentStatus, string> = {
-  idle: 'var(--color-primary)',
-  thinking: 'var(--color-info)',
-  running: 'var(--color-primary)',
-  done: 'var(--color-success)',
-  stuck: 'var(--color-warning)',
-  offline: 'var(--color-text-secondary)',
-}
-const STATUS_ANIM: Record<AgentStatus, string> = {
-  idle: '',
-  thinking: 'animate-pulse',
-  running: 'animate-bounce',
-  done: '',
-  stuck: 'animate-pulse',
-  offline: '',
-}
-const STATUS_LABEL: Record<AgentStatus, string> = {
-  idle: '空闲',
-  thinking: '思考中',
-  running: '运行中',
-  done: '已完成',
-  stuck: '卡住',
-  offline: '离线',
-}
-
-export function PetAvatar({ status, size = 96 }: { status: AgentStatus; size?: number }) {
-  const reduce = !resolveMotionEnabled(getMotionPref(), getReducedMotion())
-  const anim = reduce ? '' : STATUS_ANIM[status]
-  const fill = STATUS_COLOR[status]
-  const dim = status === 'offline' ? 0.4 : 0.9
-  return (
-    <div className={anim} style={{ width: size, height: size }} role="img" aria-label={`宠物状态：${STATUS_LABEL[status]}`}>
-      <svg viewBox="0 0 100 100" width={size} height={size}>
-        <ellipse cx="30" cy="28" rx="9" ry="12" fill={fill} opacity={dim} />
-        <ellipse cx="70" cy="28" rx="9" ry="12" fill={fill} opacity={dim} />
-        <ellipse cx="50" cy="60" rx="34" ry="30" fill={fill} opacity={dim} />
-        <circle cx="38" cy="55" r="6" fill="var(--color-bg-base)" />
-        <circle cx="62" cy="55" r="6" fill="var(--color-bg-base)" />
-        <circle cx="38" cy="55" r="2.5" fill="var(--color-text)" />
-        <circle cx="62" cy="55" r="2.5" fill="var(--color-text)" />
-        {status === 'stuck' ? (
-          <path d="M40 74 q10 -7 20 0" stroke="var(--color-text)" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-        ) : (
-          <path d="M40 70 q10 8 20 0" stroke="var(--color-text)" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-        )}
-      </svg>
-    </div>
-  )
-}
+import { PetAvatar } from '../shared/pet-avatar'
+import { STATUS_LABEL } from '../shared/status-tokens'
+import { getMotionPref, setMotionPref, fmtCount, type MotionPref } from '../shared/ui-logic'
 
 function useAggregate() {
   const { sessions } = usePetData()
@@ -360,6 +311,24 @@ export function Flow1_PetSurface({
   const [eventIdx, setEventIdx] = useState(0)
   const event = events[eventIdx % Math.max(events.length, 1)]
 
+  // 真实联动：新未处理事件到来时，非 DND 自动轻拍展开，DND 下非「需拍板」计入静默收件箱。
+  const seenEventsRef = useRef(events.length)
+  useEffect(() => {
+    const added = events.length - seenEventsRef.current
+    if (added <= 0) { seenEventsRef.current = events.length; return }
+    seenEventsRef.current = events.length
+    const newest = events[0] // newest-first
+    if (!newest) return
+    if (dnd && newest.type !== 'decision') {
+      setSuppressed((s) => s + added)
+      track('pet', EVENT.notificationSuppressed)
+    } else if (screen === 1) {
+      setEventIdx(0)
+      setEventError(false)
+      setScreen(2)
+    }
+  }, [events.length, dnd, screen, events])
+
   // 真实离线覆盖预览状态：断连时宠物灰化 + 重连 CTA（edge offline-no-network 态）
   const effectiveStatus: AgentStatus = connState === 'offline' ? 'offline' : status
 
@@ -379,7 +348,9 @@ export function Flow1_PetSurface({
         <Button
           variant="secondary"
           onClick={() => {
-            const next = events[(eventIdx + 1) % Math.max(events.length, 1)]
+            if (events.length === 0) return
+            const next = events[(eventIdx + 1) % events.length]
+            if (!next) return
             if (dnd && next.type !== 'decision') {
               setSuppressed((s) => s + 1)
               track('pet', EVENT.notificationSuppressed)

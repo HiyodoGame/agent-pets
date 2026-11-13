@@ -27,7 +27,7 @@ import {
 import { Check, AlertTriangle, Plug, ArrowLeft, Terminal, Monitor, Globe, Settings, WifiOff } from 'lucide-react'
 import type { AgentCatalogEntry, AgentForm, CapabilityTier } from '../shared/types'
 import { mockCatalog } from '../shared/mock-data'
-import { PetAvatar } from '../flow-1-pet-surface/flow1-pet-surface'
+import { PetAvatar } from '../shared/pet-avatar'
 import { EdgeAlert, Stepper } from '../shared/edge-kit'
 import { track, EVENT } from '../../telemetry'
 
