@@ -13,6 +13,8 @@ export const EVENT = {
   relayStopped: 'relay_stopped',
   petPoke: 'pet_poke',
   panelDrilldown: 'panel_drilldown',
+  offlineEntered: 'offline_entered',
+  connectionRecovered: 'connection_recovered',
 } as const
 
 // Privacy red line: never store conversation/content fields.

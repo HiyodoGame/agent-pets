@@ -25,11 +25,16 @@ export async function fetchSessions(): Promise<ObservedSession[]> {
   return r.json()
 }
 
-export function subscribeEvents(fn: (e: Record<string, unknown>) => void): () => void {
+export function subscribeEvents(
+  fn: (e: Record<string, unknown>) => void,
+  hooks?: { onOpen?: () => void; onError?: () => void },
+): () => void {
   const es = new EventSource(`${BRIDGE_URL}/api/events`)
   es.onmessage = (m) => {
     try { fn(JSON.parse(m.data)) } catch { /* ignore malformed */ }
   }
+  if (hooks?.onOpen) es.onopen = hooks.onOpen
+  if (hooks?.onError) es.onerror = hooks.onError
   return () => es.close()
 }
 

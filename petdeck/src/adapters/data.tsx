@@ -1,11 +1,16 @@
-// Data-source seam: live bridge when healthy, mock fallback otherwise.
+// Data-source seam: live bridge with offline cache + partial-sync freshness.
+// Demo data only via explicit `demo` prop — never an automatic fallback.
 // Only exports the provider component; context/hook live in pet-data-context.ts.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { PetEvent, Session } from '../flows/shared/types'
+import type { PetEvent, Project, Session } from '../flows/shared/types'
 import { mockPetData } from './mock-adapter'
 import { fetchAgents, fetchHealth, fetchSessions, inject as bridgeInject, subscribeEvents } from './bridge-client'
-import { selectSource } from './registry'
+import { selectSource, injectOrClipboard } from './registry'
 import { PetDataCtx, type PetDataContextValue } from './pet-data-context'
+import { nextConnState, type ConnSnapshot } from './connection'
+import { loadSnapshot, saveSnapshot, type SnapshotStorage } from './snapshot-cache'
+import { createDeduper } from './event-dedup'
+import { track, EVENT } from '../telemetry'
 import type { ObservedSession, PetData, RawAgentEvent } from './types'
 
 const STATUS_MAP: Record<string, Session['status']> = {
@@ -24,76 +29,127 @@ function observedToSessions(rows: ObservedSession[]): Session[] {
       : [],
     artifactIds: [],
     updatedAt: new Date().toISOString(),
+    stale: r.stale,
+    lastSeen: r.lastSeen,
   }))
 }
 
-export function DataSourceProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<PetData>(() => mockPetData())
+function liveProjects(sessions: Session[]): Project[] {
+  return [{ id: 'live', name: '实时 Agent', description: '来自本地 bridge 的真实会话', sessionIds: sessions.map((s) => s.id), updatedAt: new Date().toISOString() }]
+}
+
+function emptyLive(): PetData {
+  return { mode: 'live', agents: [], projects: [], sessions: [], events: [], artifacts: [] }
+}
+
+function browserStorage(): SnapshotStorage | null {
+  try { return typeof localStorage === 'undefined' ? null : localStorage } catch { return null }
+}
+
+export function DataSourceProvider({ demo = false, children }: { demo?: boolean; children: ReactNode }) {
+  const [data, setData] = useState<PetData>(emptyLive)
   const [agentEvents, setAgentEvents] = useState<RawAgentEvent[]>([])
+  const [conn, setConn] = useState<ConnSnapshot>({ state: 'reconnecting', fails: 0 })
+  const [savedAt, setSavedAt] = useState<number | null>(null)
   const eventsRef = useRef<PetEvent[]>([])
+  const dedupRef = useRef(createDeduper(500))
+  const savedKeyRef = useRef('')
+  const cacheShownRef = useRef(false)
+  const tickRef = useRef<() => void>(() => {})
+  const prevConnRef = useRef(conn.state)
+  const mockData = useMemo(() => mockPetData(), [])
 
   useEffect(() => {
+    if (selectSource(demo) === 'mock') return
     let alive = true
     let un: (() => void) | null = null
+    const storage = browserStorage()
     const tick = async () => {
       const healthy = await fetchHealth()
       if (!alive) return
-      const mode = selectSource(healthy)
-      if (mode === 'mock') { setData(mockPetData()); return }
-      const [agents, rows] = await Promise.all([fetchAgents(), fetchSessions()])
-      if (!alive) return
-      const sessions = observedToSessions(rows)
-      setData({
-        mode: 'live',
-        agents,
-        projects: [{ id: 'live', name: '实时 Agent', description: '来自本地 bridge 的真实会话', sessionIds: sessions.map((s) => s.id), updatedAt: new Date().toISOString() }],
-        sessions,
-        events: eventsRef.current,
-        artifacts: [],
-      })
-      if (!un) un = subscribeEvents((e) => {
-        if (e.type === 'sessions' || e.petType === 'sessions') {
-          const rows = (e.payload as { sessions?: ObservedSession[] })?.sessions ?? []
-          setData((prev) => (prev.mode === 'live' ? { ...prev, sessions: observedToSessions(rows) } : prev))
-          return
+      setConn((prev) => nextConnState(prev, { type: 'health', ok: healthy }))
+      if (healthy) {
+        cacheShownRef.current = false
+        const [agents, rows] = await Promise.all([fetchAgents(), fetchSessions()])
+        if (!alive) return
+        const sessions = observedToSessions(rows)
+        setData({ mode: 'live', agents, projects: liveProjects(sessions), sessions, events: eventsRef.current, artifacts: [] })
+        setSavedAt(null)
+        const key = JSON.stringify(rows)
+        if (key !== savedKeyRef.current) {
+          savedKeyRef.current = key
+          saveSnapshot(storage, { sessions: rows, agents }, Date.now())
         }
-        const raw: RawAgentEvent = { id: String(e.id ?? Date.now()), agentId: String(e.agentId ?? ''), type: String(e.type ?? ''), ts: Date.now() }
-        setAgentEvents((prev) => [raw, ...prev].slice(0, 100))
-        const pt = e.petType as string
-        if (pt) {
-          eventsRef.current = [{
-            id: raw.id,
-            type: pt as PetEvent['type'],
-            projectId: 'live',
-            sessionId: String(e.sessionId ?? ''),
-            text: String((e.payload as { lastMessage?: string })?.lastMessage ?? ''),
-            timestamp: new Date().toISOString(),
-            handled: false,
-          }, ...eventsRef.current].slice(0, 50)
-          setData((prev) => (prev.mode === 'live' ? { ...prev, events: eventsRef.current } : prev))
+        if (!un) {
+          un = subscribeEvents((e) => {
+            if (e.type === 'sessions' || e.petType === 'sessions') {
+              const sseRows = (e.payload as { sessions?: ObservedSession[] })?.sessions ?? []
+              setData((prev) => ({ ...prev, sessions: observedToSessions(sseRows) }))
+              return
+            }
+            const raw: RawAgentEvent = { id: String(e.id ?? Date.now()), agentId: String(e.agentId ?? ''), type: String(e.type ?? ''), ts: Date.now() }
+            if (!dedupRef.current.seen(raw.id)) return
+            setAgentEvents((prev) => [raw, ...prev].slice(0, 100))
+            const pt = e.petType as string
+            if (pt) {
+              eventsRef.current = [{
+                id: raw.id,
+                type: pt as PetEvent['type'],
+                projectId: 'live',
+                sessionId: String(e.sessionId ?? ''),
+                text: String((e.payload as { lastMessage?: string })?.lastMessage ?? ''),
+                timestamp: new Date().toISOString(),
+                handled: false,
+              }, ...eventsRef.current].slice(0, 50)
+              setData((prev) => ({ ...prev, events: eventsRef.current }))
+            }
+          }, {
+            onOpen: () => { setConn((prev) => nextConnState(prev, { type: 'sse', open: true })); tickRef.current() },
+            onError: () => { setConn((prev) => nextConnState(prev, { type: 'sse', open: false })) },
+          })
         }
-      })
+      } else if (!cacheShownRef.current) {
+        cacheShownRef.current = true
+        const cached = loadSnapshot(storage)
+        if (cached) {
+          const sessions = observedToSessions(cached.sessions)
+          setData({ mode: 'live', agents: cached.agents, projects: liveProjects(sessions), sessions, events: eventsRef.current, artifacts: [] })
+          setSavedAt(cached.savedAt)
+        } else {
+          setData(emptyLive())
+          setSavedAt(null)
+        }
+      }
     }
-    tick()
-    const t = setInterval(tick, 5000)
+    tickRef.current = () => { void tick() }
+    void tick()
+    const t = setInterval(() => { void tick() }, 5000)
     return () => { alive = false; clearInterval(t); if (un) un() }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [demo])
 
+  // 连接状态迁移埋点（行为-only，无内容字段）
+  useEffect(() => {
+    const prev = prevConnRef.current
+    if (conn.state === 'offline' && prev !== 'offline') track('shell', EVENT.offlineEntered, { fails: conn.fails })
+    if (conn.state === 'live' && prev === 'offline') track('shell', EVENT.connectionRecovered)
+    prevConnRef.current = conn.state
+  }, [conn.state, conn.fails])
+
+  const shown = demo ? mockData : data
   const value = useMemo<PetDataContextValue>(() => ({
-    ...data,
-    getAgent: (id) => data.agents.find((a) => a.id === id),
-    getProject: (id) => data.projects.find((p) => p.id === id),
-    getSession: (id) => data.sessions.find((s) => s.id === id),
-    getArtifact: (id) => data.artifacts.find((a) => a.id === id),
-    sessionsOfProject: (pid) => data.sessions.filter((s) => s.projectId === pid),
-    unhandledEvents: () => data.events.filter((e) => !e.handled),
+    ...shown,
+    getAgent: (id) => shown.agents.find((a) => a.id === id),
+    getProject: (id) => shown.projects.find((p) => p.id === id),
+    getSession: (id) => shown.sessions.find((s) => s.id === id),
+    getArtifact: (id) => shown.artifacts.find((a) => a.id === id),
+    sessionsOfProject: (pid) => shown.sessions.filter((s) => s.projectId === pid),
+    unhandledEvents: () => shown.events.filter((e) => !e.handled),
     agentEvents,
-    inject: async (p) => {
-      if (data.mode === 'live') return bridgeInject(p)
-      return { mode: 'clipboard', package: `Relay handoff package:\n${p.context ?? ''}\n${p.instruction ?? ''}` }
-    },
-  }), [data, agentEvents])
+    connState: conn.state,
+    savedAt,
+    reconnect: () => tickRef.current(),
+    inject: (p) => injectOrClipboard(p, shown.mode === 'live', bridgeInject),
+  }), [shown, agentEvents, conn.state, savedAt])
 
   return <PetDataCtx.Provider value={value}>{children}</PetDataCtx.Provider>
 }

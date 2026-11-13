@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createEventBus } from './bus.ts';
-import { selectSource, gateInject } from './registry.ts';
+import { selectSource, gateInject, injectOrClipboard } from './registry.ts';
 
 test('event bus: emit -> subscriber, replay capped, unsubscribe', () => {
   const bus = createEventBus(2);
@@ -21,9 +21,26 @@ test('event bus: emit -> subscriber, replay capped, unsubscribe', () => {
   assert.deepEqual(late, ['3', '4']); // replay cap 2
 });
 
-test('registry: selectSource live only when bridge healthy', () => {
-  assert.equal(selectSource(true), 'live');
-  assert.equal(selectSource(false), 'mock');
+test('registry: selectSource mock only on explicit demo', () => {
+  assert.equal(selectSource(true), 'mock');
+  assert.equal(selectSource(false), 'live');
+});
+
+test('registry: injectOrClipboard clipboard when not live', async () => {
+  const d = await injectOrClipboard({ to: 'kimi', context: 'c', instruction: 'i' }, false, async () => { throw new Error('must not be called'); });
+  assert.equal(d.mode, 'clipboard');
+  assert.match(d.package ?? '', /Relay handoff package/);
+});
+
+test('registry: injectOrClipboard clipboard when bridge throws', async () => {
+  const d = await injectOrClipboard({ to: 'codex' }, true, async () => { throw new Error('ECONNREFUSED'); });
+  assert.equal(d.mode, 'clipboard');
+});
+
+test('registry: injectOrClipboard passes through bridge decision', async () => {
+  const d = await injectOrClipboard({ to: 'codex' }, true, async () => ({ mode: 'inject', response: 'ok' }));
+  assert.equal(d.mode, 'inject');
+  assert.equal(d.response, 'ok');
 });
 
 test('registry: gateInject mirrors capability tiers', () => {

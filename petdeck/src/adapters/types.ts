@@ -10,6 +10,8 @@ export interface ObservedSession {
   lastMessage: string
   cwd?: string
   turn?: string
+  stale?: boolean
+  lastSeen?: number
 }
 
 /** Raw bus event (newest-first) used to derive relay tracking status. */

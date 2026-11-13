@@ -3,6 +3,7 @@
 import { createContext, useContext } from 'react'
 import type { Agent, Artifact, PetEvent, Project, Session } from '../flows/shared/types'
 import type { InjectDecision, InjectPayload, PetData, RawAgentEvent } from './types'
+import type { ConnState } from './connection'
 
 export interface PetDataContextValue extends PetData {
   getAgent(id: string): Agent | undefined
@@ -13,6 +14,9 @@ export interface PetDataContextValue extends PetData {
   unhandledEvents(): PetEvent[]
   agentEvents: RawAgentEvent[]
   inject(p: InjectPayload): Promise<InjectDecision>
+  connState: ConnState
+  savedAt: number | null
+  reconnect(): void
 }
 
 export const PetDataCtx = createContext<PetDataContextValue | null>(null)

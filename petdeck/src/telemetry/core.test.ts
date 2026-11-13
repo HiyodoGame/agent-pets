@@ -48,3 +48,8 @@ test('persistence: reload restores events, track persists', () => {
   attachPersistence(t2, storage, 'k');
   assert.deepEqual(t2.events().map((e) => e.action), ['a']);
 });
+
+test('EVENT: offline connection events exist', () => {
+  assert.equal(EVENT.offlineEntered, 'offline_entered');
+  assert.equal(EVENT.connectionRecovered, 'connection_recovered');
+});

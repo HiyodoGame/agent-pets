@@ -58,6 +58,8 @@ export interface Session {
   messages: Message[]
   artifactIds: string[]
   updatedAt: string
+  stale?: boolean
+  lastSeen?: number
 }
 
 export interface Project {
