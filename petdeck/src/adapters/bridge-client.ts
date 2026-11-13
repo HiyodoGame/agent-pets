@@ -4,6 +4,9 @@ import type { InjectDecision, InjectPayload, ObservedSession } from './types'
 
 export const BRIDGE_URL = 'http://127.0.0.1:5199'
 
+// Shared local secret (optional). Empty => bridge enforces only Host+Origin+Content-Type.
+const BRIDGE_TOKEN = (import.meta.env?.VITE_PETDECK_BRIDGE_TOKEN as string | undefined) ?? ''
+
 export async function fetchHealth(): Promise<boolean> {
   try {
     const r = await fetch(`${BRIDGE_URL}/api/health`, { signal: AbortSignal.timeout(1500) })
@@ -39,9 +42,11 @@ export function subscribeEvents(
 }
 
 export async function inject(payload: InjectPayload): Promise<InjectDecision> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (BRIDGE_TOKEN) headers['X-Petdeck-Token'] = BRIDGE_TOKEN
   const r = await fetch(`${BRIDGE_URL}/api/inject`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload),
   })
   return r.json()
