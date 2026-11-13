@@ -9,6 +9,7 @@ import opencode from './adapters/opencode.mjs';
 import kimi from './adapters/kimi.mjs';
 import { TIER, injectDecision } from './tiers.mjs';
 import { createBus } from './bus.mjs';
+import { pollOnce } from './freshness.mjs';
 
 const ADAPTERS = [codex, claude, opencode, kimi];
 const PORT = Number(process.env.PETDECK_BRIDGE_PORT || 5199);
@@ -16,36 +17,33 @@ const bus = createBus(100);
 let sessions = [];
 let sessionsKey = '';
 const lastStatus = new Map();
+let lastGood = new Map();
+let sources = {};
 
 async function poll() {
-  const next = [];
-  for (const a of ADAPTERS) {
-    try {
-      const rows = await Promise.resolve(a.observe());
-      for (const r of rows) {
-        next.push(r);
-        const key = `${r.agent}:${r.session}`;
-        const prev = lastStatus.get(key);
-        if (prev !== r.status) {
-          lastStatus.set(key, r.status);
-          const type = r.status === 'done' ? 'task_complete' : r.status === 'stuck' ? 'turn_aborted' : 'task_started';
-          bus.emit({
-            agentId: r.agent,
-            sessionId: r.session,
-            type,
-            petType: r.status === 'done' ? 'done' : r.status === 'stuck' ? 'stuck' : '',
-            payload: { lastMessage: r.lastMessage },
-          });
-        }
-      }
-    } catch { /* adapter offline => skip */ }
+  const res = await pollOnce(ADAPTERS, lastGood, Date.now());
+  lastGood = res.lastGood;
+  sources = res.sources;
+  for (const r of res.sessions) {
+    const key = `${r.agent}:${r.session}`;
+    const prev = lastStatus.get(key);
+    if (prev !== r.status) {
+      lastStatus.set(key, r.status);
+      const type = r.status === 'done' ? 'task_complete' : r.status === 'stuck' ? 'turn_aborted' : 'task_started';
+      bus.emit({
+        agentId: r.agent,
+        sessionId: r.session,
+        type,
+        petType: r.status === 'done' ? 'done' : r.status === 'stuck' ? 'stuck' : '',
+        payload: { lastMessage: r.lastMessage },
+      });
+    }
   }
-  const key = JSON.stringify(next.map((r) => [r.agent, r.session, r.status, r.lastMessage]));
-  if (key !== sessionsKey) {
-    sessionsKey = key;
-    bus.emit({ type: 'sessions', petType: 'sessions', payload: { sessions: next } });
+  if (res.key !== sessionsKey) {
+    sessionsKey = res.key;
+    bus.emit({ type: 'sessions', petType: 'sessions', payload: { sessions: res.sessions } });
   }
-  sessions = next;
+  sessions = res.sessions;
 }
 
 function cors(res) {
@@ -64,7 +62,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { cors(res); res.writeHead(204); res.end(); return; }
 
   if (url.pathname === '/api/health') {
-    return json(res, 200, { ok: true, agents: ADAPTERS.map((a) => ({ id: a.id, name: a.name, tier: TIER[a.id] })) });
+    return json(res, 200, { ok: true, agents: ADAPTERS.map((a) => ({ id: a.id, name: a.name, tier: TIER[a.id] })), sources });
   }
   if (url.pathname === '/api/agents') {
     return json(res, 200, ADAPTERS.map((a) => ({ id: a.id, name: a.name, form: 'cli', capability: TIER[a.id], status: 'idle', projectIds: [] })));
