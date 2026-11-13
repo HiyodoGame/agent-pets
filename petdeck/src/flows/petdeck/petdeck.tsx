@@ -3,7 +3,7 @@
 // Integrates all 4 flows with dual-surface layout
 // Edge 补全：offline-no-network 全局 banner + 缓存提示；ErrorBoundary 兜底
 // =============================================
-import { Component, useEffect, useState } from 'react'
+import { Component, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Routes, Route, Navigate, NavLink, useNavigate } from 'react-router-dom'
 import { ThemeStyleProvider, Button, Tag } from 'sparkdesign'
@@ -45,7 +45,10 @@ function Shell({ appearance, onToggleAppearance }: { appearance: 'light' | 'dark
   const navigate = useNavigate()
   const [offline, setOffline] = useState(false)
   const { sessions, mode } = usePetData()
-  useEffect(() => { track('shell', EVENT.appSessionStart, { mode }) }, [])
+  const modeRef = useRef(mode)
+  modeRef.current = mode
+  // mount-only：用 ref 读 mode，避免把 mode 进 deps 导致重复上报 session_start
+  useEffect(() => { track('shell', EVENT.appSessionStart, { mode: modeRef.current }) }, [])
   const running = sessions.filter((s) => s.status === 'active').length
   const waiting = sessions.filter((s) => s.status === 'waiting' || s.status === 'stuck').length
 

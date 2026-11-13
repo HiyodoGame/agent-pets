@@ -155,7 +155,7 @@ function Screen3_Detect({ entry, onBack, onSuccess }: { entry: AgentCatalogEntry
   const [rateLimit, setRateLimit] = useState<number | null>(null)
   const [connecting, setConnecting] = useState(false)
 
-  useEffect(() => { track('connect', EVENT.connectStarted, { form: entry.form, tier: entry.capability }) }, [])
+  useEffect(() => { track('connect', EVENT.connectStarted, { form: entry.form, tier: entry.capability }) }, [entry.form, entry.capability])
 
   useEffect(() => {
     if (manual || error || denied || rateLimit !== null || step >= DETECT_STEPS.length) return
@@ -269,7 +269,7 @@ function Screen3_Detect({ entry, onBack, onSuccess }: { entry: AgentCatalogEntry
 /* SCREEN 4 of 4: Success（+ error-server + boundary-null） */
 function Screen4_Success({ entry, onDone, onMore }: { entry: AgentCatalogEntry; onDone: () => void; onMore: () => void }) {
   const [syncError, setSyncError] = useState(false)
-  useEffect(() => { track('connect', EVENT.connectSuccess, { form: entry.form, tier: entry.capability }) }, [])
+  useEffect(() => { track('connect', EVENT.connectSuccess, { form: entry.form, tier: entry.capability }) }, [entry.form, entry.capability])
   return (
     <div className="flex flex-col items-center gap-3 p-6">
       <PetAvatar status="done" size={80} />
