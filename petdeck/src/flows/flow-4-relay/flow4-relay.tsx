@@ -38,12 +38,23 @@ import { usePetData, deriveTracking, type TrackingStatus } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { mockSessions, mockRelayDrafts } from '../shared/mock-data'
 import { EdgeAlert, Stepper } from '../shared/edge-kit'
+import { buildRelayDraft, resolveTarget, canSend } from './relay-draft'
 
 const DEFAULT_SOURCE = mockSessions.find((s) => s.id === 's1')!
 const CAP_LABEL: Record<Agent['capability'], string> = {
   full: '观察+接力',
   'observe-only': '仅观察',
   manual: '手动',
+}
+
+type SendState = 'pending' | 'injected' | 'manual' | 'failed'
+
+interface Attempt {
+  sessionId: string
+  startedAt: number
+  response: string
+  mode: 'inject' | 'clipboard'
+  package?: string
 }
 
 /* SCREEN 1 of 4: Trigger Relay */
@@ -87,19 +98,22 @@ function Screen2_Preview({
   draft,
   setDraft,
   onSend,
+  canSubmit,
+  target,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
   draft: RelayDraft
   setDraft: (d: RelayDraft) => void
   onSend: () => void
+  canSubmit: boolean
+  target: Agent | null
 }) {
-  const { getAgent, getArtifact, agents: mockAgents } = usePetData()
-  const target = getAgent(draft.targetAgentId)
+  const { getArtifact, agents } = usePetData()
   const [sending, setSending] = useState(false)
   const invalid = draft.instruction.trim().length === 0
   const confirm = () => {
-    if (invalid) return
+    if (!canSubmit) return
     track('relay', EVENT.relayPreviewConfirmed, { to: draft.targetAgentId })
     setSending(true)
     setTimeout(() => {
@@ -150,7 +164,7 @@ function Screen2_Preview({
                 <SelectValue placeholder="选择目标 Agent" />
               </SelectTrigger>
               <SelectContent>
-                {mockAgents.map((a) => (
+                {agents.map((a) => (
                   <SelectItem key={a.id} value={a.id}>
                     {a.name} · {CAP_LABEL[a.capability]}
                   </SelectItem>
@@ -158,10 +172,11 @@ function Screen2_Preview({
               </SelectContent>
             </Select>
             {target && <Tag color={target.capability === 'full' ? 'success' : target.capability === 'observe-only' ? 'info' : 'slate'}>{CAP_LABEL[target.capability]}</Tag>}
+            {!target && draft.targetAgentId ? <span className="text-error text-sm">目标不存在，请重新选择</span> : null}
           </div>
         </div>
         <DrawerFooter>
-          <Button variant="primary" disabled={invalid || sending} loading={sending} onClick={confirm}>
+          <Button variant="primary" disabled={!canSubmit} loading={sending} onClick={confirm}>
             确认发送
           </Button>
           <DrawerClose asChild>
@@ -173,14 +188,15 @@ function Screen2_Preview({
   )
 }
 
-/* SCREEN 3 of 4: Send & Track（+ rate-limit + offline暂存 + stop） */
+/* SCREEN 3 of 4: Send & Track — 真实态：注入中 / 已注入追踪 / 手动交接 / 失败 / 待确认 */
 function Screen3_Tracking({
   source,
   target,
-  error,
   isLive,
+  sendState,
   liveStatus,
   stale,
+  packageText,
   onRetry,
   onCopy,
   onDone,
@@ -189,10 +205,11 @@ function Screen3_Tracking({
 }: {
   source: Session
   target: Agent
-  error: boolean
   isLive: boolean
+  sendState: SendState
   liveStatus: TrackingStatus
   stale: boolean
+  packageText: string
   onRetry: () => void
   onCopy: () => void
   onDone: () => void
@@ -201,93 +218,122 @@ function Screen3_Tracking({
 }) {
   const [rateLimit, setRateLimit] = useState<number | null>(null)
   const [offline, setOffline] = useState(false)
+  // Derived (not state): an injected live attempt whose completion can't be correlated.
+  const unconfirmed = isLive && sendState === 'injected' && liveStatus === 'unconfirmed'
+
+  // live 注入后由 attempt 归属的 SSE 事件驱动：done 才自动进入完成屏；无法关联 => 待确认，不谎报完成。
   useEffect(() => {
-    if (error || offline || rateLimit !== null) return
-    if (isLive) {
-      // live：由 SSE 派生的 liveStatus 驱动，done 才进入完成屏
-      if (liveStatus === 'done') onDone()
-      return
-    }
+    if (!isLive || sendState !== 'injected' || unconfirmed) return
+    if (liveStatus === 'done') onDone()
+  }, [isLive, sendState, liveStatus, onDone, unconfirmed])
+
+  // demo：模拟成功推进（演示专用，非实时）。
+  useEffect(() => {
+    if (isLive || sendState !== 'injected' || rateLimit !== null || offline) return
     const t = setTimeout(onDone, 1200)
     return () => clearTimeout(t)
-  }, [error, offline, rateLimit, onDone, isLive, liveStatus])
+  }, [isLive, sendState, rateLimit, offline, onDone])
+
   useEffect(() => {
     if (rateLimit === null || rateLimit <= 0) return
     const t = setTimeout(() => setRateLimit((r) => (r === null ? null : r - 1)), 1000)
     return () => clearTimeout(t)
   }, [rateLimit])
 
+  const streaming =
+    sendState !== 'failed' && sendState !== 'manual' && !unconfirmed && !offline && rateLimit === null &&
+    !(isLive && sendState === 'injected' && liveStatus === 'stuck')
+
   return (
     <div className="flex w-full max-w-xl flex-col gap-3">
       <EdgeAlert variant="info" title={`已接力给 ${target.name}`} desc={`源会话「${source.title}」的上下文与产物已交接，等待目标响应。`} />
-      {stale && (
-        <EdgeAlert variant="info" title="状态可能滞后" desc="目标 Agent 数据来自离线缓存，恢复连接后以实时状态为准。" />
-      )}
-      {offline && (
+      {stale && <EdgeAlert variant="info" title="状态可能滞后" desc="目标 Agent 数据来自离线缓存，恢复连接后以实时状态为准。" />}
+
+      {sendState === 'failed' ? (
         <EdgeAlert
-          variant="warning"
-          title="离线 · 交接包已暂存"
-          desc="网络中断，交接包已本地暂存不会丢；恢复后重试。"
-          onRetry={() => setOffline(false)}
-          retryLabel="恢复重试"
+          title={`注入失败：${target.name}`}
+          desc="可重试（真正重新发送），或复制交接包手动粘贴到目标 Agent。"
+          onRetry={onRetry}
+          retryLabel="重试发送"
+          extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> 复制交接包</Button>}
         />
-      )}
-      {rateLimit !== null && rateLimit > 0 && <EdgeAlert variant="warning" title="目标限流" desc={`${rateLimit}s 后自动重试。`} />}
-      {isLive && liveStatus === 'stuck' && (
+      ) : sendState === 'manual' ? (
+        <div className="flex flex-col gap-2">
+          <EdgeAlert
+            variant="warning"
+            title="已生成交接包 · 目标仅观察/手动或 bridge 不可达"
+            desc="复制下方完整交接包，粘贴到目标 Agent 即可（内容含上下文+指令+产物，不丢失）。"
+            extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> 复制交接包</Button>}
+          />
+          <Textarea readOnly value={packageText} rows={8} aria-label="交接包内容" className="font-mono text-xs" />
+          <Button variant="ghost" onClick={onRetry}>重试注入</Button>
+        </div>
+      ) : unconfirmed ? (
+        <EdgeAlert
+          variant="info"
+          title="已发送 · 等待目标确认"
+          desc="注入已提交，但目标 CLI 未回传可关联的会话 ID，无法确认本次执行完成。可稍后在面板查看，或复制交接包手动确认。"
+          extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> 复制交接包</Button>}
+          onRetry={onDone}
+          retryLabel="标记完成"
+        />
+      ) : isLive && sendState === 'injected' && liveStatus === 'stuck' ? (
         <EdgeAlert
           variant="warning"
           title="目标执行中断"
-          desc="SSE 收到 turn_aborted；可重试，或复制交接包手动粘贴（能力分级降级）。"
+          desc="SSE 收到 turn_aborted；可重试（真正重发），或复制交接包手动粘贴（能力分级降级）。"
           onRetry={onRetry}
+          retryLabel="重试发送"
           extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> 复制交接包</Button>}
         />
-      )}
-      {error ? (
-        <EdgeAlert
-          title={`注入失败：${target.name} 无可用注入接口`}
-          desc="可重试，或复制交接包手动粘贴到目标 Agent（能力分级降级）。"
-          onRetry={onRetry}
-          extra={
-            <Button variant="secondary" onClick={onCopy}>
-              <Copy className="mr-1 h-4 w-4" /> 复制交接包
-            </Button>
+      ) : rateLimit !== null && rateLimit > 0 ? (
+        <EdgeAlert variant="warning" title="目标限流" desc={`${rateLimit}s 后自动重试。`} />
+      ) : offline ? (
+        <EdgeAlert variant="warning" title="离线 · 交接包已暂存" desc="网络中断，交接包已本地暂存不会丢；恢复后重试。" onRetry={() => setOffline(false)} retryLabel="恢复重试" />
+      ) : streaming ? (
+        <Response
+          phase="streaming"
+          finalMarkdown={
+            sendState === 'pending'
+              ? `正在注入交接包到 ${target.name}…`
+              : isLive && liveStatus === 'running'
+                ? `${target.name} 正在执行指令…（SSE 实时）`
+                : !isLive
+                  ? `正在处理交接包：读取上下文 → 载入 ${target.name} → 执行指令…`
+                  : `${target.name} 已接收，等待 SSE 反馈…`
           }
+          thinkingIndicator={<span className="text-text-secondary text-sm">思考中…</span>}
         />
-      ) : (
-        !offline &&
-        rateLimit === null &&
-        !(isLive && liveStatus === 'stuck') && (
-          <Response
-            phase="streaming"
-            finalMarkdown={
-              isLive
-                ? liveStatus === 'running'
-                  ? `${target.name} 正在执行指令…（SSE 实时）`
-                  : liveStatus === 'done'
-                    ? `${target.name} 已完成，正在拉取回执…`
-                    : `正在注入交接包到 ${target.name}…`
-                : `正在处理交接包：读取上下文 → 载入 ${target.name} → 执行指令…`
-            }
-            thinkingIndicator={<span className="text-text-secondary text-sm">思考中…</span>}
-          />
-        )
-      )}
+      ) : null}
+
       <Separator />
       <div className="flex flex-wrap gap-2">
-        <Button variant="ghost" onClick={onStop}>
-          <StopCircle className="mr-1 h-4 w-4" /> 停止
-        </Button>
-        {!error && !offline && <Button variant="ghost" onClick={onSimFail}>模拟注入失败</Button>}
-        {!offline && <Button variant="ghost" onClick={() => setOffline(true)}><WifiOff className="mr-1 h-4 w-4" />模拟断网</Button>}
-        {rateLimit === null && <Button variant="ghost" onClick={() => setRateLimit(5)}>模拟限流</Button>}
+        <Button variant="ghost" onClick={onStop}><StopCircle className="mr-1 h-4 w-4" /> 停止</Button>
+        {/* 演示模拟控制仅用于非实时模式，避免在真实链路伪造状态 */}
+        {!isLive && <Button variant="ghost" onClick={onSimFail}>模拟注入失败</Button>}
+        {!isLive && <Button variant="ghost" onClick={() => setOffline(true)}><WifiOff className="mr-1 h-4 w-4" />模拟断网</Button>}
+        {!isLive && rateLimit === null && <Button variant="ghost" onClick={() => setRateLimit(5)}>模拟限流</Button>}
       </div>
     </div>
   )
 }
 
-/* SCREEN 4 of 4: Complete + Loop（+ error-server） */
-function Screen4_Complete({ target, onNext, onExit }: { target: Agent; onNext: () => void; onExit: () => void }) {
-  const [receiptError, setReceiptError] = useState(false)
+/* SCREEN 4 of 4: Complete + Loop — live 只展示真实回执/产物 */
+function Screen4_Complete({
+  target,
+  isLive,
+  receipt,
+  artifactNames,
+  onNext,
+  onExit,
+}: {
+  target: Agent
+  isLive: boolean
+  receipt: string
+  artifactNames: string[]
+  onNext: () => void
+  onExit: () => void
+}) {
   return (
     <div className="flex w-full max-w-xl flex-col gap-3">
       <div className="flex items-center gap-2 text-success">
@@ -296,52 +342,70 @@ function Screen4_Complete({ target, onNext, onExit }: { target: Agent; onNext: (
       </div>
       <Response
         phase="done"
-        finalMarkdown="已接收交接包并完成部署：素材包上传、资源引用更新完毕。"
+        finalMarkdown={isLive ? receipt || `${target.name} 已完成本次指令。` : '已接收交接包并完成部署：素材包上传、资源引用更新完毕。'}
         thinkingIndicator={<span className="text-text-secondary text-sm">思考中…</span>}
       />
-      {receiptError && <EdgeAlert title="回执拉取失败" desc="部署回执没拉下来，重试。" onRetry={() => setReceiptError(false)} />}
       <Card>
         <CardHeader>
-          <CardTitle>
-            <Package className="mr-1 inline h-4 w-4" /> 产物
-          </CardTitle>
+          <CardTitle><Package className="mr-1 inline h-4 w-4" /> 产物</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-2">
-            <FileCard filename="部署回执.log" size="2 KB" variant="attachment" />
-          </div>
+          {artifactNames.length === 0 ? (
+            <TypographyMuted>无产物</TypographyMuted>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {artifactNames.map((n) => (<FileCard key={n} filename={n} variant="attachment" />))}
+            </div>
+          )}
         </CardContent>
       </Card>
-      <PromptSuggestions items={[{ text: '把部署结果交给 kimi work 写宣传', prompt: 'next' }]} onSelect={() => onNext()} />
       <div className="flex gap-2">
-        <Button variant="primary" onClick={onNext}>
-          <ArrowRightLeft className="mr-1 h-4 w-4" /> 继续接力
-        </Button>
-        <Button variant="secondary" onClick={onExit}>
-          结束
-        </Button>
-        <Button variant="ghost" onClick={() => setReceiptError(true)}>
-          模拟回执失败
-        </Button>
+        <Button variant="primary" onClick={onNext}><ArrowRightLeft className="mr-1 h-4 w-4" /> 继续接力</Button>
+        <Button variant="secondary" onClick={onExit}>结束</Button>
       </div>
     </div>
   )
 }
 
 export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session; onExit?: () => void }) {
-  const { getAgent, getArtifact, agents: mockAgents, inject, agentEvents, mode, sessions } = usePetData()
-  const [source, setSource] = useState<Session>(sourceSession ?? DEFAULT_SOURCE)
+  const { getArtifact, agents, inject, agentEvents, mode, sessions } = usePetData()
+  const isLive = mode === 'live'
+  const [source, setSource] = useState<Session | null>(sourceSession ?? (isLive ? null : DEFAULT_SOURCE))
   const [screen, setScreen] = useState<1 | 2 | 3 | 4>(1)
-  const [error, setError] = useState(false)
-  const [draft, setDraft] = useState<RelayDraft>(() => ({ ...mockRelayDrafts[0] }))
-  const target = getAgent(draft.targetAgentId) ?? mockAgents[1]
-  const liveStatus = deriveTracking(agentEvents, draft.targetAgentId)
-  const targetStale = sessions.some((s) => s.agentId === draft.targetAgentId && s.stale)
+  const [draft, setDraft] = useState<RelayDraft | null>(() =>
+    isLive ? buildRelayDraft(sourceSession ?? null, agents) : { ...mockRelayDrafts[0] },
+  )
+  const [sendState, setSendState] = useState<SendState>('pending')
+  const [attempt, setAttempt] = useState<Attempt | null>(null)
+
+  // live 且未从面板带入真实源会话 => 无法接力，给出去面板的选择提示（不回退 mock）。
+  if (isLive && !source) {
+    return (
+      <div className="flex w-full max-w-md flex-col items-center gap-4 p-8">
+        <h1 className="text-text text-lg font-semibold">接力交接</h1>
+        <EdgeAlert variant="info" title="请先选择源会话" desc="从面板打开一个已完成会话，点「接力」即可自动打包上下文与产物。" />
+        <Button variant="primary" onClick={() => onExit?.()}>去面板选择</Button>
+      </div>
+    )
+  }
+
+  const target: Agent | null = draft
+    ? isLive
+      ? resolveTarget(draft, agents)
+      : agents.find((a) => a.id === draft.targetAgentId) ?? agents[1] ?? null
+    : null
+  const scope = attempt ? { sessionId: attempt.sessionId, startedAt: attempt.startedAt } : {}
+  const liveStatus = deriveTracking(agentEvents, draft?.targetAgentId ?? '', scope)
+  const targetStale = sessions.some((s) => s.agentId === draft?.targetAgentId && s.stale)
+  const sendable = draft ? (isLive ? canSend(draft, target, source) : Boolean(target) && draft.instruction.trim().length > 0) : false
+
+  const packageText =
+    attempt?.package ??
+    (draft ? `${draft.contextSummary}\n\n指令：${draft.instruction}\n\n产物：${draft.artifactIds.map((a) => getArtifact(a)?.name ?? a).join('、')}` : '')
 
   const copyPackage = () => {
-    const text = `${draft.contextSummary}\n\n指令：${draft.instruction}\n\n产物：${draft.artifactIds.map((a) => getArtifact(a)?.name ?? a).join('、')}`
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).then(
+      navigator.clipboard.writeText(packageText).then(
         () => toast('交接包已复制到剪贴板'),
         () => toast('复制失败，请手动选择文本'),
       )
@@ -349,50 +413,77 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
       toast('当前环境不支持剪贴板，请手动复制')
     }
   }
+
+  const send = () => {
+    if (!draft || !source) return
+    setScreen(3)
+    setAttempt(null)
+    setSendState('pending')
+    const startedAt = Date.now()
+    if (!isLive) {
+      track('relay', EVENT.relayInjectResult, { mode: 'inject', ok: true, to: draft.targetAgentId })
+      setAttempt({ sessionId: 'demo', startedAt, response: '', mode: 'inject' })
+      setSendState('injected')
+      return
+    }
+    inject({ from: source.agentId, to: draft.targetAgentId, context: draft.contextSummary, instruction: draft.instruction })
+      .then((d) => {
+        track('relay', EVENT.relayInjectResult, { mode: d.mode, ok: d.mode === 'inject', to: draft.targetAgentId })
+        setAttempt({ sessionId: d.sessionID ?? '', startedAt, response: d.response ?? '', mode: d.mode, package: d.package })
+        setSendState(d.mode === 'clipboard' ? 'manual' : 'injected')
+      })
+      .catch(() => setSendState('failed'))
+  }
+
   const nextHop = () => {
+    // 继续接力：live 下回面板重选新源会话（不伪造下一跳数据）。
+    if (isLive) { onExit?.(); return }
     const newSource = mockSessions.find((s) => s.id === 's2') ?? source
-    setSource(newSource)
-    setDraft({ ...mockRelayDrafts[0], sourceSessionId: newSource.id })
-    setError(false)
+    setSource(newSource ?? null)
+    setDraft({ ...mockRelayDrafts[0], sourceSessionId: newSource?.id ?? '' })
+    setSendState('pending')
+    setAttempt(null)
     setScreen(1)
   }
+
+  const artifactNames = draft ? draft.artifactIds.map((a) => getArtifact(a)?.name ?? a) : []
 
   return (
     <div className="flex flex-col items-center gap-4 p-6">
       <Toaster />
       <h1 className="text-text text-lg font-semibold">接力交接</h1>
       <Stepper steps={['发起', '预览', '追踪', '完成']} current={screen - 1} />
-      {screen === 1 && <Screen1_Trigger source={source} onOpen={() => { track('relay', EVENT.relayStarted, { from: source.agentId }); setScreen(2) }} />}
-      <Screen2_Preview
-        open={screen === 2}
-        onOpenChange={(o) => !o && setScreen(1)}
-        draft={draft}
-        setDraft={setDraft}
-        onSend={() => {
-          setError(false)
-          setScreen(3)
-          inject({ from: source.agentId, to: draft.targetAgentId, context: draft.contextSummary, instruction: draft.instruction }).then((d) => {
-            track('relay', EVENT.relayInjectResult, { mode: d.mode, ok: d.mode === 'inject', to: draft.targetAgentId })
-            toast(d.mode === 'inject' ? '已接力注入目标 Agent' : '已生成交接包（剪贴板）· 目标仅观察/手动或 bridge 不可达')
-          })
-        }}
-      />
-      {screen === 3 && (
+      {screen === 1 && source && <Screen1_Trigger source={source} onOpen={() => { track('relay', EVENT.relayStarted, { from: source.agentId }); setScreen(2) }} />}
+      {draft && (
+        <Screen2_Preview
+          open={screen === 2}
+          onOpenChange={(o) => !o && setScreen(1)}
+          draft={draft}
+          setDraft={setDraft}
+          canSubmit={sendable}
+          target={target}
+          onSend={send}
+        />
+      )}
+      {screen === 3 && source && target && (
         <Screen3_Tracking
           source={source}
           target={target}
-          error={error}
-          isLive={mode === 'live'}
+          isLive={isLive}
+          sendState={sendState}
           liveStatus={liveStatus}
           stale={targetStale}
-          onRetry={() => setError(false)}
+          packageText={packageText}
+          onRetry={send}
           onCopy={copyPackage}
-          onDone={() => { track('relay', EVENT.relayDone, { to: draft.targetAgentId }); setScreen(4) }}
-          onSimFail={() => setError(true)}
+          onDone={() => { track('relay', EVENT.relayDone, { to: draft?.targetAgentId }); setScreen(4) }}
+          onSimFail={() => setSendState('failed')}
           onStop={() => { track('relay', EVENT.relayStopped); setScreen(2) }}
         />
       )}
-      {screen === 4 && <Screen4_Complete target={target} onNext={nextHop} onExit={() => onExit?.()} />}
+      {screen === 4 && target && (
+        <Screen4_Complete target={target} isLive={isLive} receipt={attempt?.response ?? ''} artifactNames={artifactNames} onNext={nextHop} onExit={() => onExit?.()} />
+      )}
     </div>
   )
 }

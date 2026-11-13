@@ -4,8 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseRollout } from './adapters/codex.mjs';
 import { parseClaude } from './adapters/claude.mjs';
-import { parseRun } from './adapters/opencode.mjs';
-import { TIER, canInject, injectDecision } from './tiers.mjs';
+import { parseRun, mapServeStatus } from './adapters/opencode.mjs';
+import { TIER, canInject, injectDecision, handoffPackage } from './tiers.mjs';
 import { createBus, toPetEventType } from './bus.mjs';
 
 const J = (o) => JSON.stringify(o);
@@ -56,6 +56,27 @@ test('opencode parseRun: extracts text + sessionID', () => {
   assert.equal(r.sessionID, 'ses_1');
 });
 
+test('claude parseClaude: end_turn stop_reason => done', () => {
+  const r = parseClaude([J({ type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'text', text: 'final' }] } })]);
+  assert.equal(r.status, 'done');
+});
+
+test('claude parseClaude: result is_error => stuck', () => {
+  const r = parseClaude([J({ type: 'result', is_error: true })]);
+  assert.equal(r.status, 'stuck');
+});
+
+test('claude parseClaude: mid-turn tool_use stays running', () => {
+  const r = parseClaude([J({ type: 'assistant', message: { stop_reason: 'tool_use', content: [{ type: 'text', text: 'hmm' }] } })]);
+  assert.equal(r.status, 'running');
+});
+
+test('opencode mapServeStatus: only real signals, else unknown', () => {
+  assert.equal(mapServeStatus({ status: 'busy' }), 'running');
+  assert.equal(mapServeStatus({ status: 'idle' }), 'unknown');
+  assert.equal(mapServeStatus({}), 'unknown');
+});
+
 test('tiers: capability gating', () => {
   assert.equal(TIER.codex, 'full');
   assert.equal(TIER.kimi, 'observe-only');
@@ -65,19 +86,27 @@ test('tiers: capability gating', () => {
 });
 
 test('tiers: injectDecision falls back to clipboard when not full', () => {
-  const d = injectDecision('observe-only', { ok: true, response: 'x' });
+  const d = injectDecision('observe-only', { ok: true, response: 'x' }, { context: 'c', instruction: 'do it' });
   assert.equal(d.mode, 'clipboard');
-  assert.ok(d.package.includes('x') || typeof d.package === 'string');
+  assert.ok(d.package.includes('c'));
+  assert.ok(d.package.includes('do it'), 'clipboard handoff must preserve the instruction');
 });
 
 test('tiers: injectDecision uses inject when full + ok', () => {
-  const d = injectDecision('full', { ok: true, response: 'x' });
+  const d = injectDecision('full', { ok: true, response: 'x', sessionID: 'ses_1' });
   assert.equal(d.mode, 'inject');
+  assert.equal(d.sessionID, 'ses_1');
 });
 
 test('tiers: injectDecision falls back when full but failed', () => {
-  const d = injectDecision('full', { ok: false, response: '' });
+  const d = injectDecision('full', { ok: false, response: '' }, { context: 'c', instruction: 'keep me' });
   assert.equal(d.mode, 'clipboard');
+  assert.ok(d.package.includes('keep me'));
+});
+
+test('tiers: handoffPackage includes every provided field', () => {
+  const p = handoffPackage({ from: 'codex', context: 'CTX', instruction: 'INS', artifacts: ['a.png', 'b.md'] });
+  for (const needle of ['codex', 'CTX', 'INS', 'a.png', 'b.md']) assert.ok(p.includes(needle));
 });
 
 test('bus: normalize + replay + unsubscribe', () => {

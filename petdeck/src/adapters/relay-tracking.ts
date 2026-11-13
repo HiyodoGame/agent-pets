@@ -1,14 +1,33 @@
-// Derive Flow4 relay tracking status from the live SSE agent-event stream.
+// Derive Flow4 relay tracking status from the live SSE agent-event stream,
+// scoped to THIS attempt (target agent + returned session id + send time).
 import type { RawAgentEvent } from './types'
 
-export type TrackingStatus = 'sending' | 'running' | 'done' | 'stuck'
+export type TrackingStatus = 'sending' | 'running' | 'done' | 'stuck' | 'unconfirmed'
 
-/** events are newest-first; only the target agent's latest event matters. */
-export function deriveTracking(events: RawAgentEvent[], targetAgentId: string): TrackingStatus {
-  const latest = events.find((e) => e.agentId === targetAgentId)
+export interface TrackingScope {
+  /** Target session id returned by inject; empty/undefined => not correlatable. */
+  sessionId?: string
+  /** Attempt start (epoch ms); events with ts < this are ignored (kills history/replay). */
+  startedAt?: number
+}
+
+/**
+ * events are newest-first. Only events belonging to this attempt count:
+ * same agent, at/after start, and — when the adapter gave us a session id — same session.
+ * Without a correlatable session id a completion is reported as 'unconfirmed', never a false 'done'.
+ */
+export function deriveTracking(events: RawAgentEvent[], targetAgentId: string, scope: TrackingScope = {}): TrackingStatus {
+  const { sessionId, startedAt } = scope
+  const hasSession = sessionId != null && sessionId !== ''
+  let scoped = events.filter((e) => e.agentId === targetAgentId)
+  if (startedAt != null) scoped = scoped.filter((e) => e.ts >= startedAt)
+  if (hasSession) scoped = scoped.filter((e) => e.sessionId === sessionId)
+  const latest = scoped[0]
   if (!latest) return 'sending'
-  if (latest.type === 'task_complete') return 'done'
-  if (latest.type === 'turn_aborted') return 'stuck'
-  if (latest.type === 'task_started') return 'running'
-  return 'sending'
+  switch (latest.type) {
+    case 'task_complete': return hasSession ? 'done' : 'unconfirmed'
+    case 'turn_aborted': return hasSession ? 'stuck' : 'unconfirmed'
+    case 'task_started': return 'running'
+    default: return 'running' // an in-flight (unknown-kind) event implies running, never downgrade to sending
+  }
 }

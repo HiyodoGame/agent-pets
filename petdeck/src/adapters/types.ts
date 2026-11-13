@@ -20,6 +20,7 @@ export interface RawAgentEvent {
   agentId: string
   type: string
   ts: number
+  sessionId?: string
 }
 
 export interface InjectPayload {

@@ -1,11 +1,12 @@
-// RED tests for Flow4 tracking status derived from the SSE agent-event stream.
+// Flow4 tracking: attempt-scoped (agent + session + start time), never false 'done'.
 // Run: node --test src/adapters/relay-tracking.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { deriveTracking } from './relay-tracking.ts';
 import type { RawAgentEvent } from './types.ts';
 
-const ev = (agentId: string, type: string, id = 'x'): RawAgentEvent => ({ id, agentId, type, ts: 0 });
+const ev = (agentId: string, type: string, id = 'x', extra: Partial<RawAgentEvent> = {}): RawAgentEvent =>
+  ({ id, agentId, type, ts: 0, sessionId: '', ...extra });
 
 test('tracking: no events => sending', () => {
   assert.equal(deriveTracking([], 'opencode'), 'sending');
@@ -15,19 +16,41 @@ test('tracking: task_started => running', () => {
   assert.equal(deriveTracking([ev('opencode', 'task_started')], 'opencode'), 'running');
 });
 
-test('tracking: task_complete => done', () => {
-  assert.equal(deriveTracking([ev('opencode', 'task_complete')], 'opencode'), 'done');
+test('tracking: correlatable task_complete => done', () => {
+  const events = [ev('opencode', 'task_complete', 'c1', { sessionId: 'ses_1' })];
+  assert.equal(deriveTracking(events, 'opencode', { sessionId: 'ses_1' }), 'done');
 });
 
-test('tracking: turn_aborted => stuck', () => {
-  assert.equal(deriveTracking([ev('opencode', 'turn_aborted')], 'opencode'), 'stuck');
+test('tracking: correlatable turn_aborted => stuck', () => {
+  const events = [ev('opencode', 'turn_aborted', 'c1', { sessionId: 'ses_1' })];
+  assert.equal(deriveTracking(events, 'opencode', { sessionId: 'ses_1' }), 'stuck');
+});
+
+test('tracking: completion without a session id => unconfirmed (never claim done)', () => {
+  const events = [ev('codex', 'task_complete', 'c1', { sessionId: '' })];
+  assert.equal(deriveTracking(events, 'codex'), 'unconfirmed');
 });
 
 test('tracking: ignores other agents', () => {
-  assert.equal(deriveTracking([ev('codex', 'task_complete')], 'opencode'), 'sending');
+  assert.equal(deriveTracking([ev('codex', 'task_complete', 'x', { sessionId: 'ses_1' })], 'opencode', { sessionId: 'ses_1' }), 'sending');
 });
 
-test('tracking: newest event wins', () => {
-  const events = [ev('opencode', 'task_started', 'new'), ev('opencode', 'task_complete', 'old')];
-  assert.equal(deriveTracking(events, 'opencode'), 'running');
+test('tracking: history before send is excluded by startedAt', () => {
+  const events = [ev('codex', 'task_complete', 'old', { ts: 100, sessionId: 'ses_1' })];
+  assert.equal(deriveTracking(events, 'codex', { sessionId: 'ses_1', startedAt: 200 }), 'sending');
+});
+
+test('tracking: another session of the same agent cannot finish this attempt', () => {
+  const events = [ev('codex', 'task_complete', 'other', { ts: 300, sessionId: 'ses_OTHER' })];
+  assert.equal(deriveTracking(events, 'codex', { sessionId: 'ses_1', startedAt: 200 }), 'sending');
+});
+
+test('tracking: replayed completion for the target session still counts (ts at/after start)', () => {
+  const events = [ev('opencode', 'task_complete', 're', { ts: 250, sessionId: 'ses_1' })];
+  assert.equal(deriveTracking(events, 'opencode', { sessionId: 'ses_1', startedAt: 200 }), 'done');
+});
+
+test('tracking: newest scoped event wins (started after complete)', () => {
+  const events = [ev('opencode', 'task_started', 'new', { ts: 300, sessionId: 'ses_1' }), ev('opencode', 'task_complete', 'old', { ts: 250, sessionId: 'ses_1' })];
+  assert.equal(deriveTracking(events, 'opencode', { sessionId: 'ses_1', startedAt: 200 }), 'running');
 });
