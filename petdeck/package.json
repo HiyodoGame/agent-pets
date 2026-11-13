@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "bridge": "node server/bridge.mjs",
-    "test": "node --test server/pure.test.mjs server/freshness.test.mjs src/adapters/logic.test.ts src/adapters/live-sessions.test.ts src/adapters/relay-tracking.test.ts src/telemetry/core.test.ts src/flows/shared/ui-logic.test.ts"
+    "test": "node --test server/pure.test.mjs server/freshness.test.mjs src/adapters/logic.test.ts src/adapters/connection.test.ts src/adapters/live-sessions.test.ts src/adapters/relay-tracking.test.ts src/telemetry/core.test.ts src/flows/shared/ui-logic.test.ts"
   },
   "dependencies": {
     "lucide-react": "^1.72.0",
