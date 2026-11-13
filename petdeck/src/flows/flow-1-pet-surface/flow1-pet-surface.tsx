@@ -355,10 +355,13 @@ export function Flow1_PetSurface({
   const [suppressed, setSuppressed] = useState(0)
   const [eventError, setEventError] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
-  const { projects, unhandledEvents } = usePetData()
+  const { projects, unhandledEvents, connState } = usePetData()
   const events = unhandledEvents()
   const [eventIdx, setEventIdx] = useState(0)
   const event = events[eventIdx % Math.max(events.length, 1)]
+
+  // 真实离线覆盖预览状态：断连时宠物灰化 + 重连 CTA（edge offline-no-network 态）
+  const effectiveStatus: AgentStatus = connState === 'offline' ? 'offline' : status
 
   const openPanel = (projectId: string, sessionId?: string) => onOpenPanel?.(projectId, sessionId)
 
@@ -402,7 +405,7 @@ export function Flow1_PetSurface({
 
       {screen === 1 && (
         <Screen1_AmbientIdle
-          status={status}
+          status={effectiveStatus}
           onPoke={() => { track('pet', EVENT.petPoke); setScreen(3) }}
           onOffline={() => openPanel('p1')}
           onReconnect={() => onReconnect?.()}

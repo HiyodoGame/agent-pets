@@ -180,6 +180,7 @@ function Screen3_Tracking({
   error,
   isLive,
   liveStatus,
+  stale,
   onRetry,
   onCopy,
   onDone,
@@ -191,6 +192,7 @@ function Screen3_Tracking({
   error: boolean
   isLive: boolean
   liveStatus: TrackingStatus
+  stale: boolean
   onRetry: () => void
   onCopy: () => void
   onDone: () => void
@@ -218,6 +220,9 @@ function Screen3_Tracking({
   return (
     <div className="flex w-full max-w-xl flex-col gap-3">
       <EdgeAlert variant="info" title={`已接力给 ${target.name}`} desc={`源会话「${source.title}」的上下文与产物已交接，等待目标响应。`} />
+      {stale && (
+        <EdgeAlert variant="info" title="状态可能滞后" desc="目标 Agent 数据来自离线缓存，恢复连接后以实时状态为准。" />
+      )}
       {offline && (
         <EdgeAlert
           variant="warning"
@@ -324,13 +329,14 @@ function Screen4_Complete({ target, onNext, onExit }: { target: Agent; onNext: (
 }
 
 export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session; onExit?: () => void }) {
-  const { getAgent, getArtifact, agents: mockAgents, inject, agentEvents, mode } = usePetData()
+  const { getAgent, getArtifact, agents: mockAgents, inject, agentEvents, mode, sessions } = usePetData()
   const [source, setSource] = useState<Session>(sourceSession ?? DEFAULT_SOURCE)
   const [screen, setScreen] = useState<1 | 2 | 3 | 4>(1)
   const [error, setError] = useState(false)
   const [draft, setDraft] = useState<RelayDraft>(() => ({ ...mockRelayDrafts[0] }))
   const target = getAgent(draft.targetAgentId) ?? mockAgents[1]
   const liveStatus = deriveTracking(agentEvents, draft.targetAgentId)
+  const targetStale = sessions.some((s) => s.agentId === draft.targetAgentId && s.stale)
 
   const copyPackage = () => {
     const text = `${draft.contextSummary}\n\n指令：${draft.instruction}\n\n产物：${draft.artifactIds.map((a) => getArtifact(a)?.name ?? a).join('、')}`
@@ -367,7 +373,7 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
           setScreen(3)
           inject({ from: source.agentId, to: draft.targetAgentId, context: draft.contextSummary, instruction: draft.instruction }).then((d) => {
             track('relay', EVENT.relayInjectResult, { mode: d.mode, ok: d.mode === 'inject', to: draft.targetAgentId })
-            toast(d.mode === 'inject' ? '已接力注入目标 Agent' : '目标仅观察/手动，已生成交接包（剪贴板）')
+            toast(d.mode === 'inject' ? '已接力注入目标 Agent' : '已生成交接包（剪贴板）· 目标仅观察/手动或 bridge 不可达')
           })
         }}
       />
@@ -378,6 +384,7 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
           error={error}
           isLive={mode === 'live'}
           liveStatus={liveStatus}
+          stale={targetStale}
           onRetry={() => setError(false)}
           onCopy={copyPackage}
           onDone={() => { track('relay', EVENT.relayDone, { to: draft.targetAgentId }); setScreen(4) }}

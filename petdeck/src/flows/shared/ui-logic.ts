@@ -31,3 +31,14 @@ export function getMotionPref(): MotionPref {
 export function setMotionPref(pref: MotionPref): void {
   try { localStorage.setItem(MOTION_KEY, pref) } catch { /* ignore */ }
 }
+
+/** 新鲜度相对时间（stale 标记用）。ts 在未来时按「刚刚」处理。 */
+export function fmtAgo(ts: number, now: number): string {
+  const s = Math.max(0, Math.floor((now - ts) / 1000))
+  if (s < 60) return '刚刚'
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} 分钟前`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h} 小时前`
+  return `${Math.floor(h / 24)} 天前`
+}

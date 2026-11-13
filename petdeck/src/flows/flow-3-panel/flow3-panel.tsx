@@ -60,7 +60,7 @@ import type { Session, SessionStatus } from '../shared/types'
 import { usePetData, mergeSessions, type SessionOverlay } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { EdgeAlert } from '../shared/edge-kit'
-import { fmtCount } from '../shared/ui-logic'
+import { fmtCount, fmtAgo } from '../shared/ui-logic'
 
 const STATUS_TAG: Record<SessionStatus, { label: string; color: 'info' | 'warning' | 'success' | 'error' | 'slate' }> = {
   active: { label: '运行中', color: 'info' },
@@ -178,6 +178,8 @@ function Screen3_SessionThread({
   const [loadedId, setLoadedId] = useState<string | null | undefined>(undefined)
   const [loadError, setLoadError] = useState(false)
   const [sending, setSending] = useState(false)
+  // stale 新鲜度基准：挂载时取一次（render 期调用 Date.now 违反 react/purity）
+  const [staleNow] = useState(() => Date.now())
   // 加载态派生自 loadedId，避免在 effect 内同步 setState（set-state-in-effect）
   useEffect(() => {
     const t = setTimeout(() => setLoadedId(session?.id ?? null), 400)
@@ -247,6 +249,7 @@ function Screen3_SessionThread({
         <MessageSquare className="h-4 w-4 text-text-secondary" />
         <h1 className="text-text truncate font-semibold">{session.title}</h1>
         <Tag color={STATUS_TAG[session.status].color}>{STATUS_TAG[session.status].label}</Tag>
+        {session.stale && <Tag color="slate">stale · {fmtAgo(session.lastSeen ?? staleNow, staleNow)}</Tag>}
         <TypographyMuted>{agent?.name}</TypographyMuted>
         {readOnly && <Tag color="info">仅观察 · 不可指挥</Tag>}
         <div className="ml-auto">
@@ -397,6 +400,7 @@ function Screen2_PanelShell({
                                     <Tooltip content={s.title} side="right">
                                       <span className="truncate">{s.title}</span>
                                     </Tooltip>
+                                    {s.stale && <span className="ml-1 shrink-0 text-xs text-text-secondary">stale</span>}
                                   </button>
                                 </SidebarMenuSubButton>
                               )}

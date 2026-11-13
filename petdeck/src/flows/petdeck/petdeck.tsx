@@ -7,7 +7,7 @@ import { Component, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Routes, Route, Navigate, NavLink, useNavigate } from 'react-router-dom'
 import { ThemeStyleProvider, Button, Tag } from 'sparkdesign'
-import { Sun, Moon, WifiOff } from 'lucide-react'
+import { Sun, Moon, FlaskConical } from 'lucide-react'
 import { Flow1_PetSurface, PetAvatar } from '../flow-1-pet-surface/flow1-pet-surface'
 import { Flow2_ConnectAgent } from '../flow-2-connect-agent/flow2-connect-agent'
 import { Flow3_Panel } from '../flow-3-panel/flow3-panel'
@@ -42,21 +42,29 @@ const NAV = [
   { path: '/relay', label: '接力' },
 ]
 
-function Shell({ appearance, onToggleAppearance }: { appearance: 'light' | 'dark'; onToggleAppearance: () => void }) {
+function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appearance: 'light' | 'dark'; onToggleAppearance: () => void; demo: boolean; onToggleDemo: () => void }) {
   const navigate = useNavigate()
-  const [offline, setOffline] = useState(false)
-  const { sessions, mode } = usePetData()
+  const { sessions, mode, connState, savedAt, reconnect } = usePetData()
   // mount-only：useRef 初始值即挂载时 mode，effect 内读取（不在 render 期写 ref）
   const modeRef = useRef(mode)
   useEffect(() => { track('shell', EVENT.appSessionStart, { mode: modeRef.current }) }, [])
   const running = sessions.filter((s) => s.status === 'active').length
   const waiting = sessions.filter((s) => s.status === 'waiting' || s.status === 'stuck').length
+  const offline = connState === 'offline' && mode !== 'mock'
+  const clock = savedAt !== null ? new Date(savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : null
+  const badge = mode === 'mock'
+    ? { color: 'slate' as const, label: '演示' }
+    : connState === 'live'
+      ? { color: 'success' as const, label: '实时' }
+      : connState === 'reconnecting'
+        ? { color: 'warning' as const, label: '重连中' }
+        : { color: 'error' as const, label: clock ? `离线 · 截至 ${clock}` : '离线' }
 
   return (
     <div className="flex min-h-screen flex-col bg-bg-base text-text">
       <header className="flex items-center gap-3 border-b border-border-secondary bg-bg-layout p-3">
         <span className="font-semibold">PetDeck</span>
-        <Tag color={mode === 'live' ? 'success' : 'slate'}>{mode === 'live' ? '实时' : '演示'}</Tag>
+        <Tag color={badge.color}>{badge.label}</Tag>
         <nav className="flex gap-2">
           {NAV.map((n) => (
             <NavLink
@@ -75,8 +83,8 @@ function Shell({ appearance, onToggleAppearance }: { appearance: 'light' | 'dark
           ))}
         </nav>
         <div className="ml-auto flex gap-1">
-          <Button variant="ghost" aria-label="模拟离线" onClick={() => setOffline((o) => !o)}>
-            <WifiOff className="h-4 w-4" />
+          <Button variant="ghost" aria-label="切换演示数据" aria-pressed={demo} onClick={onToggleDemo}>
+            <FlaskConical className="h-4 w-4" />
           </Button>
           <Button variant="ghost" aria-label="切换亮暗色" onClick={onToggleAppearance}>
             {appearance === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
@@ -84,10 +92,16 @@ function Shell({ appearance, onToggleAppearance }: { appearance: 'light' | 'dark
         </div>
       </header>
 
-      {/* offline-no-network：全局 banner，不阻断缓存查看 */}
+      {/* offline-no-network：真实连接状态驱动，不阻断缓存查看 */}
       {offline && (
         <div className="p-3">
-          <EdgeAlert variant="info" title="当前离线" desc="查看的是本地缓存；恢复网络后自动同步。" onRetry={() => setOffline(false)} retryLabel="恢复网络" />
+          <EdgeAlert
+            variant="info"
+            title="当前离线"
+            desc={clock ? `查看的是本地缓存（截至 ${clock}）；恢复后自动同步。` : '尚未连接本地 bridge；启动后自动同步。'}
+            onRetry={reconnect}
+            retryLabel="重连"
+          />
         </div>
       )}
 
@@ -118,11 +132,17 @@ function Shell({ appearance, onToggleAppearance }: { appearance: 'light' | 'dark
 
 export function PetDeckApp() {
   const [appearance, setAppearance] = useState<'light' | 'dark'>('light')
+  const [demo, setDemo] = useState(false)
   return (
     <ThemeStyleProvider appearance={appearance} theme="mint" style="soft">
       <ErrorBoundary>
-        <DataSourceProvider>
-          <Shell appearance={appearance} onToggleAppearance={() => setAppearance((a) => (a === 'light' ? 'dark' : 'light'))} />
+        <DataSourceProvider demo={demo}>
+          <Shell
+            appearance={appearance}
+            onToggleAppearance={() => setAppearance((a) => (a === 'light' ? 'dark' : 'light'))}
+            demo={demo}
+            onToggleDemo={() => setDemo((d) => !d)}
+          />
         </DataSourceProvider>
       </ErrorBoundary>
     </ThemeStyleProvider>
