@@ -53,3 +53,32 @@ test('EVENT: offline connection events exist', () => {
   assert.equal(EVENT.offlineEntered, 'offline_entered');
   assert.equal(EVENT.connectionRecovered, 'connection_recovered');
 });
+
+test('core: strips forbidden keys at any depth', () => {
+  const t = createTelemetryCore({ user: 'u1' });
+  const e = t.track('p', 'a', { ok: true, nested: { content: 'SECRET', keep: 1 }, arr: [{ instruction: 'X' }, { fine: 2 }] });
+  const json = JSON.stringify(e.extra);
+  assert.equal(json.includes('SECRET'), false);
+  assert.equal(json.includes('instruction'), false);
+  assert.equal(json.includes('keep'), true);
+});
+
+test('core: mutating caller object after track cannot leak content', () => {
+  const t = createTelemetryCore({ user: 'u1' });
+  const payload = { meta: { content: '' } };
+  const e = t.track('p', 'a', { payload });
+  payload.meta.content = 'LATE_SECRET';
+  assert.equal(JSON.stringify(e.extra).includes('LATE_SECRET'), false);
+});
+
+test('core: _load with malformed data recovers and keeps tracking', () => {
+  const t = createTelemetryCore({ user: 'u1' });
+  // JSON.parse('"text"') => a string; must not turn buf into a non-array.
+  (t as unknown as { _load(v: unknown): void })._load('not-an-array');
+  assert.equal(t.events().length, 0);
+  assert.equal(t.track('p', 'a').action, 'a'); // would throw before the fix
+  // array with junk entries => only well-formed events survive
+  const t2 = createTelemetryCore({ user: 'u1' });
+  (t2 as unknown as { _load(v: unknown): void })._load([{ id: 'a', action: 'x' }, null, 5, { nope: true }]);
+  assert.equal(t2.events().length, 1);
+});

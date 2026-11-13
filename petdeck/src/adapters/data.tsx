@@ -2,7 +2,7 @@
 // Demo data only via explicit `demo` prop — never an automatic fallback.
 // Only exports the provider component; context/hook live in pet-data-context.ts.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { PetEvent, Project, Session } from '../flows/shared/types'
+import type { Agent, PetEvent, Project, Session } from '../flows/shared/types'
 import { mockPetData } from './mock-adapter'
 import { fetchAgents, fetchHealth, fetchSessions, inject as bridgeInject, subscribeEvents } from './bridge-client'
 import { selectSource, injectOrClipboard } from './registry'
@@ -57,6 +57,9 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
   const cacheShownRef = useRef(false)
   const tickRef = useRef<() => void>(() => {})
   const prevConnRef = useRef(conn.state)
+  const revRef = useRef(0)
+  const hasMemoryRef = useRef(false)
+  const lastAgentsRef = useRef<Agent[]>([])
   const mockData = useMemo(() => mockPetData(), [])
 
   useEffect(() => {
@@ -64,30 +67,47 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
     let alive = true
     let un: (() => void) | null = null
     const storage = browserStorage()
+    // Single commit path for real sessions: writes state + snapshot, bumps the revision
+    // so an in-flight HTTP tick (whose response is now older) can detect and skip.
+    const commit = (rows: ObservedSession[], agents?: Agent[]) => {
+      const sessions = observedToSessions(rows)
+      hasMemoryRef.current = true
+      if (agents) lastAgentsRef.current = agents
+      setData((prev) => ({ mode: 'live', agents: agents ?? prev.agents, projects: liveProjects(sessions), sessions, events: eventsRef.current, artifacts: prev.artifacts }))
+      revRef.current++
+      const key = JSON.stringify(rows)
+      if (key !== savedKeyRef.current) {
+        savedKeyRef.current = key
+        saveSnapshot(storage, { sessions: rows, agents: lastAgentsRef.current }, Date.now())
+      }
+    }
     const tick = async () => {
       const healthy = await fetchHealth()
       if (!alive) return
       setConn((prev) => nextConnState(prev, { type: 'health', ok: healthy }))
       if (healthy) {
         cacheShownRef.current = false
+        const revBefore = revRef.current
         const [agents, rows] = await Promise.all([fetchAgents(), fetchSessions()])
         if (!alive) return
-        const sessions = observedToSessions(rows)
-        setData({ mode: 'live', agents, projects: liveProjects(sessions), sessions, events: eventsRef.current, artifacts: [] })
+        // A fresher SSE commit landed while this HTTP request was in flight => response is stale, skip.
+        if (revRef.current !== revBefore) return
+        commit(rows, agents)
         setSavedAt(null)
-        const key = JSON.stringify(rows)
-        if (key !== savedKeyRef.current) {
-          savedKeyRef.current = key
-          saveSnapshot(storage, { sessions: rows, agents }, Date.now())
-        }
         if (!un) {
           un = subscribeEvents((e) => {
             if (e.type === 'sessions' || e.petType === 'sessions') {
               const sseRows = (e.payload as { sessions?: ObservedSession[] })?.sessions ?? []
-              setData((prev) => ({ ...prev, sessions: observedToSessions(sseRows) }))
+              commit(sseRows)
               return
             }
-            const raw: RawAgentEvent = { id: String(e.id ?? Date.now()), agentId: String(e.agentId ?? ''), type: String(e.type ?? ''), ts: Date.now() }
+            const raw: RawAgentEvent = {
+              id: String(e.id ?? Date.now()),
+              agentId: String(e.agentId ?? ''),
+              type: String(e.type ?? ''),
+              ts: Number(e.ts ?? Date.now()),
+              sessionId: String(e.sessionId ?? ''),
+            }
             if (!dedupRef.current.seen(raw.id)) return
             setAgentEvents((prev) => [raw, ...prev].slice(0, 100))
             const pt = e.petType as string
@@ -108,16 +128,13 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
             onError: () => { setConn((prev) => nextConnState(prev, { type: 'sse', open: false })) },
           })
         }
-      } else if (!cacheShownRef.current) {
+      } else if (!hasMemoryRef.current && !cacheShownRef.current) {
+        // 断连：保留内存 last-good；仅冷启动且无内存数据时才读磁盘快照。
         cacheShownRef.current = true
         const cached = loadSnapshot(storage)
         if (cached) {
-          const sessions = observedToSessions(cached.sessions)
-          setData({ mode: 'live', agents: cached.agents, projects: liveProjects(sessions), sessions, events: eventsRef.current, artifacts: [] })
+          commit(cached.sessions, cached.agents)
           setSavedAt(cached.savedAt)
-        } else {
-          setData(emptyLive())
-          setSavedAt(null)
         }
       }
     }

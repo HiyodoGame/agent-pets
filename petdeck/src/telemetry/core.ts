@@ -38,10 +38,22 @@ export interface TelemetryCore {
 }
 
 let seq = 0
+// Recursively strip forbidden keys at ANY depth, and clone so a caller mutating
+// its own object after track() cannot retroactively leak content into the event.
+function strip(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(strip)
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (FORBIDDEN.includes(k)) continue
+      out[k] = strip(val)
+    }
+    return out
+  }
+  return v
+}
 function sanitize(extra: Record<string, unknown> = {}): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(extra)) if (!FORBIDDEN.includes(k)) out[k] = v
-  return out
+  return strip(extra) as Record<string, unknown>
 }
 
 export function createTelemetryCore(opts: { user: string; cap?: number; now?: () => number }): TelemetryCore {
@@ -58,7 +70,11 @@ export function createTelemetryCore(opts: { user: string; cap?: number; now?: ()
     events: () => [...buf],
     exportJSON: () => JSON.stringify(buf),
     clear: () => { buf = [] },
-    _load: (evts) => { buf = evts.slice(-cap) },
+    _load: (evts) => {
+      // Only accept an array of well-formed events; anything else => start fresh (never poison buf).
+      const safe = Array.isArray(evts) ? evts.filter((e) => e && typeof e === 'object' && typeof (e as TelemetryEvent).id === 'string' && typeof (e as TelemetryEvent).action === 'string') : []
+      buf = safe.slice(-cap)
+    },
   }
   return core
 }
