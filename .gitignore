@@ -12,6 +12,7 @@ petdeck/.tmp-observe/
 
 # SDD scratch workspaces (ledger/briefs/reports; git history is the record)
 .superpowers/
+.worktrees/
 
 # os
 .DS_Store
