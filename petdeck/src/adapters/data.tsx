@@ -14,6 +14,7 @@ import { createDeduper } from './event-dedup'
 import { shouldCommitHttp, shouldLoadSnapshot, observedToSessions } from './data-sync'
 import { track, EVENT } from '../telemetry'
 import type { ObservedSession, PetData, RawAgentEvent } from './types'
+import { initializeBridgeConfig } from '../desktop/bridge-config'
 
 function liveProjects(sessions: Session[]): Project[] {
   return [{ id: 'live', name: '实时 Agent', description: '来自本地 bridge 的真实会话', sessionIds: sessions.map((s) => s.id), updatedAt: new Date().toISOString() }]
@@ -161,7 +162,9 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
     agentEvents,
     connState: conn.state,
     savedAt,
-    reconnect: () => tickRef.current(),
+    reconnect: () => {
+      initializeBridgeConfig().catch(() => {}).then(() => tickRef.current())
+    },
     inject: (p) => injectOrClipboard(p, shown.mode === 'live', bridgeInject),
   })}, [shown, agentEvents, conn.state, savedAt])
 

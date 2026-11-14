@@ -33,11 +33,42 @@ impl BridgeConfig {
 }
 
 pub struct BridgeState {
-    pub config: BridgeConfig,
+    config: Mutex<BridgeConfig>,
     child: Mutex<Option<Child>>,
 }
 
 impl BridgeState {
+    pub fn config(&self) -> BridgeConfig {
+        self.config
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    pub fn needs_restart(&self) -> bool {
+        let mut guard = self.child.lock().unwrap_or_else(|error| error.into_inner());
+        match guard.as_mut() {
+            Some(child) => !matches!(child.try_wait(), Ok(None)),
+            None => true,
+        }
+    }
+
+    pub fn restart(&self, app: &AppHandle) {
+        self.shutdown();
+        let replacement = start_bridge(app);
+        let config = replacement.config();
+        let child = replacement
+            .child
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        *self
+            .config
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = config;
+        *self.child.lock().unwrap_or_else(|error| error.into_inner()) = child;
+    }
+
     pub fn shutdown(&self) {
         let mut guard = self.child.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(mut child) = guard.take() {
@@ -141,7 +172,7 @@ pub fn start_bridge(app: &AppHandle) -> BridgeState {
         }
     };
     BridgeState {
-        config,
+        config: Mutex::new(config),
         child: Mutex::new(child),
     }
 }
@@ -173,6 +204,15 @@ mod tests {
         assert!(node_version_supported("v25.0.0"));
         assert!(!node_version_supported("v23.11.1"));
         assert!(!node_version_supported("not-a-version"));
+    }
+
+    #[test]
+    fn missing_child_requires_bridge_restart() {
+        let state = BridgeState {
+            config: Mutex::new(BridgeConfig::new()),
+            child: Mutex::new(None),
+        };
+        assert!(state.needs_restart());
     }
 
     #[test]

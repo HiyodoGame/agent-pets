@@ -16,7 +16,7 @@ export function createNotificationDispatcher(notify: (event: PetEvent) => unknow
     seen.add(event.id)
     if (notificationDecision(event, dnd) === 'inbox') return 'inbox'
     try {
-      await notify(event)
+      if (!dnd) await notify(event)
     } catch (error) {
       seen.delete(event.id)
       throw error

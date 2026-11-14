@@ -27,11 +27,11 @@ test('notifications: DND routes ordinary events to inbox without system notifica
   assert.equal(calls, 0)
 })
 
-test('notifications: decisions retain their tap path under DND', async () => {
+test('notifications: decisions retain local tap without an OS toast under DND', async () => {
   let calls = 0
   const dispatch = createNotificationDispatcher(() => { calls++ })
   assert.equal(await dispatch(event('decision'), true), 'tap')
-  assert.equal(calls, 1)
+  assert.equal(calls, 0)
 })
 
 test('notifications: duplicate event ids never notify twice', async () => {

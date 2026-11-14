@@ -26,10 +26,13 @@ fn bridge_config(app: &AppHandle) -> BridgeConfig {
         .lock()
         .unwrap_or_else(|error| error.into_inner());
     if let Some(state) = app.try_state::<BridgeState>() {
-        return state.config.clone();
+        if state.needs_restart() {
+            state.restart(app);
+        }
+        return state.config();
     }
     let state = bridge::start_bridge(app);
-    let config = state.config.clone();
+    let config = state.config();
     app.manage(state);
     config
 }
