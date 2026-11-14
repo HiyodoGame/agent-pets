@@ -13,6 +13,7 @@ import { PetAvatar } from '../shared/pet-avatar'
 import { DataSourceProvider, usePetData } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { fmtCount } from '../shared/ui-logic'
+import { listenForPanelNavigation } from '../../desktop/window'
 
 // 代码分包：五个懒加载单元（四个 flow 在 themed-routes 内 + 本路由模块），
 // sparkdesign barrel 不进入入口静态依赖，也就不会被 HTML 预加载。
@@ -47,6 +48,18 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appeara
   // mount-only：useRef 初始值即挂载时 mode，effect 内读取（不在 render 期写 ref）
   const modeRef = useRef(mode)
   useEffect(() => { track('shell', EVENT.appSessionStart, { mode: modeRef.current }) }, [])
+  useEffect(() => {
+    let active = true
+    let unlisten: (() => void) | null = null
+    listenForPanelNavigation((target) => navigate('/panel', { state: target })).then((fn) => {
+      if (active) unlisten = fn
+      else fn()
+    }).catch(() => {})
+    return () => {
+      active = false
+      unlisten?.()
+    }
+  }, [navigate])
   const running = sessions.filter((s) => s.status === 'active').length
   const waiting = sessions.filter((s) => s.status === 'waiting' || s.status === 'stuck').length
   const offline = connState === 'offline' && mode !== 'mock'

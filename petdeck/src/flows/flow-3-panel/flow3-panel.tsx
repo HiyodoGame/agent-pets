@@ -535,18 +535,17 @@ function Screen2_PanelShell({
   )
 }
 
-export function Flow3_Panel({ onRelay, onConnect }: { onRelay?: (s: Session) => void; onConnect: () => void }) {
+export function Flow3_Panel({ onRelay, onConnect, focusTarget }: { onRelay?: (s: Session) => void; onConnect: () => void; focusTarget?: { projectId?: string; sessionId?: string } | null }) {
   const { sessions: baseSessions, sessionsOfProject, inject, mode } = usePetData()
-  const [view, setView] = useState<'home' | 'panel'>('home')
-  const [projectId, setProjectId] = useState<string | null>(null)
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [view, setView] = useState<'home' | 'panel'>(focusTarget ? 'panel' : 'home')
+  const [projectId, setProjectId] = useState<string | null>(focusTarget?.projectId ?? null)
+  const [sessionId, setSessionId] = useState<string | null>(focusTarget?.sessionId ?? null)
   const [overlays, setOverlays] = useState<Record<string, SessionOverlay>>({})
   const [deleted, setDeleted] = useState<string[]>([])
   // clipboard 降级的真实交接内容：展示为可选中的只读文本块，供自动复制失败时手动复制。
   const [handoff, setHandoff] = useState<{ sessionId: string; text: string } | null>(null)
   // live base（随 SSE 实时刷新）+ 本地编辑 overlay（rename/archive/delete/followUp）
   const sessions = useMemo(() => mergeSessions(baseSessions, overlays, deleted), [baseSessions, overlays, deleted])
-
   const rename = (id: string, title: string) => setOverlays((o) => ({ ...o, [id]: { ...o[id], title } }))
   const archive = (id: string) => {
     setOverlays((o) => ({ ...o, [id]: { ...o[id], status: 'archived' } }))

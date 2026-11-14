@@ -28,6 +28,14 @@ function RelayRoute({ onExit }: { onExit: () => void }) {
   return <Flow4_Relay key={mode} sourceSession={sourceSession} onExit={onExit} />
 }
 
+function PanelRoute() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const state = location.state as { projectId?: string; sessionId?: string } | null
+  const target = state && (state.projectId || state.sessionId) ? state : null
+  return <Flow3_Panel key={location.key} focusTarget={target} onRelay={(s) => navigate('/relay', { state: { sessionId: s.id } })} onConnect={() => navigate('/connect')} />
+}
+
 function ShellRoutes() {
   const navigate = useNavigate()
   return (
@@ -35,7 +43,7 @@ function ShellRoutes() {
       <Route path="/" element={<Navigate to="/panel" replace />} />
       <Route path="/pet" element={<Flow1_PetSurface onOpenPanel={() => navigate('/panel')} onReconnect={() => navigate('/connect')} />} />
       <Route path="/connect" element={<Flow2_ConnectAgent onConnected={() => navigate('/panel')} />} />
-      <Route path="/panel" element={<Flow3_Panel onRelay={(s) => navigate('/relay', { state: { sessionId: s.id } })} onConnect={() => navigate('/connect')} />} />
+      <Route path="/panel" element={<PanelRoute />} />
       <Route path="/relay" element={<RelayRoute onExit={() => navigate('/panel')} />} />
     </Routes>
   )
