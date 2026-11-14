@@ -9,7 +9,7 @@ import { compactPetStatus, summarizeSessions } from './pet-view'
 import { listenForDndChange, openMainPanel, persistPetPositionOnMove, quitPetDeck, resizePetWindow, savePetPosition, setDesktopDnd, startPetDragging, type PanelTarget } from '../../desktop/window'
 import { createNotificationDispatcher, sendPetSystemNotification } from '../../desktop/notifications'
 
-export function CompactPet() {
+export function CompactPet({ bridgeError = null }: { bridgeError?: string | null }) {
   const { sessions, projects, unhandledEvents, connState, reconnect } = usePetData()
   const [expanded, setExpanded] = useState(false)
   const [dnd, setDnd] = useState(false)
@@ -130,7 +130,7 @@ export function CompactPet() {
           {attention > 0 && <span className="text-warning">{fmtCount(attention)} 待处理</span>}
         </div>
 
-        {connState === 'offline' && (
+        {connState === 'offline' && !bridgeError && (
           <button type="button" className="inline-flex items-center gap-1 rounded-full bg-bg-container px-3 py-1 text-xs text-error shadow-sm" onClick={reconnect}>
             <RefreshCw className="h-3 w-3" /> 重连 Agent
           </button>
@@ -212,6 +212,7 @@ export function CompactPet() {
           </section>
         )}
 
+        {bridgeError && <p className="max-w-full rounded-md bg-bg-container px-3 py-2 text-center text-xs text-error" role="alert">{bridgeError}</p>}
         {desktopError && <p className="text-xs text-error" role="alert">桌面窗口操作失败，请重试</p>}
       </div>
     </main>

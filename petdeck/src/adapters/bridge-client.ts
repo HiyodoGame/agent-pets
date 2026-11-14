@@ -7,6 +7,7 @@ export const BRIDGE_URL = 'http://127.0.0.1:5199'
 export interface BridgeClientConfig {
   url: string
   token: string
+  error?: string
 }
 
 let bridgeConfig: BridgeClientConfig = {

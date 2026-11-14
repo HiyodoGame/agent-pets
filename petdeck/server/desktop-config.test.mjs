@@ -34,6 +34,11 @@ test('desktop: Tauri and its Vite dev server use one strict port', () => {
   assert.match(config.build.beforeDevCommand, /--strictPort/);
 });
 
+test('desktop: bridge resources preserve the server directory tree', () => {
+  const config = desktopConfig();
+  assert.equal(config.bundle.resources['../server/'], 'server/');
+});
+
 test('desktop: Vite builds both the pet and main HTML entries', async () => {
   const { default: config } = await import('../vite.config.js');
   const input = config.build?.rollupOptions?.input;

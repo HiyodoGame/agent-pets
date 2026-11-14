@@ -1,54 +1,80 @@
-# petdeck — Agent Pets 接力秘书
+# PetDeck — Agent Pets 桌面宠物
 
-本地优先的「接力秘书」：React 前端通过本机 bridge（HTTP + SSE，仅绑定 `127.0.0.1:5199`）观察并注入本地 Agent CLI。会话内容与缓存全部留在本机。
+Windows 优先的 Agent 桌面宠物：透明、无边框、置顶的小窗常驻桌面，通过本机 bridge（HTTP + SSE）观察并接力本地 Agent CLI。主面板按需打开；会话内容与缓存全部留在本机。
 
-## 前置条件
+## 桌面版前置条件
 
-- **Node.js 24**（CI 与 `engines` 均为 24；`node --version` 确认）
-- npm（随 Node 提供）
-- 本地 Agent CLI（按适配器，均为可选；缺失只影响对应卡片）：
-  - **Codex**：`codex` CLI，读取 `~/.codex/sessions` rollout jsonl；`codex exec` 注入为实验能力，失败自动降级剪贴板交接。
-  - **Claude**：`claude` CLI（headless `-p --output-format stream-json`），读取 `~/.claude/projects/*.jsonl`。
-  - **opencode**：`opencode` CLI；观察依赖本地 `opencode serve`，默认 `http://127.0.0.1:4096`（端口被占用时需自行在 4096 起 serve）。
-  - **kimi work**：hosted web Agent，仅观察层（手动签到），注入恒为剪贴板交接。
+- Windows 10/11 与 Microsoft Edge WebView2（安装器可在缺失时下载 bootstrapper）
+- **Node.js 24 或更新版本**（首个桌面 Beta 仍使用系统 Node 启动 bridge）
+- 开发构建还需要 Rust 1.90+、Cargo 和 Visual Studio MSVC 工具链
+- 本地 Agent CLI 均为可选；缺失只影响对应卡片：
+  - **Codex**：读取 `~/.codex/sessions` rollout jsonl；`codex exec` 注入为实验能力，失败降级剪贴板。
+  - **Claude**：读取 `~/.claude/projects/*.jsonl`，使用 headless `claude -p --output-format stream-json`。
+  - **opencode**：观察依赖本地 `opencode serve`，默认 `http://127.0.0.1:4096`。
+  - **kimi work**：hosted web Agent，仅观察层，注入恒为剪贴板交接。
 
-> ⚠️ 真实 CLI 的兼容性**未在真机逐一实测**：现有测试使用 fake spawn/fetch/adapter 与临时目录。首次接入真实 CLI 时请小步验证。
+> 真实 CLI 的兼容性尚未在所有适配器上逐一完成安装版实测。现有自动化测试使用 fake spawn/fetch/adapter；首次接入时请小步验证，不以测试替代真机结论。
 
-## 安装
+## 桌面开发与运行
 
 ```bash
 npm ci
+npm run tauri:dev
 ```
 
-## 配置（token 必须配对）
+桌面应用自动完成以下操作，无需手动开两个终端：
 
-bridge 服务侧与前端的 token 来自两个不同变量，**值必须一致**，否则注入一律 401：
+- 每次启动生成随机 token，并选择可用的 loopback 端口。
+- 启动和退出时管理 `server/bridge.mjs` Node 子进程。
+- 显示透明宠物；拖拽手柄移动位置并自动记住位置。
+- 单击宠物展开项目摘要、DND 收件箱和主面板入口。
+- 托盘提供显示宠物、打开面板、免打扰、开机启动和退出；开机启动默认关闭。
+- 关闭宠物或主面板只会隐藏；退出应用才回收 bridge。
 
-| 变量 | 作用 |
-| --- | --- |
-| `PETDECK_BRIDGE_TOKEN` | bridge 进程读取；**缺失时 bridge 拒绝启动** |
-| `VITE_PETDECK_BRIDGE_TOKEN` | 前端读取（Vite 只暴露 `VITE_` 前缀变量）；注入请求携带 `X-Petdeck-Token` |
-| `PETDECK_BRIDGE_ORIGINS` | 逗号分隔的额外允许 Origin（默认已含 `http://localhost:5173`、`http://127.0.0.1:5173`；如用其他前端端口需在此配置） |
-| `PETDECK_BRIDGE_PORT` | 可选，bridge 端口，默认 `5199`，仅绑定 `127.0.0.1` |
+缺少 Node、Node 版本过低或 bridge 组件缺失时，宠物会显示明确错误，不会自动切换到演示数据。
 
-参考 `petdeck/.env.example`（仅占位值，不含秘密）。注意 Vite 不会自动加载 `.env` 中变量到 Node 的 bridge 进程——两个变量请分别以各自进程的方式提供（export 或各自的 env 文件）。
-
-## 启动（两个终端）
+## Windows 安装包
 
 ```bash
-# 终端 1：本地 bridge（先确保 PETDECK_BRIDGE_TOKEN 已设置）
-npm run bridge
+npm run tauri:build
+```
 
-# 终端 2：前端 dev server（VITE_PETDECK_BRIDGE_TOKEN 与上面一致）
+NSIS 安装包输出到 `src-tauri/target/release/bundle/nsis/`。安装器包含前端、应用图标、WebView2 检查及 `server/` bridge resources。Node 24 暂不内嵌。
+
+## Web 开发/演示预览
+
+Web 版用于开发、设计走查和演示，不再是默认产品形态：
+
+```bash
 npm run dev   # http://localhost:5173
 ```
 
-## Demo 开关
+界面的 demo 开关是唯一使用模拟数据的路径。真实模式断连时展示最后已知状态与新鲜度标记，不回退 mock。
 
-界面内的 demo 开关是**唯一**使用模拟数据的路径，需显式开启、永不自动降级。真实模式断连时展示最后已知状态与新鲜度标记，不回退 mock。
+如需在 Web 真实模式下手动运行 bridge，可使用两个终端：
+
+```bash
+# 终端 1
+PETDECK_BRIDGE_TOKEN=<本地随机值> npm run bridge
+
+# 终端 2，VITE token 必须与上面一致
+VITE_PETDECK_BRIDGE_TOKEN=<本地随机值> npm run dev
+```
+
+| 变量 | 作用 |
+| --- | --- |
+| `PETDECK_BRIDGE_TOKEN` | bridge 进程读取；缺失时拒绝启动 |
+| `VITE_PETDECK_BRIDGE_TOKEN` | Web 前端读取；注入携带 `X-Petdeck-Token` |
+| `PETDECK_BRIDGE_ORIGINS` | 逗号分隔的额外允许 Origin；桌面 Origin 已内置 |
+| `PETDECK_BRIDGE_PORT` | Web 手动模式端口，默认 `5199`；桌面版自动选择 |
+
+参考 `.env.example`（仅占位值）。Vite 不会自动把 `.env` 变量传给独立 Node 进程。
 
 ## 质量门
 
 ```bash
 npm run typecheck && npm test && npm run lint && npm run build
+cargo fmt --check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
+npm run tauri:build -- --no-bundle
 ```

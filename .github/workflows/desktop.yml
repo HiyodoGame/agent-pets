@@ -1,0 +1,40 @@
+name: Desktop CI
+
+on:
+  push:
+    branches: [master]
+    paths: ['petdeck/**', '.github/workflows/desktop.yml']
+  pull_request:
+    paths: ['petdeck/**', '.github/workflows/desktop.yml']
+
+jobs:
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: petdeck/package-lock.json
+      - name: Install
+        working-directory: petdeck
+        run: npm ci
+      - name: Typecheck
+        working-directory: petdeck
+        run: npm run typecheck
+      - name: Unit tests
+        working-directory: petdeck
+        run: npm test
+      - name: Lint
+        working-directory: petdeck
+        run: npm run lint
+      - name: Web build
+        working-directory: petdeck
+        run: npm run build
+      - name: Rust tests
+        working-directory: petdeck
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Tauri release compile (without installer)
+        working-directory: petdeck
+        run: npm run tauri:build -- --no-bundle

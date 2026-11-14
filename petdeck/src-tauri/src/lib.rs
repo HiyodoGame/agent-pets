@@ -19,6 +19,20 @@ struct PanelTarget {
 struct DndState(Mutex<bool>);
 struct DndMenuItem(CheckMenuItem<Wry>);
 struct AutostartMenuItem(CheckMenuItem<Wry>);
+static BRIDGE_INIT: Mutex<()> = Mutex::new(());
+
+fn bridge_config(app: &AppHandle) -> BridgeConfig {
+    let _guard = BRIDGE_INIT
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if let Some(state) = app.try_state::<BridgeState>() {
+        return state.config.clone();
+    }
+    let state = bridge::start_bridge(app);
+    let config = state.config.clone();
+    app.manage(state);
+    config
+}
 
 fn update_dnd(app: &AppHandle, enabled: bool) {
     let state = app.state::<DndState>();
@@ -45,7 +59,7 @@ fn open_panel(app: AppHandle, target: PanelTarget) -> Result<(), String> {
 
 #[tauri::command]
 fn get_bridge_config(app: AppHandle) -> BridgeConfig {
-    app.state::<BridgeState>().config.clone()
+    bridge_config(&app)
 }
 
 #[tauri::command]
@@ -72,7 +86,6 @@ pub fn run() {
         )
         .setup(|app| {
             app.manage(DndState(Mutex::new(false)));
-            app.manage(bridge::start_bridge(&app.handle()));
 
             let show_pet = MenuItemBuilder::with_id("show-pet", "显示宠物").build(app)?;
             let open_panel_item = MenuItemBuilder::with_id("open-panel", "打开面板").build(app)?;
@@ -149,7 +162,9 @@ pub fn run() {
         .expect("error while building PetDeck");
     app.run(|app, event| {
         if matches!(event, RunEvent::Exit) {
-            app.state::<BridgeState>().shutdown();
+            if let Some(state) = app.try_state::<BridgeState>() {
+                state.shutdown();
+            }
         }
     });
 }

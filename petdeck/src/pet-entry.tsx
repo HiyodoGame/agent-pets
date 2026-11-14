@@ -8,20 +8,22 @@ import './index.css'
 
 document.documentElement.dataset.petWindow = 'true'
 
-export function PetEntry() {
+export function PetEntry({ bridgeError = null }: { bridgeError?: string | null }) {
   return (
     <DataSourceProvider>
-      <CompactPet />
+      <CompactPet bridgeError={bridgeError} />
     </DataSourceProvider>
   )
 }
 
-function renderPet() {
+function renderPet(bridgeError: string | null) {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <PetEntry />
+      <PetEntry bridgeError={bridgeError} />
     </StrictMode>,
   )
 }
 
-initializeBridgeConfig().catch(() => {}).then(renderPet)
+initializeBridgeConfig()
+  .then((config) => renderPet(config.error ?? null))
+  .catch(() => renderPet('无法初始化本地 bridge，请重启 PetDeck 后重试。'))

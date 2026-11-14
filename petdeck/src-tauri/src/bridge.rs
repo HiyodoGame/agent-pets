@@ -11,6 +11,7 @@ use uuid::Uuid;
 pub struct BridgeConfig {
     url: String,
     token: String,
+    error: Option<String>,
 }
 
 impl BridgeConfig {
@@ -22,6 +23,7 @@ impl BridgeConfig {
         Self {
             url: format!("http://127.0.0.1:{port}"),
             token: Uuid::new_v4().to_string(),
+            error: None,
         }
     }
 
@@ -58,47 +60,84 @@ pub fn bridge_script_path() -> PathBuf {
         .join("bridge.mjs")
 }
 
+fn node_compatible_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(path) = path.to_string_lossy().strip_prefix("\\\\?\\") {
+        return PathBuf::from(path);
+    }
+    path
+}
+
 fn resolve_bridge_script(app: &AppHandle) -> Result<PathBuf, String> {
     if cfg!(debug_assertions) {
-        return Ok(bridge_script_path());
+        return Ok(node_compatible_path(bridge_script_path()));
     }
     app.path()
         .resource_dir()
-        .map(|path| path.join("server").join("bridge.mjs"))
+        .map(|path| node_compatible_path(path.join("server").join("bridge.mjs")))
         .map_err(|error| error.to_string())
 }
 
+fn node_version_supported(version: &str) -> bool {
+    version
+        .trim()
+        .strip_prefix('v')
+        .and_then(|value| value.split('.').next())
+        .and_then(|major| major.parse::<u32>().ok())
+        .is_some_and(|major| major >= 24)
+}
+
+fn node_version_error() -> Option<String> {
+    match Command::new("node").arg("--version").output() {
+        Ok(output)
+            if output.status.success()
+                && node_version_supported(&String::from_utf8_lossy(&output.stdout)) =>
+        {
+            None
+        }
+        Ok(_) => Some("PetDeck 需要 Node.js 24 或更新版本，请升级后重启应用。".to_string()),
+        Err(_) => Some("未检测到 Node.js，请安装 Node.js 24 后重启 PetDeck。".to_string()),
+    }
+}
+
 pub fn start_bridge(app: &AppHandle) -> BridgeState {
-    let config = BridgeConfig::new();
-    let child = match resolve_bridge_script(app) {
-        Ok(script) => {
-            let working_dir = script.parent().map(PathBuf::from);
-            let mut command = Command::new("node");
-            command
-                .arg(&script)
-                .env("PETDECK_BRIDGE_TOKEN", &config.token)
-                .env("PETDECK_BRIDGE_PORT", config.port())
-                .env(
-                    "PETDECK_BRIDGE_ORIGINS",
-                    "http://tauri.localhost,http://localhost:5183",
-                )
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            if let Some(dir) = working_dir {
-                command.current_dir(dir);
-            }
-            match command.spawn() {
-                Ok(child) => Some(child),
-                Err(error) => {
-                    eprintln!("[petdeck] bridge start failed: {error}");
-                    None
+    let mut config = BridgeConfig::new();
+    config.error = node_version_error();
+    let child = if config.error.is_some() {
+        None
+    } else {
+        match resolve_bridge_script(app) {
+            Ok(script) => {
+                let working_dir = script.parent().map(PathBuf::from);
+                let mut command = Command::new("node");
+                command
+                    .arg(&script)
+                    .env("PETDECK_BRIDGE_TOKEN", &config.token)
+                    .env("PETDECK_BRIDGE_PORT", config.port())
+                    .env(
+                        "PETDECK_BRIDGE_ORIGINS",
+                        "http://tauri.localhost,http://localhost:5183",
+                    )
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit());
+                if let Some(dir) = working_dir {
+                    command.current_dir(dir);
+                }
+                match command.spawn() {
+                    Ok(child) => Some(child),
+                    Err(_) => {
+                        config.error = Some(
+                            "本地 bridge 启动失败，请检查 Node.js 安装后重启应用。".to_string(),
+                        );
+                        None
+                    }
                 }
             }
-        }
-        Err(error) => {
-            eprintln!("[petdeck] bridge path unavailable: {error}");
-            None
+            Err(_) => {
+                config.error = Some("应用缺少本地 bridge 组件，请重新安装 PetDeck。".to_string());
+                None
+            }
         }
     };
     BridgeState {
@@ -120,6 +159,20 @@ mod tests {
         assert!(first.url.starts_with("http://127.0.0.1:"));
         let port = first.url.rsplit(':').next().unwrap().parse::<u16>();
         assert!(port.is_ok());
+    }
+
+    #[test]
+    fn node_script_path_does_not_use_windows_verbatim_prefix() {
+        let path = node_compatible_path(PathBuf::from("\\\\?\\F:\\project\\server\\bridge.mjs"));
+        assert_eq!(path, PathBuf::from("F:\\project\\server\\bridge.mjs"));
+    }
+
+    #[test]
+    fn node_version_check_requires_24_or_newer() {
+        assert!(node_version_supported("v24.18.0"));
+        assert!(node_version_supported("v25.0.0"));
+        assert!(!node_version_supported("v23.11.1"));
+        assert!(!node_version_supported("not-a-version"));
     }
 
     #[test]
