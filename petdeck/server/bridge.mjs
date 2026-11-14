@@ -17,7 +17,7 @@ import { pollOnce } from './freshness.mjs';
 
 const REAL_ADAPTERS = [codex, claude, opencode, kimi];
 const DEFAULT_ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '::1'];
-const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://tauri.localhost', 'http://localhost:5183'];
 
 function withDefaults(security = {}) {
   return {

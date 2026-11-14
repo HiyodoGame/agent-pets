@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isTauri, listenForPanelNavigation, openMainPanel, persistPetPositionOnMove, resizePetWindow, savePetPosition, startPetDragging } from './window.ts'
+import { isTauri, listenForPanelNavigation, openMainPanel, persistPetPositionOnMove, quitPetDeck, resizePetWindow, savePetPosition, startPetDragging } from './window.ts'
 
 test('desktop window: browser/test environments safely no-op without Tauri', async () => {
   assert.equal(isTauri(), false)
@@ -9,6 +9,7 @@ test('desktop window: browser/test environments safely no-op without Tauri', asy
   await savePetPosition()
   const stopPersisting = await persistPetPositionOnMove()
   stopPersisting()
+  await quitPetDeck()
   await openMainPanel({ projectId: 'p1', sessionId: 's1' })
   const unlisten = await listenForPanelNavigation(() => {})
   assert.equal(typeof unlisten, 'function')

@@ -203,3 +203,25 @@ test('main: PETDECK_BRIDGE_ORIGINS merged with defaults (extra origin passes the
   assert.equal((await post('http://localhost:5173')).status, 401, 'default origin must still be accepted');
   assert.equal((await post('http://evil.example')).status, 403, 'unknown origin must still be rejected');
 });
+
+test('main: desktop WebView origins accept correct token and reject wrong token', async (t) => {
+  withEnv(t, {
+    PETDECK_BRIDGE_TOKEN: 'sekret',
+    PETDECK_BRIDGE_ORIGINS: undefined,
+    PETDECK_BRIDGE_PORT: '0',
+  });
+  const { adapters, injectCalls } = fakeAdapters();
+  const server = main({ adapters, startPoll: false });
+  t.after(() => { server.closeAllConnections?.(); server.close(); });
+  await once(server, 'listening');
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (token) => fetch(`${base}/api/inject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'http://tauri.localhost', 'X-Petdeck-Token': token },
+    body: jsonBody,
+  });
+  assert.equal((await post('sekret')).status, 200);
+  assert.equal(injectCalls.length, 1);
+  assert.equal((await post('wrong')).status, 401);
+  assert.equal(injectCalls.length, 1);
+});

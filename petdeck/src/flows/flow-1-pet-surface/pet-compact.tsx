@@ -6,7 +6,7 @@ import { PetAvatar } from '../shared/pet-avatar'
 import { STATUS_LABEL } from '../shared/status-tokens'
 import { eventWatermark, newEventsAfter, routeDndArrivals, fmtCount, type EventWatermark } from '../shared/ui-logic'
 import { compactPetStatus, summarizeSessions } from './pet-view'
-import { openMainPanel, persistPetPositionOnMove, resizePetWindow, savePetPosition, startPetDragging, type PanelTarget } from '../../desktop/window'
+import { openMainPanel, persistPetPositionOnMove, quitPetDeck, resizePetWindow, savePetPosition, startPetDragging, type PanelTarget } from '../../desktop/window'
 
 export function CompactPet() {
   const { sessions, projects, unhandledEvents, connState, reconnect } = usePetData()
@@ -187,6 +187,9 @@ export function CompactPet() {
                 ))}
               </div>
             )}
+            <button type="button" className="mt-2 w-full rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-bg-elevated" onClick={() => void quitPetDeck().catch(() => setDesktopError(true))}>
+              退出应用
+            </button>
           </section>
         )}
 

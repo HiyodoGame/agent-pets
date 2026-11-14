@@ -40,6 +40,11 @@ export async function openMainPanel(target: PanelTarget = {}): Promise<void> {
   await invoke('open_panel', { target })
 }
 
+export async function quitPetDeck(): Promise<void> {
+  if (!isTauri()) return
+  await invoke('quit_app')
+}
+
 export async function listenForPanelNavigation(handler: (target: PanelTarget) => void): Promise<() => void> {
   if (!isTauri()) return () => {}
   return listen<PanelTarget>('petdeck:navigate', (event) => handler(event.payload))
