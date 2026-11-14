@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PetDeck",
+  "version": "0.1.0",
+  "identifier": "com.hiyodogame.petdeck",
+  "build": {
+    "beforeDevCommand": "npm run dev -- --port 5183 --strictPort",
+    "devUrl": "http://localhost:5183",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "label": "pet",
+        "title": "PetDeck",
+        "url": "/pet.html",
+        "width": 280,
+        "height": 220,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false
+      },
+      {
+        "label": "main",
+        "title": "PetDeck — Agent 面板",
+        "url": "/index.html",
+        "width": 1100,
+        "height": 760,
+        "minWidth": 720,
+        "minHeight": 540,
+        "visible": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": []
+  }
+}

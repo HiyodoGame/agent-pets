@@ -8,3 +8,11 @@ body {
   background-color: var(--color-bg-base);
   color: var(--color-text);
 }
+
+html[data-pet-window='true'],
+html[data-pet-window='true'] body,
+html[data-pet-window='true'] #root {
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
