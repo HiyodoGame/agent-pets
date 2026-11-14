@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, Inbox, Move, RefreshCw, X } from 'lucide-react'
 import { usePetData } from '../../adapters'
 import type { PetEvent } from '../shared/types'
@@ -6,7 +6,8 @@ import { PetAvatar } from '../shared/pet-avatar'
 import { STATUS_LABEL } from '../shared/status-tokens'
 import { eventWatermark, newEventsAfter, routeDndArrivals, fmtCount, type EventWatermark } from '../shared/ui-logic'
 import { compactPetStatus, summarizeSessions } from './pet-view'
-import { openMainPanel, persistPetPositionOnMove, quitPetDeck, resizePetWindow, savePetPosition, startPetDragging, type PanelTarget } from '../../desktop/window'
+import { listenForDndChange, openMainPanel, persistPetPositionOnMove, quitPetDeck, resizePetWindow, savePetPosition, setDesktopDnd, startPetDragging, type PanelTarget } from '../../desktop/window'
+import { createNotificationDispatcher, sendPetSystemNotification } from '../../desktop/notifications'
 
 export function CompactPet() {
   const { sessions, projects, unhandledEvents, connState, reconnect } = usePetData()
@@ -15,6 +16,7 @@ export function CompactPet() {
   const [suppressed, setSuppressed] = useState<PetEvent[]>([])
   const [activeEvent, setActiveEvent] = useState<PetEvent | null>(null)
   const [desktopError, setDesktopError] = useState(false)
+  const dispatchNotification = useMemo(() => createNotificationDispatcher(sendPetSystemNotification), [])
   const watermarkRef = useRef<EventWatermark | null>(null)
   const initializedRef = useRef(false)
   const events = unhandledEvents()
@@ -31,6 +33,9 @@ export function CompactPet() {
     const added = newEventsAfter(events, watermarkRef.current)
     watermarkRef.current = eventWatermark(events)
     if (added.length === 0) return
+    for (const event of added) {
+      dispatchNotification(event, dnd).catch(() => setDesktopError(true))
+    }
     if (!dnd) {
       setActiveEvent(added[0])
       return
@@ -38,7 +43,7 @@ export function CompactPet() {
     const { quiet, decision } = routeDndArrivals(added)
     if (quiet.length > 0) setSuppressed((current) => [...quiet, ...current])
     if (decision) setActiveEvent(decision)
-  }, [events, dnd])
+  }, [events, dnd, dispatchNotification])
 
   useEffect(() => {
     const save = () => { void savePetPosition() }
@@ -70,9 +75,23 @@ export function CompactPet() {
     }
   }
 
+  useEffect(() => {
+    let active = true
+    let unlisten: (() => void) | null = null
+    listenForDndChange(setDnd).then((fn) => {
+      if (active) unlisten = fn
+      else fn()
+    }).catch(() => setDesktopError(true))
+    return () => {
+      active = false
+      unlisten?.()
+    }
+  }, [])
+
   const toggleDnd = () => {
     const next = !dnd
     setDnd(next)
+    setDesktopDnd(next).catch(() => setDesktopError(true))
     if (!next && suppressed.length > 0) {
       setActiveEvent(suppressed[0])
       setSuppressed((current) => current.slice(1))

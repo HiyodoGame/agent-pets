@@ -45,6 +45,16 @@ export async function quitPetDeck(): Promise<void> {
   await invoke('quit_app')
 }
 
+export async function setDesktopDnd(enabled: boolean): Promise<void> {
+  if (!isTauri()) return
+  await invoke('set_dnd', { enabled })
+}
+
+export async function listenForDndChange(handler: (enabled: boolean) => void): Promise<() => void> {
+  if (!isTauri()) return () => {}
+  return listen<boolean>('petdeck:dnd-changed', (event) => handler(event.payload))
+}
+
 export async function listenForPanelNavigation(handler: (target: PanelTarget) => void): Promise<() => void> {
   if (!isTauri()) return () => {}
   return listen<PanelTarget>('petdeck:navigate', (event) => handler(event.payload))
