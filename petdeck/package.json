@@ -3,14 +3,17 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "oxlint",
+    "lint": "oxlint src server",
     "preview": "vite preview",
     "bridge": "node server/bridge.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test server/pure.test.mjs server/freshness.test.mjs server/exec.test.mjs server/adapters-inject.test.mjs server/shared-observe.test.mjs server/bridge-security.test.mjs src/adapters/logic.test.ts src/adapters/connection.test.ts src/adapters/snapshot-cache.test.ts src/adapters/event-dedup.test.ts src/adapters/live-sessions.test.ts src/adapters/relay-tracking.test.ts src/flows/flow-4-relay/relay-draft.test.ts src/telemetry/core.test.ts src/flows/shared/ui-logic.test.ts"
+    "test": "node --test \"server/**/*.test.mjs\" \"src/**/*.test.ts\""
   },
   "dependencies": {
     "lucide-react": "^1.72.0",

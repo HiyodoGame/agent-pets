@@ -32,7 +32,7 @@ import { track, EVENT } from '../../telemetry'
 import { ClampText, EdgeAlert } from '../shared/edge-kit'
 import { PetAvatar } from '../shared/pet-avatar'
 import { STATUS_LABEL } from '../shared/status-tokens'
-import { getMotionPref, setMotionPref, fmtCount, type MotionPref } from '../shared/ui-logic'
+import { getMotionPref, setMotionPref, fmtCount, type MotionPref, type EventWatermark, eventWatermark, newEventsAfter, routeDndArrivals } from '../shared/ui-logic'
 
 function useAggregate() {
   const { sessions } = usePetData()
@@ -57,6 +57,7 @@ function Screen1_AmbientIdle({
   dnd,
   onDndChange,
   suppressed,
+  onOpenInbox,
   refreshing,
   onRefresh,
 }: {
@@ -66,7 +67,8 @@ function Screen1_AmbientIdle({
   onReconnect: () => void
   dnd: boolean
   onDndChange: (v: boolean) => void
-  suppressed: number
+  suppressed: PetEvent[]
+  onOpenInbox: () => void
   refreshing: boolean
   onRefresh: () => void
 }) {
@@ -88,17 +90,24 @@ function Screen1_AmbientIdle({
       <Tooltip content={summary} side="top">
         <div className="flex items-center gap-2 tabular-nums">
           {refreshing && <Spinner className="h-3 w-3" />}
-          <Tag color={running === 0 ? 'slate' : 'slate'}>{fmtCount(running)} 运行</Tag>
+          <Tag color={running === 0 ? 'slate' : 'primary'}>{fmtCount(running)} 运行</Tag>
           <Tag color={done === 0 ? 'slate' : 'success'}>{fmtCount(done)} 完成</Tag>
           {stuck > 0 && <Tag color="warning">{fmtCount(stuck)} 待处理</Tag>}
           {status === 'offline' && <Tag color="error">离线</Tag>}
-          {/* DND 静默收件箱计数 */}
-          {suppressed > 0 && (
-            <Tooltip content={`${suppressed} 条事件免打扰静默，点击查看`} side="top">
-              <Tag color="slate">
-                <Inbox className="mr-1 inline h-3 w-3" />
-                {fmtCount(suppressed)} 静默
-              </Tag>
+          {/* DND 静默收件箱：真实事件队列，点击可逐条查看/关闭 */}
+          {suppressed.length > 0 && (
+            <Tooltip content={`${fmtCount(suppressed.length)} 条事件免打扰静默，点击查看`} side="top">
+              <button
+                type="button"
+                onClick={onOpenInbox}
+                aria-label="打开静默收件箱"
+                className="rounded-full transition-colors hover:bg-bg-elevated focus-visible:outline-2 focus-visible:outline-primary"
+              >
+                <Tag color="slate">
+                  <Inbox className="mr-1 inline h-3 w-3" />
+                  {fmtCount(suppressed.length)} 静默
+                </Tag>
+              </button>
             </Tooltip>
           )}
         </div>
@@ -139,12 +148,14 @@ function Screen2_EventTap({
   onDismiss,
   error,
   onRetry,
+  fromSuppressed = false,
 }: {
   event: PetEvent
   onOpen: (e: PetEvent) => void
   onDismiss: () => void
   error: boolean
   onRetry: () => void
+  fromSuppressed?: boolean
 }) {
   if (error) {
     return (
@@ -183,7 +194,9 @@ function Screen2_EventTap({
           </div>
         </BubbleContent>
       </Bubble>
-      <TypographyMuted>{event.type === 'decision' ? '需你拍板 · 会保留到收件箱' : '忽略后淡出为圆点，不打断你'}</TypographyMuted>
+      <TypographyMuted>
+        {event.type === 'decision' ? '需你拍板 · 会保留到收件箱' : fromSuppressed ? '免打扰期间静默的事件 · 逐条补提示' : '忽略后淡出为圆点，不打断你'}
+      </TypographyMuted>
     </div>
   )
 }
@@ -303,31 +316,52 @@ export function Flow1_PetSurface({
   const [screen, setScreen] = useState<1 | 2 | 3>(1)
   const [status, setStatus] = useState<AgentStatus>('running')
   const [dnd, setDnd] = useState(false)
-  const [suppressed, setSuppressed] = useState(0)
+  // DND 抑制的是真实事件对象（不是计数），关闭免打扰后逐条补提示，绝不静默丢弃。
+  const [suppressed, setSuppressed] = useState<PetEvent[]>([])
+  const [replay, setReplay] = useState<PetEvent[]>([])
+  const [inboxOpen, setInboxOpen] = useState(false)
   const [eventError, setEventError] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const { projects, unhandledEvents, connState } = usePetData()
   const events = unhandledEvents()
   const [eventIdx, setEventIdx] = useState(0)
   const event = events[eventIdx % Math.max(events.length, 1)]
+  const replayHead = replay[0]
+  const activeEvent = replayHead ?? event
 
-  // 真实联动：新未处理事件到来时，非 DND 自动轻拍展开，DND 下非「需拍板」计入静默收件箱。
-  const seenEventsRef = useRef(events.length)
+  // 真实联动：以 (timestamp, 同毫秒 id 集合) 水位线识别新事件 —— 事件列表恒被截断到 50 条时也不会漏检。
+  // 首次运行只播种水位线（与旧实现一致：挂载时的存量事件不弹轻拍）。
+  const watermarkRef = useRef<EventWatermark | null>(null)
+  const didInitRef = useRef(false)
   useEffect(() => {
-    const added = events.length - seenEventsRef.current
-    if (added <= 0) { seenEventsRef.current = events.length; return }
-    seenEventsRef.current = events.length
-    const newest = events[0] // newest-first
-    if (!newest) return
-    if (dnd && newest.type !== 'decision') {
-      setSuppressed((s) => s + added)
-      track('pet', EVENT.notificationSuppressed)
+    if (!didInitRef.current) {
+      didInitRef.current = true
+      watermarkRef.current = eventWatermark(events)
+      return
+    }
+    const added = newEventsAfter(events, watermarkRef.current)
+    watermarkRef.current = eventWatermark(events)
+    if (added.length === 0) return
+    if (dnd) {
+      // DND：非「需拍板」的逐条进入静默收件箱；decision 仍走轻拍——无论用户当前身处哪个 screen，
+      // 否则水位线已推进、事件又不入队，拍板事件会被静默丢弃。
+      const { quiet, decision } = routeDndArrivals(added)
+      if (quiet.length > 0) {
+        setSuppressed((s) => [...quiet, ...s])
+        track('pet', EVENT.notificationSuppressed, { count: quiet.length })
+      }
+      if (decision) {
+        const idx = events.findIndex((e) => e.id === decision.id)
+        setEventIdx(idx >= 0 ? idx : 0)
+        setEventError(false)
+        setScreen(2)
+      }
     } else if (screen === 1) {
       setEventIdx(0)
       setEventError(false)
       setScreen(2)
     }
-  }, [events.length, dnd, screen, events])
+  }, [events, dnd, screen])
 
   // 真实离线覆盖预览状态：断连时宠物灰化 + 重连 CTA（edge offline-no-network 态）
   const effectiveStatus: AgentStatus = connState === 'offline' ? 'offline' : status
@@ -352,8 +386,8 @@ export function Flow1_PetSurface({
             const next = events[(eventIdx + 1) % events.length]
             if (!next) return
             if (dnd && next.type !== 'decision') {
-              setSuppressed((s) => s + 1)
-              track('pet', EVENT.notificationSuppressed)
+              setSuppressed((s) => [next, ...s])
+              track('pet', EVENT.notificationSuppressed, { count: 1 })
               return
             }
             setEventIdx((i) => i + 1)
@@ -381,8 +415,20 @@ export function Flow1_PetSurface({
           onOffline={() => openPanel('p1')}
           onReconnect={() => onReconnect?.()}
           dnd={dnd}
-          onDndChange={(v) => { setDnd(v); track('pet', EVENT.dndToggle, { on: v }) }}
+          onDndChange={(v) => {
+            setDnd(v)
+            track('pet', EVENT.dndToggle, { on: v })
+            if (!v && suppressed.length > 0) {
+              // 关闭免打扰：积压事件转入逐条补提示队列，不清空、不丢弃。
+              setReplay(suppressed)
+              setSuppressed([])
+              setInboxOpen(false)
+              setEventError(false)
+              setScreen(2)
+            }
+          }}
           suppressed={suppressed}
+          onOpenInbox={() => setInboxOpen(true)}
           refreshing={refreshing}
           onRefresh={() => {
             setRefreshing(true)
@@ -390,11 +436,27 @@ export function Flow1_PetSurface({
           }}
         />
       )}
-      {screen === 2 && event && (event.type === 'decision' || !dnd) && (
+      {screen === 2 && activeEvent && (replayHead || activeEvent.type === 'decision' || !dnd) && (
         <Screen2_EventTap
-          event={event}
-          onOpen={(e) => openPanel(e.projectId, e.sessionId)}
-          onDismiss={() => setScreen(1)}
+          event={activeEvent}
+          fromSuppressed={Boolean(replayHead)}
+          onOpen={(e) => {
+            if (replayHead) {
+              setReplay((r) => r.slice(1))
+              if (replay.length <= 1) setScreen(1)
+            } else {
+              setScreen(1)
+            }
+            openPanel(e.projectId, e.sessionId)
+          }}
+          onDismiss={() => {
+            if (replayHead) {
+              setReplay((r) => r.slice(1))
+              if (replay.length <= 1) setScreen(1)
+            } else {
+              setScreen(1)
+            }
+          }}
           error={eventError}
           onRetry={() => setEventError(false)}
         />
@@ -406,6 +468,50 @@ export function Flow1_PetSurface({
           onClose={() => setScreen(1)}
           onCommand={() => openPanel('p1')}
         />
+      )}
+      {/* DND 静默收件箱：逐条查看/关闭；收起不清空，关闭免打扰会逐条补提示 */}
+      {inboxOpen && (
+        <div className="flex w-full max-w-sm flex-col gap-2 rounded-md border border-border-secondary bg-bg-container p-3">
+          <div className="flex items-center justify-between">
+            <TypographyMuted>静默收件箱 · {fmtCount(suppressed.length)} 条</TypographyMuted>
+            <Button variant="ghost" onClick={() => setInboxOpen(false)} aria-label="收起收件箱">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <Separator />
+          {suppressed.length === 0 ? (
+            <TypographyMuted>收件箱已清空</TypographyMuted>
+          ) : (
+            <>
+              {suppressed.map((e) => (
+                <div key={e.id} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1">
+                    <ClampText text={e.text || `事件 · ${e.type}`} />
+                  </span>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setSuppressed((s) => s.filter((x) => x.id !== e.id))
+                      openPanel(e.projectId, e.sessionId)
+                    }}
+                  >
+                    查看
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setSuppressed((s) => s.filter((x) => x.id !== e.id))}
+                    aria-label="关闭该条事件"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button variant="ghost" onClick={() => setSuppressed([])}>
+                全部关闭
+              </Button>
+            </>
+          )}
+        </div>
       )}
     </div>
   )

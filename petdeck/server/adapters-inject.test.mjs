@@ -53,3 +53,18 @@ test('codex.inject: non-zero exit => ok:false (degrade path)', async () => {
   const r = await codex.inject({ context: 'c', instruction: 'i' }, { run });
   assert.equal(r.ok, false);
 });
+
+// --- Task 7: CLI 失败把 runCli 的结构化 outcome code 透传给 bridge（类别/码，绝无自由文本） ---
+test('codex.inject: CLI failure surfaces the structured outcome code from runCli', async () => {
+  const run = async () => ({ status: 1, stdout: '', stderr: 'Error: whatever', error: false, summary: 'exit:1' });
+  const r = await codex.inject({ context: 'c', instruction: 'i' }, { run });
+  assert.equal(r.ok, false);
+  assert.equal(r.summary, 'exit:1');
+});
+
+test('opencode.inject: CLI failure surfaces the structured outcome code from runCli', async () => {
+  const run = async () => ({ status: 1, stdout: '', stderr: 'Error: whatever', error: false, summary: 'exit:1' });
+  const r = await opencode.inject({ context: 'c', instruction: 'i' }, { run });
+  assert.equal(r.ok, false);
+  assert.equal(r.summary, 'exit:1');
+});

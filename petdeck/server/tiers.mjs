@@ -11,8 +11,9 @@ export function canInject(tier) {
 }
 
 /**
- * Build the full relay handoff package. Used for BOTH inject text and the
- * clipboard fallback, so a degraded handoff never silently drops the instruction.
+ * Build the full relay handoff package. Used for adapter inject prompts AND the
+ * clipboard fallback (plus the frontend mirror registry.handoffPackageText), so an
+ * online handoff and a degraded offline handoff carry exactly the same content.
  * @param {{from?:string, context?:string, instruction?:string, artifacts?:string[]}} h
  */
 export function handoffPackage(h = {}) {
@@ -24,12 +25,18 @@ export function handoffPackage(h = {}) {
 }
 
 /**
- * Decide inject vs clipboard handoff. Returns {mode, response?, sessionID?, package?}.
+ * Decide inject vs clipboard handoff. Returns {mode, response?, sessionID?, package?, fallbackReason?}.
  * Clipboard mode carries the complete handoff (context + instruction + artifacts).
+ * fallbackReason 标注降级原因：tier = 能力分级不允许注入；cli = 目标 CLI 拒绝。
+ * （bridge 不可达由 bridge 层以 reason 'bridge-error' 显式返回。）
  */
 export function injectDecision(tier, result, handoff) {
   if (canInject(tier) && result?.ok) {
     return { mode: 'inject', response: result.response ?? '', sessionID: result.sessionID ?? '' };
   }
-  return { mode: 'clipboard', package: handoffPackage(handoff ?? { context: result?.context }) };
+  return {
+    mode: 'clipboard',
+    package: handoffPackage(handoff ?? { context: result?.context }),
+    fallbackReason: canInject(tier) ? 'cli' : 'tier',
+  };
 }

@@ -1,12 +1,11 @@
 // Shared pet avatar. Kept out of flow-1 so the ambient surface module can be
 // lazy-loaded while the shell/floating button still render the avatar.
-import { getReducedMotion } from 'sparkdesign'
 import type { AgentStatus } from './types'
-import { resolveMotionEnabled, getMotionPref } from './ui-logic'
+import { resolveMotionEnabled, getMotionPref, getOsReducedMotion } from './ui-logic'
 import { STATUS_COLOR, STATUS_ANIM, STATUS_LABEL } from './status-tokens'
 
 export function PetAvatar({ status, size = 96 }: { status: AgentStatus; size?: number }) {
-  const reduce = !resolveMotionEnabled(getMotionPref(), getReducedMotion())
+  const reduce = !resolveMotionEnabled(getMotionPref(), getOsReducedMotion())
   const anim = reduce ? '' : STATUS_ANIM[status]
   const fill = STATUS_COLOR[status]
   const dim = status === 'offline' ? 0.4 : 0.9

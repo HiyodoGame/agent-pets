@@ -2,7 +2,7 @@
 // FLOW: Relay Handoff (4 screens + edge states) — 核心
 // Edge 补全：error-validation / 截断 / loading-submit / error-rate-limit / offline暂存 / loading-stop / error-server
 // =============================================
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import {
   Drawer,
   DrawerContent,
@@ -22,7 +22,6 @@ import {
   Tag,
   Button,
   PromptSuggestions,
-  Response,
   Card,
   CardHeader,
   CardTitle,
@@ -34,11 +33,13 @@ import {
 } from 'sparkdesign'
 import { ArrowRightLeft, Copy, Check, Package, StopCircle, WifiOff } from 'lucide-react'
 import type { Agent, RelayDraft, Session } from '../shared/types'
-import { usePetData, deriveTracking, type TrackingStatus } from '../../adapters'
+import { usePetData, deriveTracking, handoffPackageText, type TrackingStatus } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { mockSessions, mockRelayDrafts } from '../shared/mock-data'
 import { EdgeAlert, Stepper } from '../shared/edge-kit'
-import { buildRelayDraft, resolveTarget, canSend } from './relay-draft'
+import { LazyResponse } from '../shared/lazy-response'
+import { fieldErrorState } from '../shared/ui-logic'
+import { buildRelayDraft, resolveTarget, canSend, sendStateFromDecision, type RelaySendState } from './relay-draft'
 
 const DEFAULT_SOURCE = mockSessions.find((s) => s.id === 's1')!
 const CAP_LABEL: Record<Agent['capability'], string> = {
@@ -47,7 +48,7 @@ const CAP_LABEL: Record<Agent['capability'], string> = {
   manual: '手动',
 }
 
-type SendState = 'pending' | 'injected' | 'manual' | 'failed'
+type SendState = RelaySendState
 
 interface Attempt {
   sessionId: string
@@ -100,6 +101,7 @@ function Screen2_Preview({
   onSend,
   canSubmit,
   target,
+  live,
 }: {
   open: boolean
   onOpenChange: (o: boolean) => void
@@ -108,13 +110,25 @@ function Screen2_Preview({
   onSend: () => void
   canSubmit: boolean
   target: Agent | null
+  live: boolean
 }) {
   const { getArtifact, agents } = usePetData()
   const [sending, setSending] = useState(false)
-  const invalid = draft.instruction.trim().length === 0
+  // 交互后校验：错误仅在 blur 或 submit 尝试后出现，避免一开抽屉就报错。
+  const [instructionTouched, setInstructionTouched] = useState(false)
+  const [submitAttempted, setSubmitAttempted] = useState(false)
+  const instructionError = fieldErrorState({
+    value: draft.instruction,
+    touched: instructionTouched,
+    submitted: submitAttempted,
+    errorId: 'relay-instruction-error',
+  })
   const confirm = () => {
-    if (!canSubmit) return
-    track('relay', EVENT.relayPreviewConfirmed, { to: draft.targetAgentId })
+    if (!canSubmit) {
+      setSubmitAttempted(true)
+      return
+    }
+    track('relay', EVENT.relayPreviewConfirmed, { to: draft.targetAgentId, live })
     setSending(true)
     setTimeout(() => {
       setSending(false)
@@ -153,9 +167,19 @@ function Screen2_Preview({
           </div>
           <div className="flex flex-col gap-1">
             <TypographyMuted>指令草稿（可编辑）</TypographyMuted>
-            <ChatInput value={draft.instruction} onChange={(v) => setDraft({ ...draft, instruction: v })} placeholder="下一步要做什么…" maxRows={4} />
-            {/* error-validation：inline 字段提示 */}
-            {invalid && <span className="text-error text-sm">请填写下一步指令</span>}
+            <ChatInput
+              value={draft.instruction}
+              onChange={(v) => setDraft({ ...draft, instruction: v })}
+              placeholder="下一步要做什么…"
+              maxRows={4}
+              onBlur={() => setInstructionTouched(true)}
+              aria-invalid={instructionError.ariaInvalid}
+              aria-describedby={instructionError.describedBy ?? undefined}
+            />
+            {/* error-validation：inline 字段提示，仅在 blur/submit 后出现 */}
+            {instructionError.showError && (
+              <span id="relay-instruction-error" role="alert" className="text-error text-sm">请填写下一步指令</span>
+            )}
           </div>
           <div className="flex flex-col gap-1">
             <TypographyMuted>目标 Agent</TypographyMuted>
@@ -196,6 +220,7 @@ function Screen3_Tracking({
   sendState,
   liveStatus,
   stale,
+  sessionId,
   packageText,
   onRetry,
   onCopy,
@@ -209,6 +234,8 @@ function Screen3_Tracking({
   sendState: SendState
   liveStatus: TrackingStatus
   stale: boolean
+  /** inject 回传的会话 ID；空串 = 从一开始就无法自动确认。 */
+  sessionId: string
   packageText: string
   onRetry: () => void
   onCopy: () => void
@@ -218,8 +245,10 @@ function Screen3_Tracking({
 }) {
   const [rateLimit, setRateLimit] = useState<number | null>(null)
   const [offline, setOffline] = useState(false)
-  // Derived (not state): an injected live attempt whose completion can't be correlated.
-  const unconfirmed = isLive && sendState === 'injected' && liveStatus === 'unconfirmed'
+  // Derived (not state): an injected live attempt whose completion can't be correlated —
+  // either tracking already proved it, or the CLI never returned a sessionID (unconfirmable
+  // from the start, never presented as auto-completable).
+  const unconfirmed = isLive && sendState === 'injected' && (liveStatus === 'unconfirmed' || sessionId === '')
 
   // live 注入后由 attempt 归属的 SSE 事件驱动：done 才自动进入完成屏；无法关联 => 待确认，不谎报完成。
   useEffect(() => {
@@ -271,8 +300,8 @@ function Screen3_Tracking({
       ) : unconfirmed ? (
         <EdgeAlert
           variant="info"
-          title="已发送 · 等待目标确认"
-          desc="注入已提交，但目标 CLI 未回传可关联的会话 ID，无法确认本次执行完成。可稍后在面板查看，或复制交接包手动确认。"
+          title="已发送 · 无法自动确认"
+          desc="目标 CLI 未回传可关联的会话 ID，本次执行从开始即无法自动确认完成（不会谎报完成）。可稍后在面板查看，或复制交接包手动确认。"
           extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> 复制交接包</Button>}
           onRetry={onDone}
           retryLabel="标记完成"
@@ -291,19 +320,21 @@ function Screen3_Tracking({
       ) : offline ? (
         <EdgeAlert variant="warning" title="离线 · 交接包已暂存" desc="网络中断，交接包已本地暂存不会丢；恢复后重试。" onRetry={() => setOffline(false)} retryLabel="恢复重试" />
       ) : streaming ? (
-        <Response
-          phase="streaming"
-          finalMarkdown={
-            sendState === 'pending'
-              ? `正在注入交接包到 ${target.name}…`
-              : isLive && liveStatus === 'running'
-                ? `${target.name} 正在执行指令…（SSE 实时）`
-                : !isLive
-                  ? `正在处理交接包：读取上下文 → 载入 ${target.name} → 执行指令…`
-                  : `${target.name} 已接收，等待 SSE 反馈…`
-          }
-          thinkingIndicator={<span className="text-text-secondary text-sm">思考中…</span>}
-        />
+        <Suspense fallback={<span className="text-text-secondary text-sm">状态渲染中…</span>}>
+          <LazyResponse
+            phase="streaming"
+            finalMarkdown={
+              sendState === 'pending'
+                ? `正在注入交接包到 ${target.name}…`
+                : isLive && liveStatus === 'running'
+                  ? `${target.name} 正在执行指令…（SSE 实时）`
+                  : !isLive
+                    ? `正在处理交接包：读取上下文 → 载入 ${target.name} → 执行指令…`
+                    : `${target.name} 已接收，等待 SSE 反馈…`
+            }
+            thinkingIndicator={<span className="text-text-secondary text-sm">思考中…</span>}
+          />
+        </Suspense>
       ) : null}
 
       <Separator />
@@ -340,11 +371,13 @@ function Screen4_Complete({
         <Check className="h-5 w-5" />
         <span className="text-text font-semibold">接力完成 · {target.name} 已执行</span>
       </div>
-      <Response
-        phase="done"
-        finalMarkdown={isLive ? receipt || `${target.name} 已完成本次指令。` : '已接收交接包并完成部署：素材包上传、资源引用更新完毕。'}
-        thinkingIndicator={<span className="text-text-secondary text-sm">思考中…</span>}
-      />
+      <Suspense fallback={<span className="text-text-secondary text-sm">回执渲染中…</span>}>
+        <LazyResponse
+          phase="done"
+          finalMarkdown={isLive ? receipt || `${target.name} 已完成本次指令。` : '已接收交接包并完成部署：素材包上传、资源引用更新完毕。'}
+          thinkingIndicator={<span className="text-text-secondary text-sm">思考中…</span>}
+        />
+      </Suspense>
       <Card>
         <CardHeader>
           <CardTitle><Package className="mr-1 inline h-4 w-4" /> 产物</CardTitle>
@@ -399,9 +432,13 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
   const targetStale = sessions.some((s) => s.agentId === draft?.targetAgentId && s.stale)
   const sendable = draft ? (isLive ? canSend(draft, target, source) : Boolean(target) && draft.instruction.trim().length > 0) : false
 
+  const artifactNames = draft ? draft.artifactIds.map((a) => getArtifact(a)?.name ?? a) : []
+
   const packageText =
     attempt?.package ??
-    (draft ? `${draft.contextSummary}\n\n指令：${draft.instruction}\n\n产物：${draft.artifactIds.map((a) => getArtifact(a)?.name ?? a).join('、')}` : '')
+    (draft && source
+      ? handoffPackageText({ from: source.agentId, context: draft.contextSummary, instruction: draft.instruction, artifacts: artifactNames })
+      : '')
 
   const copyPackage = () => {
     if (navigator.clipboard?.writeText) {
@@ -421,18 +458,30 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
     setSendState('pending')
     const startedAt = Date.now()
     if (!isLive) {
-      track('relay', EVENT.relayInjectResult, { mode: 'inject', ok: true, to: draft.targetAgentId })
+      track('relay', EVENT.relayInjectResult, { mode: 'inject', ok: true, to: draft.targetAgentId, live: false })
       setAttempt({ sessionId: 'demo', startedAt, response: '', mode: 'inject' })
       setSendState('injected')
       return
     }
-    inject({ from: source.agentId, to: draft.targetAgentId, context: draft.contextSummary, instruction: draft.instruction })
+    inject({ from: source.agentId, to: draft.targetAgentId, context: draft.contextSummary, instruction: draft.instruction, artifacts: artifactNames })
       .then((d) => {
-        track('relay', EVENT.relayInjectResult, { mode: d.mode, ok: d.mode === 'inject', to: draft.targetAgentId })
-        setAttempt({ sessionId: d.sessionID ?? '', startedAt, response: d.response ?? '', mode: d.mode, package: d.package })
-        setSendState(d.mode === 'clipboard' ? 'manual' : 'injected')
+        const state = sendStateFromDecision(d.mode)
+        track('relay', EVENT.relayInjectResult, {
+          mode: d.mode,
+          ok: state === 'injected',
+          to: draft.targetAgentId,
+          live: true,
+          ...(d.fallbackReason ? { fallbackReason: d.fallbackReason } : {}),
+        })
+        if (state !== 'failed') {
+          setAttempt({ sessionId: d.sessionID ?? '', startedAt, response: d.response ?? '', mode: d.mode, package: d.package })
+        }
+        setSendState(state)
       })
-      .catch(() => setSendState('failed'))
+      .catch(() => {
+        track('relay', EVENT.relayInjectResult, { ok: false, reason: 'bridge-error', to: draft.targetAgentId, live: true })
+        setSendState('failed')
+      })
   }
 
   const nextHop = () => {
@@ -446,14 +495,12 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
     setScreen(1)
   }
 
-  const artifactNames = draft ? draft.artifactIds.map((a) => getArtifact(a)?.name ?? a) : []
-
   return (
     <div className="flex flex-col items-center gap-4 p-6">
       <Toaster />
       <h1 className="text-text text-lg font-semibold">接力交接</h1>
       <Stepper steps={['发起', '预览', '追踪', '完成']} current={screen - 1} />
-      {screen === 1 && source && <Screen1_Trigger source={source} onOpen={() => { track('relay', EVENT.relayStarted, { from: source.agentId }); setScreen(2) }} />}
+      {screen === 1 && source && <Screen1_Trigger source={source} onOpen={() => { track('relay', EVENT.relayStarted, { from: source.agentId, live: isLive }); setScreen(2) }} />}
       {draft && (
         <Screen2_Preview
           open={screen === 2}
@@ -462,6 +509,7 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
           setDraft={setDraft}
           canSubmit={sendable}
           target={target}
+          live={isLive}
           onSend={send}
         />
       )}
@@ -473,12 +521,13 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
           sendState={sendState}
           liveStatus={liveStatus}
           stale={targetStale}
+          sessionId={attempt?.sessionId ?? ''}
           packageText={packageText}
           onRetry={send}
           onCopy={copyPackage}
-          onDone={() => { track('relay', EVENT.relayDone, { to: draft?.targetAgentId }); setScreen(4) }}
+          onDone={() => { track('relay', EVENT.relayDone, { to: draft?.targetAgentId, live: isLive }); setScreen(4) }}
           onSimFail={() => setSendState('failed')}
-          onStop={() => { track('relay', EVENT.relayStopped); setScreen(2) }}
+          onStop={() => { track('relay', EVENT.relayStopped, { live: isLive }); setScreen(2) }}
         />
       )}
       {screen === 4 && target && (

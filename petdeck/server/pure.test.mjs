@@ -1,12 +1,14 @@
-// RED tests for server adapter pure logic (parsers / tiers / bus).
+// RED tests for server adapter pure logic (parsers / tiers / bus / bridge).
 // Run: node --test server/pure.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRollout } from './adapters/codex.mjs';
-import { parseClaude } from './adapters/claude.mjs';
-import { parseRun, mapServeStatus } from './adapters/opencode.mjs';
+import { once } from 'node:events';
+import { parseRollout, inject as codexInject } from './adapters/codex.mjs';
+import { parseClaude, inject as claudeInject } from './adapters/claude.mjs';
+import { parseRun, mapServeStatus, inject as opencodeInject } from './adapters/opencode.mjs';
 import { TIER, canInject, injectDecision, handoffPackage } from './tiers.mjs';
 import { createBus, toPetEventType } from './bus.mjs';
+import { createApp } from './bridge.mjs';
 
 const J = (o) => JSON.stringify(o);
 
@@ -71,6 +73,60 @@ test('claude parseClaude: mid-turn tool_use stays running', () => {
   assert.equal(r.status, 'running');
 });
 
+// ---- Task 5: 状态生命周期 —— tool_result 不是用户输入，不得置 waiting / 覆盖 assistant 文本 ----
+
+const ASSISTANT_LINE = J({ type: 'assistant', message: { stop_reason: 'tool_use', content: [{ type: 'text', text: 'checking the file' }] } });
+
+test('claude parseClaude: tool_result array content does not set waiting or clobber status', () => {
+  const toolResult = J({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'file contents here' }] } });
+  const r = parseClaude([ASSISTANT_LINE, toolResult]);
+  assert.equal(r.status, 'running');
+  assert.equal(r.lastMessage, 'checking the file');
+});
+
+test('claude parseClaude: real string user prompt sets waiting', () => {
+  const r = parseClaude([J({ type: 'user', message: { content: 'please refactor this' } })]);
+  assert.equal(r.status, 'waiting');
+});
+
+test('claude parseClaude: tool_result neither sets waiting nor blocks assistant lines from driving status', () => {
+  const toolResult = J({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'tu_2', content: 'ok' }] } });
+  const userPrompt = J({ type: 'user', message: { content: 'please refactor this' } });
+  // 真实用户输入后的 tool_result：不改变 waiting。
+  assert.equal(parseClaude([userPrompt, toolResult]).status, 'waiting');
+  // tool_result 也不得挡住后续 assistant 行对状态的驱动。
+  assert.equal(parseClaude([userPrompt, toolResult, ASSISTANT_LINE]).status, 'running');
+  assert.equal(parseClaude([userPrompt, toolResult, ASSISTANT_LINE]).lastMessage, 'checking the file');
+});
+
+test('claude parseClaude: lastMessage takes assistant text only, never user string content', () => {
+  const lines = [
+    ASSISTANT_LINE,
+    J({ type: 'user', message: { content: 'my question' } }),
+  ];
+  const r = parseClaude(lines);
+  assert.equal(r.status, 'waiting');
+  assert.equal(r.lastMessage, 'checking the file');
+});
+
+// ---- Task 5: bridge —— waiting 状态变化产生 decision 事件（petType=decision 直达前端收件箱） ----
+
+test('bridge: waiting status transition emits a decision event', async () => {
+  const adapters = [{
+    id: 'claude', name: 'Claude', tier: 'full',
+    observe: () => [{ agent: 'claude', session: 's1.jsonl', status: 'waiting', lastMessage: 'which one?', cwd: '' }],
+    inject: () => Promise.resolve({ ok: true, response: '' }),
+  }];
+  const bus = createBus();
+  const app = createApp({ adapters, security: {}, bus });
+  await app.poll();
+  const ev = bus.snapshot().find((e) => e.agentId === 'claude');
+  assert.ok(ev, 'a status-change event must be emitted');
+  assert.equal(ev.type, 'decision');
+  assert.equal(ev.petType, 'decision');
+  assert.equal(ev.payload.lastMessage, 'which one?');
+});
+
 test('opencode mapServeStatus: only real signals, else unknown', () => {
   assert.equal(mapServeStatus({ status: 'busy' }), 'running');
   assert.equal(mapServeStatus({ status: 'idle' }), 'unknown');
@@ -109,6 +165,68 @@ test('tiers: handoffPackage includes every provided field', () => {
   for (const needle of ['codex', 'CTX', 'INS', 'a.png', 'b.md']) assert.ok(p.includes(needle));
 });
 
+// Task 4: 线上（adapter prompt / inject 文本）与离线（clipboard 交接包）必须使用
+// 同一字段顺序与中文标签 from/context/instruction/artifacts，精确字面量锁死格式。
+test('tiers: handoffPackage exact format, fixed field order, artifacts listed by line', () => {
+  const full = handoffPackage({ from: 'codex', context: 'CTX', instruction: 'INS', artifacts: ['a.png', 'b.md'] });
+  assert.equal(full, 'Relay handoff from codex\n上下文：\nCTX\n指令：\nINS\n产物：\na.png\nb.md');
+  const empty = handoffPackage({});
+  assert.equal(empty, 'Relay handoff from petdeck');
+});
+
+test('tiers: injectDecision clipboard preserves from + artifacts (offline package drops nothing)', () => {
+  const d = injectDecision('full', { ok: false, response: '' }, { from: 'codex', context: 'c', instruction: 'i', artifacts: ['a.png'] });
+  assert.equal(d.mode, 'clipboard');
+  assert.equal(d.package, 'Relay handoff from codex\n上下文：\nc\n指令：\ni\n产物：\na.png');
+});
+
+// Adapter prompt inclusion: the CLI prompt must carry the SAME handoff format (with
+// artifacts) so an injected handoff never drops what the clipboard fallback would keep.
+test('adapters: inject prompt carries from/context/instruction/artifacts in unified format', async () => {
+  const captured = [];
+  const run = async (cmd, args, opts = {}) => {
+    captured.push({ cmd, args, opts });
+    return { status: 0, stdout: cmd === 'opencode' ? JSON.stringify({ type: 'text', part: { text: 'ok' } }) : 'ok', stderr: '' };
+  };
+  const payload = { from: 'codex', to: 'x', context: 'CTX', instruction: 'INS', artifacts: ['a.png', 'b.md'] };
+  await codexInject(payload, { run });
+  await claudeInject(payload, { run });
+  await opencodeInject(payload, { run });
+  assert.equal(captured.length, 3);
+  for (const { cmd, args, opts } of captured) {
+    const prompt = cmd === 'opencode' ? opts.input : args.at(-1);
+    for (const needle of ['Relay handoff from codex', 'CTX', 'INS', 'a.png', 'b.md']) {
+      assert.ok(String(prompt).includes(needle), `${cmd} prompt must include ${needle}`);
+    }
+    const order = ['上下文', '指令', '产物'].map((l) => String(prompt).indexOf(l));
+    assert.ok(order.every((i) => i >= 0) && order[0] < order[1] && order[1] < order[2], `${cmd} prompt must keep from/context/instruction/artifacts order`);
+  }
+});
+
+// Bridge forwarding: /api/inject must pass artifacts (and from) straight into the
+// clipboard fallback package — a degraded handoff must not silently lose them.
+test('bridge: inject forwards artifacts into the decision package on CLI failure', async (t) => {
+  const adapters = [{
+    id: 'codex', name: 'Codex', tier: 'full',
+    observe: () => [],
+    inject: () => Promise.resolve({ ok: false, response: '' }),
+  }];
+  const app = createApp({ adapters, security: {} });
+  app.listen(0, '127.0.0.1');
+  await once(app, 'listening');
+  t.after(() => { app.closeAllConnections?.(); app.close(); });
+  const port = app.address().port;
+  const res = await fetch(`http://127.0.0.1:${port}/api/inject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: 'codex', to: 'codex', context: 'c', instruction: 'i', artifacts: ['a.png'] }),
+  });
+  assert.equal(res.status, 200);
+  const d = await res.json();
+  assert.equal(d.mode, 'clipboard');
+  assert.equal(d.package, 'Relay handoff from codex\n上下文：\nc\n指令：\ni\n产物：\na.png');
+});
+
 test('bus: normalize + replay + unsubscribe', () => {
   const bus = createBus();
   const seen = [];
@@ -132,4 +250,22 @@ test('bus: toPetEventType mapping', () => {
   assert.equal(toPetEventType('turn_aborted'), 'stuck');
   assert.equal(toPetEventType('decision'), 'decision');
   assert.equal(toPetEventType('relay-ready'), 'relay-ready');
+});
+// --- Task 7: 降级原因 —— tier（能力分级）/ cli（目标 CLI 拒绝）；bridge-error 在 bridge 层 ---
+test('tiers: clipboard fallback carries fallbackReason tier when the tier cannot inject', () => {
+  const d = injectDecision('observe-only', { ok: true, response: 'x' }, { context: 'c' });
+  assert.equal(d.mode, 'clipboard');
+  assert.equal(d.fallbackReason, 'tier');
+});
+
+test('tiers: clipboard fallback carries fallbackReason cli when a full-tier CLI refuses', () => {
+  const d = injectDecision('full', { ok: false, response: '' }, { context: 'c', instruction: 'i' });
+  assert.equal(d.mode, 'clipboard');
+  assert.equal(d.fallbackReason, 'cli');
+});
+
+test('tiers: a successful inject has no fallbackReason', () => {
+  const d = injectDecision('full', { ok: true, response: 'x', sessionID: 'ses_1' });
+  assert.equal(d.mode, 'inject');
+  assert.equal(d.fallbackReason, undefined);
 });

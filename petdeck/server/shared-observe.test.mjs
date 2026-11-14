@@ -42,3 +42,59 @@ test('tailLines: bounded window returns only the tail and drops the partial firs
   assert.equal(tail.includes('L1'), false);
   assert.deepEqual(tail, ['L4']);
 });
+
+// --- Task 6: directory-entry caching — unchanged subtrees are not re-walked, but
+// candidate files are still stat-ed so content/mtime updates stay visible. ---
+
+function makeTree() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'petdeck-cache-'));
+  const a = path.join(dir, 'a.jsonl');
+  const b = path.join(dir, 'sub', 'b.jsonl');
+  fs.mkdirSync(path.join(dir, 'sub'));
+  fs.writeFileSync(a, 'x');
+  fs.writeFileSync(b, 'x');
+  return { dir, a, b };
+}
+
+test('latestFiles: content/mtime update without a directory mtime change stays visible', () => {
+  const { dir, a, b } = makeTree();
+  const pred = (n) => n.endsWith('.jsonl');
+  const before = fs.statSync(dir).mtimeMs;
+  // Make a.jsonl the newest file while leaving the directory mtime untouched.
+  const t = Date.now() / 1000 + 5;
+  fs.utimesSync(a, t, t);
+  fs.utimesSync(dir, before / 1000, before / 1000); // dir mtime must look unchanged to the cache
+  const r = latestFiles(dir, pred, 5);
+  assert.equal(r[0], a, 'newest-first must reflect the file mtime we just bumped');
+  assert.ok(r.includes(b));
+});
+
+test('latestFiles: vanished candidate is dropped even when the directory mtime looks unchanged', () => {
+  const { dir, a } = makeTree();
+  const pred = (n) => n.endsWith('.jsonl');
+  assert.deepEqual(latestFiles(dir, pred, 5).sort(), [a, path.join(dir, 'sub', 'b.jsonl')].sort());
+  const before = fs.statSync(dir).mtimeMs;
+  fs.rmSync(a);
+  fs.utimesSync(dir, before / 1000, before / 1000); // hide the deletion from directory mtime
+  const r = latestFiles(dir, pred, 5);
+  assert.deepEqual(r, [path.join(dir, 'sub', 'b.jsonl')], 'ghost candidate must not survive via cache');
+});
+
+test('latestFiles: a new file appears once the directory mtime moves', () => {
+  const { dir, a, b } = makeTree();
+  const pred = (n) => n.endsWith('.jsonl');
+  latestFiles(dir, pred, 5); // warm the cache
+  const c = path.join(dir, 'c.jsonl');
+  fs.writeFileSync(c, 'x');
+  const r = latestFiles(dir, pred, 5);
+  assert.ok(r.includes(c), 'cache must invalidate when the directory mtime changes');
+  assert.ok(r.includes(a) && r.includes(b));
+});
+
+test('latestFiles: cached directory deleted afterwards => [] (ENOENT semantics kept)', () => {
+  const { dir } = makeTree();
+  const pred = (n) => n.endsWith('.jsonl');
+  latestFiles(dir, pred, 5); // warm the cache
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.deepEqual(latestFiles(dir, pred, 5), []);
+});

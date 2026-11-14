@@ -14,7 +14,9 @@ export interface TrackingScope {
 /**
  * events are newest-first. Only events belonging to this attempt count:
  * same agent, at/after start, and — when the adapter gave us a session id — same session.
- * Without a correlatable session id a completion is reported as 'unconfirmed', never a false 'done'.
+ * Without a correlatable session id the attempt is 'unconfirmed' from the very start
+ * (never presented as auto-completable); a completion without a session id is likewise
+ * 'unconfirmed', never a false 'done'.
  */
 export function deriveTracking(events: RawAgentEvent[], targetAgentId: string, scope: TrackingScope = {}): TrackingStatus {
   const { sessionId, startedAt } = scope
@@ -23,7 +25,9 @@ export function deriveTracking(events: RawAgentEvent[], targetAgentId: string, s
   if (startedAt != null) scoped = scoped.filter((e) => e.ts >= startedAt)
   if (hasSession) scoped = scoped.filter((e) => e.sessionId === sessionId)
   const latest = scoped[0]
-  if (!latest) return 'sending'
+  // An attempt that can never be correlated (adapter gave no session id) is
+  // unconfirmed from the start — never presented as auto-completable.
+  if (!latest) return hasSession || startedAt == null ? 'sending' : 'unconfirmed'
   switch (latest.type) {
     case 'task_complete': return hasSession ? 'done' : 'unconfirmed'
     case 'turn_aborted': return hasSession ? 'stuck' : 'unconfirmed'

@@ -8,31 +8,12 @@ import { fetchAgents, fetchHealth, fetchSessions, inject as bridgeInject, subscr
 import { selectSource, injectOrClipboard } from './registry'
 import { PetDataCtx, type PetDataContextValue } from './pet-data-context'
 import { nextConnState, type ConnSnapshot } from './connection'
+import { skipWhileRunningTrailing } from './poll-gate'
 import { loadSnapshot, saveSnapshot, type SnapshotStorage } from './snapshot-cache'
 import { createDeduper } from './event-dedup'
+import { shouldCommitHttp, shouldLoadSnapshot, observedToSessions } from './data-sync'
 import { track, EVENT } from '../telemetry'
 import type { ObservedSession, PetData, RawAgentEvent } from './types'
-
-const STATUS_MAP: Record<string, Session['status']> = {
-  done: 'done', running: 'active', stuck: 'stuck', waiting: 'waiting', unknown: 'active',
-}
-
-function observedToSessions(rows: ObservedSession[]): Session[] {
-  return rows.map((r) => ({
-    id: `${r.agent}:${r.session}`,
-    projectId: 'live',
-    agentId: r.agent,
-    title: r.lastMessage || r.session,
-    status: STATUS_MAP[r.status] ?? 'active',
-    messages: r.lastMessage
-      ? [{ id: `${r.session}-m`, role: 'agent' as const, content: r.lastMessage, timestamp: new Date().toISOString(), artifactIds: [] }]
-      : [],
-    artifactIds: [],
-    updatedAt: new Date().toISOString(),
-    stale: r.stale,
-    lastSeen: r.lastSeen,
-  }))
-}
 
 function liveProjects(sessions: Session[]): Project[] {
   return [{ id: 'live', name: '实时 Agent', description: '来自本地 bridge 的真实会话', sessionIds: sessions.map((s) => s.id), updatedAt: new Date().toISOString() }]
@@ -70,7 +51,7 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
     // Single commit path for real sessions: writes state + snapshot, bumps the revision
     // so an in-flight HTTP tick (whose response is now older) can detect and skip.
     const commit = (rows: ObservedSession[], agents?: Agent[]) => {
-      const sessions = observedToSessions(rows)
+      const sessions = observedToSessions(rows, new Date().toISOString())
       hasMemoryRef.current = true
       if (agents) lastAgentsRef.current = agents
       setData((prev) => ({ mode: 'live', agents: agents ?? prev.agents, projects: liveProjects(sessions), sessions, events: eventsRef.current, artifacts: prev.artifacts }))
@@ -81,17 +62,29 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
         saveSnapshot(storage, { sessions: rows, agents: lastAgentsRef.current }, Date.now())
       }
     }
-    const tick = async () => {
+    // Trailing gate: a manual reconnect during an in-flight tick is skipped but
+    // remembered, then re-run once after the tick settles — never lost, never stacked.
+    const tick = skipWhileRunningTrailing(async () => {
       const healthy = await fetchHealth()
       if (!alive) return
       setConn((prev) => nextConnState(prev, { type: 'health', ok: healthy }))
       if (healthy) {
         cacheShownRef.current = false
         const revBefore = revRef.current
-        const [agents, rows] = await Promise.all([fetchAgents(), fetchSessions()])
+        let agents: Agent[]
+        let rows: ObservedSession[]
+        try {
+          ;[agents, rows] = await Promise.all([fetchAgents(), fetchSessions()])
+        } catch {
+          // Timed-out or failed fetches count as a connection failure, not an
+          // unhandled rejection in the 5s loop.
+          if (!alive) return
+          setConn((prev) => nextConnState(prev, { type: 'health', ok: false }))
+          return
+        }
         if (!alive) return
         // A fresher SSE commit landed while this HTTP request was in flight => response is stale, skip.
-        if (revRef.current !== revBefore) return
+        if (!shouldCommitHttp(revBefore, revRef.current)) return
         commit(rows, agents)
         setSavedAt(null)
         if (!un) {
@@ -128,7 +121,7 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
             onError: () => { setConn((prev) => nextConnState(prev, { type: 'sse', open: false })) },
           })
         }
-      } else if (!hasMemoryRef.current && !cacheShownRef.current) {
+      } else if (shouldLoadSnapshot(hasMemoryRef.current, cacheShownRef.current)) {
         // 断连：保留内存 last-good；仅冷启动且无内存数据时才读磁盘快照。
         cacheShownRef.current = true
         const cached = loadSnapshot(storage)
@@ -137,7 +130,7 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
           setSavedAt(cached.savedAt)
         }
       }
-    }
+    })
     tickRef.current = () => { void tick() }
     void tick()
     const t = setInterval(() => { void tick() }, 5000)
@@ -153,20 +146,24 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
   }, [conn.state, conn.fails])
 
   const shown = demo ? mockData : data
-  const value = useMemo<PetDataContextValue>(() => ({
+  // unhandledEvents 结果在同一 shown.events 上保持引用稳定，避免消费方 effect 因每次
+  // render 新建数组而空转（水位线语义不变：值相同，只是不再无谓重算）。
+  const value = useMemo<PetDataContextValue>(() => {
+    const unhandled = shown.events.filter((e) => !e.handled)
+    return ({
     ...shown,
     getAgent: (id) => shown.agents.find((a) => a.id === id),
     getProject: (id) => shown.projects.find((p) => p.id === id),
     getSession: (id) => shown.sessions.find((s) => s.id === id),
     getArtifact: (id) => shown.artifacts.find((a) => a.id === id),
     sessionsOfProject: (pid) => shown.sessions.filter((s) => s.projectId === pid),
-    unhandledEvents: () => shown.events.filter((e) => !e.handled),
+    unhandledEvents: () => unhandled,
     agentEvents,
     connState: conn.state,
     savedAt,
     reconnect: () => tickRef.current(),
     inject: (p) => injectOrClipboard(p, shown.mode === 'live', bridgeInject),
-  }), [shown, agentEvents, conn.state, savedAt])
+  })}, [shown, agentEvents, conn.state, savedAt])
 
   return <PetDataCtx.Provider value={value}>{children}</PetDataCtx.Provider>
 }

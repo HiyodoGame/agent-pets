@@ -31,29 +31,60 @@ export function tailLines(file, n = 400, maxBytes = 512 * 1024) {
 }
 
 /**
+ * Directory-entry cache: dir path -> { mtimeMs, files, subdirs }.
+ * A directory whose mtime is unchanged skips readdirSync; its cached subdir list
+ * still drives descent so every level is mtime-validated (a new file in a leaf
+ * dir bumps that leaf's mtime even when ancestors are unchanged). Candidate files
+ * are ALWAYS stat-ed below, so content/mtime changes and vanishes remain visible
+ * even when no directory mtime moved. Bounded: cleared wholesale past the cap.
+ */
+const dirCache = new Map();
+const DIR_CACHE_MAX = 2000;
+
+/**
  * Walk dir, collect files matching pred, newest-first, up to limit.
  * Base dir missing (ENOENT) => [] (adapter source not installed — legit empty);
  * a real fault (EACCES/ENOTDIR/...) => throw so the source is marked stale, not empty.
  */
 export function latestFiles(dir, pred, limit = 20) {
-  const found = [];
+  if (dirCache.size > DIR_CACHE_MAX) dirCache.clear();
+  const candidates = [];
   const walk = (d) => {
+    let st;
+    try {
+      st = fs.statSync(d);
+    } catch (e) {
+      dirCache.delete(d);
+      if (e.code === 'ENOENT') return; // absent at this level: skip (root absent => [])
+      throw e; // EACCES/ENOTDIR/etc => genuine failure, must surface
+    }
+    const cached = dirCache.get(d);
+    if (cached && cached.mtimeMs === st.mtimeMs) {
+      candidates.push(...cached.files);
+      for (const sub of cached.subdirs) walk(sub);
+      return;
+    }
     let ents;
     try {
       ents = fs.readdirSync(d, { withFileTypes: true });
     } catch (e) {
-      if (e.code === 'ENOENT') return; // absent at this level: skip (root absent => [])
-      throw e; // EACCES/ENOTDIR/etc => genuine failure, must surface
+      if (e.code === 'ENOENT') return;
+      throw e;
     }
+    const files = [];
+    const subdirs = [];
     for (const en of ents) {
       const p = path.join(d, en.name);
-      if (en.isDirectory()) walk(p);
-      else if (pred(en.name)) {
-        try { found.push({ p, mtime: fs.statSync(p).mtimeMs }); } catch { /* vanished mid-walk */ }
-      }
+      if (en.isDirectory()) { subdirs.push(p); walk(p); }
+      else if (pred(en.name)) { files.push(p); candidates.push(p); }
     }
+    dirCache.set(d, { mtimeMs: st.mtimeMs, files, subdirs });
   };
   walk(dir);
+  const found = [];
+  for (const p of candidates) {
+    try { found.push({ p, mtime: fs.statSync(p).mtimeMs }); } catch { /* vanished mid-walk */ }
+  }
   return found.sort((a, b) => b.mtime - a.mtime).slice(0, limit).map((x) => x.p);
 }
 

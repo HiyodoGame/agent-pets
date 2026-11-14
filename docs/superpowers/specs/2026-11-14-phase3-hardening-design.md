@@ -18,7 +18,9 @@
 
 **执行模型**：`codex/claude/opencode` 的 `inject` 去掉 `shell:true`；提示词经 argv 位置参数（codex/claude）或 stdin（opencode）传入，杜绝 shell 元字符解释；对以 `-` 开头的文本加前导空格做参数注入防护。`spawnSync` 全替换为异步 `child_process.spawn`（Promise 化，集中在 `server/adapters/exec.mjs` 的 `runCli`），带超时 kill、error/close 收尾；`inject(payload, {run})` 暴露注入点便于确定性单测。
 
-**bridge 访问守卫**：`server/bridge.mjs` 重构为 `createApp({adapters, security})`（导入不再自动 listen/poll）。守卫：`Host` 主机名 ∈ {127.0.0.1,localhost,::1}（防 DNS 重绑定）；POST 强制 `Content-Type: application/json`（迫使预检）+ `Origin` 白名单；`PETDECK_BRIDGE_TOKEN` 配置时 POST 需 `X-Petdeck-Token`；请求体大小上限；注入并发上限（超限 429）。前端 `bridge-client.inject` 附带 token 头（`VITE_PETDECK_BRIDGE_TOKEN`）。未配置 token 时 Host+Origin+Content-Type 仍闭合跨站写入主洞。
+**bridge 访问守卫**：`server/bridge.mjs` 重构为 `createApp({adapters, security})`（导入不再自动 listen/poll）。守卫：`Host` 主机名 ∈ {127.0.0.1,localhost,::1}（防 DNS 重绑定）；POST 强制 `Content-Type: application/json`（迫使预检）+ `Origin` 白名单；`PETDECK_BRIDGE_TOKEN` 配置时 POST 需 `X-Petdeck-Token`；请求体大小上限；注入并发上限（超限 429）。前端 `bridge-client.inject` 附带 token 头（`VITE_PETDECK_BRIDGE_TOKEN`）。
+
+**实施期契约更新（2026-11-14 review-remediation，Task 2 起生效）**：`main()` 要求 `PETDECK_BRIDGE_TOKEN` 非空——缺失时打印配置错误并拒绝监听（仅测试注入的 `createApp` 可不带 token）；`PETDECK_BRIDGE_ORIGINS`（逗号分隔）合并进默认 Origin 白名单，便于非 5173 前端端口；`Host` 规范化支持 `[::1]:port`；`/api/health` 额外返回不含秘密的 `authRequired: boolean`。opencode 适配器观察依赖本地 `opencode serve`，默认 `http://127.0.0.1:4096`。因此原句「未配置 token 时 Host+Origin+Content-Type 仍闭合跨站写入主洞」仅适用于 `createApp` 显式测试注入场景，生产入口（`main()`）不存在无 token 启动路径。
 
 **观察故障真实性**：`shared.mjs` 的 `tailLines` 遇非 ENOENT（如 EACCES）抛出；`latestFiles` 基础目录缺失（ENOENT）返回空（未安装=合法空），非 ENOENT 抛出。`opencode.observe` 非数组响应抛错。使 `pollOnce` 得以保留 stale 而非把故障当"健康且为空"清空会话。
 

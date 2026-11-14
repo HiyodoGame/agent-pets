@@ -1,5 +1,7 @@
 # Phase 2 offline-partial-sync Implementation Plan
 
+> **状态：已归档（2026-11-14）** — 本计划已实施完成并归档，仅作历史记录；后续健壮性修复与文档工作见 `docs/superpowers/plans/2026-11-14-review-remediation.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 任何部分失效（bridge 断连 / 单 Agent 源失效 / SSE 中断）下，用户看到真实的最后已知状态 + 诚实的新鲜度标记，恢复后自动重同步。

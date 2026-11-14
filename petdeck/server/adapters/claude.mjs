@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { runCli, guardDash } from './exec.mjs';
 import { tailLines, latestFiles, safeJson } from './shared.mjs';
+import { handoffPackage } from '../tiers.mjs';
 
 export const id = 'claude';
 export const name = 'Claude';
@@ -23,11 +24,11 @@ export function parseClaude(lines) {
       const c = j.message?.content;
       if (Array.isArray(c)) { const txt = c.find((x) => x.type === 'text'); if (txt) lastMessage = txt.text; }
     } else if (j.type === 'user') {
-      status = 'waiting';
+      // 只有 string content 才是真实用户输入；tool_result 等数组内容不改变状态。
+      if (typeof j.message?.content === 'string') status = 'waiting';
     } else if (j.type === 'result') {
       status = j.is_error ? 'stuck' : 'done';
     }
-    if (j.message?.content && typeof j.message.content === 'string') lastMessage = j.message.content;
   }
   return { status, lastMessage, cwd };
 }
@@ -46,11 +47,11 @@ export function observe() {
 }
 
 export async function inject(payload, { run = runCli } = {}) {
-  const prompt = `Relay handoff from ${payload.from ?? 'petdeck'}: ${payload.context ?? ''}\nInstruction: ${payload.instruction ?? ''}\nDo not use any tools.`;
+  const prompt = `${handoffPackage(payload)}\nDo not use any tools.`;
   // No shell: prompt rides as a literal argv element (leading-dash guarded).
   const r = await run('claude', ['-p', '--output-format', 'stream-json', guardDash(prompt)], { timeout: 60000 });
   if (r.status === 0 && r.stdout) return { ok: true, response: r.stdout.trim().slice(0, 400), sessionID: '' };
-  return { ok: false, response: '' };
+  return { ok: false, response: '', summary: r.summary ?? '' };
 }
 
 export default { id, name, tier, observe, inject };

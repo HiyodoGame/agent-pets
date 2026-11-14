@@ -2,7 +2,7 @@
 // Run: node --test src/flows/flow-4-relay/relay-draft.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRelayDraft, resolveTarget, canSend, summarizeSource } from './relay-draft.ts';
+import { buildRelayDraft, resolveTarget, canSend, summarizeSource, sendStateFromDecision } from './relay-draft.ts';
 import type { Agent, Session } from '../shared/types.ts';
 
 const agent = (id: string): Agent => ({ id, name: id.toUpperCase(), form: 'cli', capability: 'full', status: 'idle', projectIds: [] });
@@ -45,4 +45,17 @@ test('canSend: requires source + target + non-empty instruction', () => {
 
 test('summarizeSource: falls back to title when no agent message', () => {
   assert.equal(summarizeSource(session({ messages: [] })), 'T');
+});
+
+// 注入响应契约：只有 mode === 'inject' 算成功；clipboard 降级为手动；任何其它
+// （undefined / 未知 mode，例如 bridge 错误体被误传）必须 failed，绝不假成功。
+test('sendStateFromDecision: inject -> injected, clipboard -> manual', () => {
+  assert.equal(sendStateFromDecision('inject'), 'injected');
+  assert.equal(sendStateFromDecision('clipboard'), 'manual');
+});
+
+test('sendStateFromDecision: undefined or unknown mode -> failed (no fake success)', () => {
+  assert.equal(sendStateFromDecision(undefined), 'failed');
+  assert.equal(sendStateFromDecision('error'), 'failed');
+  assert.equal(sendStateFromDecision(null), 'failed');
 });

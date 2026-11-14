@@ -1,7 +1,7 @@
 // Adapter layer public surface.
 export { createEventBus } from './bus'
 export type { BusEvent, EventBus } from './bus'
-export { selectSource, gateInject } from './registry'
+export { selectSource, gateInject, clipboardPackage, handoffPackageText } from './registry'
 export type { SourceMode } from './registry'
 export { DataSourceProvider } from './data'
 export { usePetData } from './pet-data-context'

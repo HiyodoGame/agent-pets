@@ -2,7 +2,7 @@
 // FLOW: Project & Session Panel (4 screens + edge states)
 // Edge 补全：loading-initial / 999+ / empty-filter / truncate / error-not-found / permission-read-only / error-network / loading-submit
 // =============================================
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, Suspense } from 'react'
 import {
   SidebarProvider,
   Sidebar,
@@ -18,7 +18,6 @@ import {
   SidebarTrigger,
   SidebarInset,
   UserMessage,
-  Response,
   FileCard,
   ChatInput,
   DropdownMenu,
@@ -34,6 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Input,
+  Textarea,
   Toaster,
   toast,
   Tag,
@@ -60,7 +60,8 @@ import type { Session, SessionStatus } from '../shared/types'
 import { usePetData, mergeSessions, type SessionOverlay } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { EdgeAlert } from '../shared/edge-kit'
-import { fmtCount, fmtAgo } from '../shared/ui-logic'
+import { LazyResponse } from '../shared/lazy-response'
+import { fmtCount, fmtAgo, planFollowUp, shouldStreamResponse } from '../shared/ui-logic'
 
 const STATUS_TAG: Record<SessionStatus, { label: string; color: 'info' | 'warning' | 'success' | 'error' | 'slate' }> = {
   active: { label: '运行中', color: 'info' },
@@ -78,7 +79,7 @@ const STATUS_DOT: Record<SessionStatus, string> = {
 }
 
 /* SCREEN 1 of 4: Project Home（+ loading-initial + 999+ + empty） */
-function Screen1_ProjectHome({ onOpen }: { onOpen: (pid: string) => void }) {
+function Screen1_ProjectHome({ onOpen, onConnect }: { onOpen: (pid: string) => void; onConnect: () => void }) {
   const { projects: mockProjects, sessionsOfProject } = usePetData()
   const [emptyDemo, setEmptyDemo] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -110,7 +111,7 @@ function Screen1_ProjectHome({ onOpen }: { onOpen: (pid: string) => void }) {
             <EmptyDescription>连接 Agent 并创建第一个项目，宠物开始替你盯进度</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
-            <Button variant="primary" onClick={() => toast('前往「接入」flow 连接 Agent')}>
+            <Button variant="primary" onClick={onConnect}>
               连接 Agent
             </Button>
             <Button variant="ghost" onClick={() => setEmptyDemo(false)}>
@@ -164,12 +165,18 @@ function Screen1_ProjectHome({ onOpen }: { onOpen: (pid: string) => void }) {
 function Screen3_SessionThread({
   session,
   notFound,
+  handoff,
+  onCopyHandoff,
+  onDismissHandoff,
   onRelay,
   onFollowUp,
   onClearSession,
 }: {
   session: Session | null
   notFound: boolean
+  handoff: { sessionId: string; text: string } | null
+  onCopyHandoff: () => void
+  onDismissHandoff: () => void
   onRelay: (s: Session) => void
   onFollowUp: (s: Session, text: string) => void
   onClearSession: () => void
@@ -264,18 +271,51 @@ function Screen3_SessionThread({
         </div>
       </div>
       <Separator />
+      {/* clipboard 降级的真实交接内容：只读但可选中，自动复制失败时可手动复制 */}
+      {handoff && handoff.sessionId === session.id && (
+        <>
+          <EdgeAlert
+            variant="warning"
+            title="无法直达 Agent · 交接内容已生成"
+            desc="下方是真实交接内容，可全选复制后到目标 Agent 粘贴继续。"
+            extra={
+              <>
+                <Button variant="secondary" onClick={onCopyHandoff}>
+                  <Copy className="mr-1 h-4 w-4" /> 复制交接内容
+                </Button>
+                <Button variant="ghost" onClick={onDismissHandoff}>
+                  关闭
+                </Button>
+              </>
+            }
+          />
+          {handoff.text && (
+            <Textarea
+              readOnly
+              value={handoff.text}
+              rows={5}
+              aria-label="交接内容"
+              className="max-h-48 font-mono text-xs"
+              onFocus={(e) => e.currentTarget.select()}
+            />
+          )}
+        </>
+      )}
       <ScrollArea className="flex-1">
         <div className="flex flex-col gap-3 pr-3">
-          {session.messages.map((m) =>
+          {session.messages.map((m, idx) =>
             m.role === 'user' ? (
               <UserMessage key={m.id}>{m.content}</UserMessage>
             ) : (
               <div key={m.id} className="flex flex-col gap-2 break-words">
-                <Response
-                  phase={session.status === 'active' ? 'streaming' : 'done'}
-                  finalMarkdown={m.content}
-                  thinkingIndicator={<span className="text-text-secondary text-sm">思考中…</span>}
-                />
+                {/* 仅最后一条 assistant 消息在会话活跃时 streaming；历史消息一律 done（光标不再闪） */}
+                <Suspense fallback={<span className="text-text-secondary text-sm">回复渲染中…</span>}>
+                  <LazyResponse
+                    phase={shouldStreamResponse(session.messages, idx, session.status === 'active') ? 'streaming' : 'done'}
+                    finalMarkdown={m.content}
+                    thinkingIndicator={<span className="text-text-secondary text-sm">思考中…</span>}
+                  />
+                </Suspense>
                 <div className="flex gap-1">
                   <Button
                     variant="ghost"
@@ -325,6 +365,9 @@ function Screen2_PanelShell({
   sessions,
   projectId,
   sessionId,
+  handoff,
+  onCopyHandoff,
+  onDismissHandoff,
   onSelectSession,
   onBack,
   onRename,
@@ -336,6 +379,9 @@ function Screen2_PanelShell({
   sessions: Session[]
   projectId: string | null
   sessionId: string | null
+  handoff: { sessionId: string; text: string } | null
+  onCopyHandoff: () => void
+  onDismissHandoff: () => void
   onSelectSession: (id: string | null) => void
   onBack: () => void
   onRename: (id: string, title: string) => void
@@ -400,6 +446,7 @@ function Screen2_PanelShell({
                                     <span
                                       className="mr-1 inline-block h-2 w-2 rounded-full"
                                       style={{ backgroundColor: STATUS_DOT[s.status] }}
+                                      role="img"
                                       aria-label={STATUS_TAG[s.status].label}
                                     />
                                     <Tooltip content={s.title} side="right">
@@ -455,6 +502,9 @@ function Screen2_PanelShell({
         <Screen3_SessionThread
           session={current}
           notFound={notFound}
+          handoff={handoff}
+          onCopyHandoff={onCopyHandoff}
+          onDismissHandoff={onDismissHandoff}
           onRelay={onRelay}
           onFollowUp={onFollowUp}
           onClearSession={() => onSelectSession(null)}
@@ -485,13 +535,15 @@ function Screen2_PanelShell({
   )
 }
 
-export function Flow3_Panel({ onRelay }: { onRelay?: (s: Session) => void }) {
-  const { sessions: baseSessions, sessionsOfProject } = usePetData()
+export function Flow3_Panel({ onRelay, onConnect }: { onRelay?: (s: Session) => void; onConnect: () => void }) {
+  const { sessions: baseSessions, sessionsOfProject, inject, mode } = usePetData()
   const [view, setView] = useState<'home' | 'panel'>('home')
   const [projectId, setProjectId] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [overlays, setOverlays] = useState<Record<string, SessionOverlay>>({})
   const [deleted, setDeleted] = useState<string[]>([])
+  // clipboard 降级的真实交接内容：展示为可选中的只读文本块，供自动复制失败时手动复制。
+  const [handoff, setHandoff] = useState<{ sessionId: string; text: string } | null>(null)
   // live base（随 SSE 实时刷新）+ 本地编辑 overlay（rename/archive/delete/followUp）
   const sessions = useMemo(() => mergeSessions(baseSessions, overlays, deleted), [baseSessions, overlays, deleted])
 
@@ -505,10 +557,37 @@ export function Flow3_Panel({ onRelay }: { onRelay?: (s: Session) => void }) {
     if (sessionId === id) setSessionId(null)
     toast('已删除会话', { action: { label: '撤销', onClick: () => setDeleted((d) => d.filter((x) => x !== id)) } })
   }
-  const followUp = (s: Session, text: string) => {
-    const msg = { id: `m-${Date.now()}`, role: 'user' as const, content: text, timestamp: new Date().toISOString(), artifactIds: [] }
-    setOverlays((o) => ({ ...o, [s.id]: { ...o[s.id], extraMessages: [...(o[s.id]?.extraMessages ?? []), msg] } }))
-    toast('已发送追问')
+  // 追问走真实 inject：mode=inject 才声称已发送并本地追加；live 降级 clipboard 不追加
+  // （消息未送达，不得显得已发出），只展示可复制交接内容；演示模式本地追加用户消息 +
+  // 如实交接复制，toast 绝不谎称已发送。
+  const followUp = async (s: Session, text: string) => {
+    const context = s.messages.map((m) => `${m.role}: ${m.content}`).join('\n')
+    const decision = await inject({ from: 'petdeck', to: s.agentId, context, instruction: text })
+    const plan = planFollowUp(decision, { live: mode === 'live' })
+    if (plan.appendLocal) {
+      const msg = { id: `m-${Date.now()}`, role: 'user' as const, content: text, timestamp: new Date().toISOString(), artifactIds: [] }
+      setOverlays((o) => ({ ...o, [s.id]: { ...o[s.id], extraMessages: [...(o[s.id]?.extraMessages ?? []), msg] } }))
+    }
+    if (plan.outcome === 'sent') {
+      setHandoff(null)
+      toast(plan.toast)
+      return
+    }
+    setHandoff({ sessionId: s.id, text: plan.copyText ?? '' })
+    let copied = false
+    if (plan.copyText && navigator.clipboard) {
+      try { await navigator.clipboard.writeText(plan.copyText); copied = true } catch { copied = false }
+    }
+    toast(copied ? plan.toast : '无法直达 Agent 且自动复制失败，请手动复制交接内容后继续')
+  }
+  // 手动复制出口：展示块上的「复制交接内容」按钮，结果如实 toast。
+  const copyHandoff = async () => {
+    if (!handoff) return
+    let ok = false
+    if (navigator.clipboard) {
+      try { await navigator.clipboard.writeText(handoff.text); ok = true } catch { ok = false }
+    }
+    toast(ok ? '已复制交接内容' : '复制失败，请全选下方文本手动复制')
   }
 
   return (
@@ -516,6 +595,7 @@ export function Flow3_Panel({ onRelay }: { onRelay?: (s: Session) => void }) {
       <Toaster />
       {view === 'home' ? (
         <Screen1_ProjectHome
+          onConnect={onConnect}
           onOpen={(pid) => {
             track('panel', EVENT.panelDrilldown, { projectId: pid })
             setProjectId(pid)
@@ -528,6 +608,9 @@ export function Flow3_Panel({ onRelay }: { onRelay?: (s: Session) => void }) {
           sessions={sessions}
           projectId={projectId}
           sessionId={sessionId}
+          handoff={handoff}
+          onCopyHandoff={() => { void copyHandoff() }}
+          onDismissHandoff={() => setHandoff(null)}
           onSelectSession={setSessionId}
           onBack={() => setView('home')}
           onRename={rename}

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { runCli, guardDash } from './exec.mjs';
 import { tailLines, latestFiles, safeJson } from './shared.mjs';
+import { handoffPackage } from '../tiers.mjs';
 
 export const id = 'codex';
 export const name = 'Codex';
@@ -39,11 +40,13 @@ export function observe() {
 }
 
 export async function inject(payload, { run = runCli } = {}) {
-  const prompt = `Relay handoff from ${payload.from ?? 'petdeck'}: ${payload.context ?? ''}\nInstruction: ${payload.instruction ?? ''}\nDo not use any tools.`;
+  // Prompt = the same unified handoff package the clipboard fallback uses
+  // (from/context/instruction/artifacts), plus a no-tools guard.
+  const prompt = `${handoffPackage(payload)}\nDo not use any tools.`;
   // No shell: prompt rides as a literal argv element (leading-dash guarded).
   const r = await run('codex', ['exec', '--skip-git-repo-check', guardDash(prompt)], { timeout: 60000 });
   if (r.status === 0 && r.stdout) return { ok: true, response: r.stdout.trim().slice(0, 400), sessionID: '' };
-  return { ok: false, response: '' };
+  return { ok: false, response: '', summary: r.summary ?? '' };
 }
 
 export default { id, name, tier, observe, inject };

@@ -2,6 +2,7 @@
 // inject: opencode run --format json (validated in spike; stable).
 import { runCli } from './exec.mjs';
 import { safeJson } from './shared.mjs';
+import { handoffPackage } from '../tiers.mjs';
 
 export const id = 'opencode';
 export const name = 'opencode';
@@ -37,12 +38,12 @@ export async function observe() {
 }
 
 export async function inject(payload, { run = runCli } = {}) {
-  const prompt = `Relay handoff from ${payload.from ?? 'petdeck'}: ${payload.context ?? ''}\nInstruction: ${payload.instruction ?? ''}\nDo not use any tools.`;
+  const prompt = `${handoffPackage(payload)}\nDo not use any tools.`;
   // No shell: prompt goes through stdin, never argv/shell.
   const r = await run('opencode', ['run', '--format', 'json'], { input: prompt, timeout: 120000 });
   const p = parseRun(r.stdout || '');
   if (r.status === 0 && p.response) return { ok: true, response: p.response.slice(0, 400), sessionID: p.sessionID };
-  return { ok: false, response: '' };
+  return { ok: false, response: '', summary: r.summary ?? '' };
 }
 
 export default { id, name, tier, observe, inject };

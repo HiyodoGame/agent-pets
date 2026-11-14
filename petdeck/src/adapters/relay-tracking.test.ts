@@ -12,6 +12,15 @@ test('tracking: no events => sending', () => {
   assert.equal(deriveTracking([], 'opencode'), 'sending');
 });
 
+test('tracking: attempt with empty sessionID is unconfirmed from the start (never a fake done)', () => {
+  assert.equal(deriveTracking([], 'codex', { sessionId: '', startedAt: 200 }), 'unconfirmed');
+});
+
+test('tracking: attempt without session still reports running while executing', () => {
+  const events = [ev('codex', 'task_started', 'n1', { ts: 300, sessionId: '' })];
+  assert.equal(deriveTracking(events, 'codex', { sessionId: '', startedAt: 200 }), 'running');
+});
+
 test('tracking: task_started => running', () => {
   assert.equal(deriveTracking([ev('opencode', 'task_started')], 'opencode'), 'running');
 });

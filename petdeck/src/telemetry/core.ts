@@ -81,16 +81,49 @@ export function createTelemetryCore(opts: { user: string; cap?: number; now?: ()
 
 export interface StorageLike { getItem(k: string): string | null; setItem(k: string, v: string): void }
 
-/** Persist to a local storage (localStorage in browser). Restores on attach; saves on each track. */
-export function attachPersistence(core: TelemetryCore, storage: StorageLike, key: string): void {
+export interface PersistenceOpts {
+  /** Debounce window; default 250ms. Each track coalesces into one pending flush. */
+  debounceMs?: number
+  /** Timer injection (test seam). Must return a cancel fn. Defaults to setTimeout. */
+  schedule?: (fn: () => void, ms: number) => () => void
+  /** pagehide hook registration (test seam). Defaults to window 'pagehide' when available. */
+  onPagehide?: (fn: () => void) => void
+}
+
+const DEFAULT_DEBOUNCE_MS = 250
+
+/**
+ * Persist to a local storage (localStorage in browser). Restores on attach.
+ * Writes are DEBOUNCED (never one sync write per track) and always flushed on
+ * pagehide, so the final events of a session are never lost to an unfired timer.
+ * API-compatible: the opts arg is optional; attachPersistence(core, storage, key) unchanged.
+ */
+export function attachPersistence(core: TelemetryCore, storage: StorageLike, key: string, opts: PersistenceOpts = {}): void {
   try {
     const raw = storage.getItem(key)
     if (raw) core._load(JSON.parse(raw))
   } catch { /* corrupt local data => start fresh */ }
+  const debounceMs = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS
+  const schedule = opts.schedule ?? ((fn: () => void, ms: number) => {
+    const id = setTimeout(fn, ms)
+    return () => clearTimeout(id)
+  })
+  const onPagehide = opts.onPagehide ?? ((fn: () => void) => {
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('pagehide', fn)
+    }
+  })
+  let cancelPending: (() => void) | null = null
+  const flush = () => {
+    if (cancelPending) { cancelPending(); cancelPending = null }
+    try { storage.setItem(key, core.exportJSON()) } catch { /* storage full => drop silently */ }
+  }
+  onPagehide(flush)
   const orig = core.track.bind(core)
   core.track = (page, action, extra) => {
     const e = orig(page, action, extra)
-    try { storage.setItem(key, core.exportJSON()) } catch { /* storage full => drop silently */ }
+    if (cancelPending) cancelPending()
+    cancelPending = schedule(flush, debounceMs)
     return e
   }
 }

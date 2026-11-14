@@ -36,3 +36,16 @@ export function resolveTarget(draft: RelayDraft, agents: Agent[]): Agent | null 
 export function canSend(draft: RelayDraft, target: Agent | null, source: Session | null | undefined): boolean {
   return Boolean(source) && Boolean(target) && draft.instruction.trim().length > 0
 }
+
+/** Flow4 发送状态。'pending' 仅在注入进行中使用。 */
+export type RelaySendState = 'pending' | 'injected' | 'manual' | 'failed'
+
+/**
+ * 注入响应 -> 发送状态：仅 mode === 'inject' 算注入成功；'clipboard' 为手动交接；
+ * 任何其它值（含 undefined，例如 bridge 错误体被误传）一律 failed —— 绝不假成功。
+ */
+export function sendStateFromDecision(mode: unknown): RelaySendState {
+  if (mode === 'inject') return 'injected'
+  if (mode === 'clipboard') return 'manual'
+  return 'failed'
+}
