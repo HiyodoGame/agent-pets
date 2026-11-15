@@ -20,8 +20,8 @@ test('desktop: pet is a transparent always-on-top frameless window and main star
   assert.equal(pet.alwaysOnTop, true);
   assert.equal(pet.skipTaskbar, true);
   assert.equal(pet.resizable, false);
-  assert.equal(pet.width, 280);
-  assert.equal(pet.height, 220);
+  assert.equal(pet.width, 180);
+  assert.equal(pet.height, 180);
   assert.ok(main);
   assert.equal(main.url, '/index.html');
   assert.equal(main.visible, false);

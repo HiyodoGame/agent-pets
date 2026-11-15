@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { compactPetStatus, notificationDecision, summarizeSessions } from './pet-view.ts'
+import { compactPetStatus, notificationDecision, petEventText, summarizeSessions } from './pet-view.ts'
 
 test('pet view: aggregates running, done, waiting and stuck independently', () => {
   const summary = summarizeSessions([
@@ -35,6 +35,14 @@ test('pet view: ordinary events tap normally and enter the inbox under DND', () 
   assert.equal(notificationDecision({ type: 'done' }, false), 'tap')
   assert.equal(notificationDecision({ type: 'done' }, true), 'inbox')
   assert.equal(notificationDecision({ type: 'stuck' }, true), 'inbox')
+})
+
+test('pet view: empty event text gets a useful type-specific fallback', () => {
+  assert.equal(petEventText({ type: 'decision', text: '' }), '有一个 Agent 正在等待你的决定')
+  assert.equal(petEventText({ type: 'stuck', text: '  ' }), '有一个 Agent 遇到困难，需要查看')
+  assert.equal(petEventText({ type: 'done', text: '' }), '有一个 Agent 完成了任务')
+  assert.equal(petEventText({ type: 'relay-ready', text: '' }), '任务已完成，可以进行下一次接力')
+  assert.equal(petEventText({ type: 'done', text: '已完成官网更新' }), '已完成官网更新')
 })
 
 test('pet view: decisions still tap under DND', () => {

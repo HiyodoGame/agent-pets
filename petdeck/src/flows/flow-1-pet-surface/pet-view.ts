@@ -27,6 +27,14 @@ export function compactPetStatus(connState: ConnState, summary: PetSummary): Age
   return 'idle'
 }
 
+export function petEventText(event: Pick<PetEvent, 'type' | 'text'>): string {
+  if (event.text.trim()) return event.text
+  if (event.type === 'decision') return '有一个 Agent 正在等待你的决定'
+  if (event.type === 'stuck') return '有一个 Agent 遇到困难，需要查看'
+  if (event.type === 'relay-ready') return '任务已完成，可以进行下一次接力'
+  return '有一个 Agent 完成了任务'
+}
+
 export function notificationDecision(event: Pick<PetEvent, 'type'>, dnd: boolean): 'tap' | 'inbox' {
   return dnd && event.type !== 'decision' ? 'inbox' : 'tap'
 }

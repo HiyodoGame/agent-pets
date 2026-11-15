@@ -1,28 +1,48 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bell, Inbox, Move, RefreshCw, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Inbox, PanelTop, RefreshCw, Settings2 } from 'lucide-react'
 import { usePetData } from '../../adapters'
 import type { PetEvent } from '../shared/types'
 import { PetAvatar } from '../shared/pet-avatar'
 import { STATUS_LABEL } from '../shared/status-tokens'
 import { eventWatermark, newEventsAfter, routeDndArrivals, fmtCount, type EventWatermark } from '../shared/ui-logic'
 import { compactPetStatus, summarizeSessions } from './pet-view'
-import { listenForDndChange, openMainPanel, persistPetPositionOnMove, quitPetDeck, resizePetWindow, savePetPosition, setDesktopDnd, startPetDragging, type PanelTarget } from '../../desktop/window'
-import { createNotificationDispatcher, sendPetSystemNotification } from '../../desktop/notifications'
+import { hidePet, listenForDndChange, movePetBy, openMainPanel, persistPetPositionOnMove, quitPetDeck, savePetPosition, setDesktopDnd, setPetAlwaysOnTop, startPetDragging, updatePetWindowLayout, type PanelTarget } from '../../desktop/window'
+import type { PetWindowMode } from '../../desktop/pet-layout'
+import { updatePetSettings, type PetSettings } from '../shared/pet/pet-settings'
+import { usePetBehavior } from './use-pet-behavior'
+import { beginNativePetDrag, beginPetGesture, confirmPetDrag, endPetGesture, movePetGesture, type PetGesture } from './pet-gesture'
+import { PetContextMenu, type PetMenuPoint } from './pet-context-menu'
+import { PetEventCard } from './pet-event-card'
+import { PetQuickSettings } from './pet-quick-settings'
 
 export function CompactPet({ bridgeError = null }: { bridgeError?: string | null }) {
-  const { sessions, projects, unhandledEvents, connState, reconnect } = usePetData()
+  const { sessions, unhandledEvents, connState, reconnect } = usePetData()
   const [expanded, setExpanded] = useState(false)
   const [dnd, setDnd] = useState(false)
   const [suppressed, setSuppressed] = useState<PetEvent[]>([])
   const [activeEvent, setActiveEvent] = useState<PetEvent | null>(null)
+  const [menu, setMenu] = useState<PetMenuPoint | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [desktopError, setDesktopError] = useState(false)
-  const dispatchNotification = useMemo(() => createNotificationDispatcher(sendPetSystemNotification), [])
   const watermarkRef = useRef<EventWatermark | null>(null)
   const initializedRef = useRef(false)
+  const gestureRef = useRef<PetGesture | null>(null)
+  const finishGestureRef = useRef<() => void>(() => {})
+  const petButtonRef = useRef<HTMLButtonElement>(null)
   const events = unhandledEvents()
   const summary = summarizeSessions(sessions)
   const status = compactPetStatus(connState, summary)
   const attention = summary.waiting + summary.stuck
+  const overlayOpen = expanded || settingsOpen || menu !== null || activeEvent !== null
+  const onWalk = useCallback((direction: 'left' | 'right') => {
+    movePetBy(direction).catch(() => setDesktopError(true))
+  }, [])
+  const behavior = usePetBehavior({ status, dnd, overlayOpen, onWalk })
+  const { eventArrived, dragEnd, poke } = behavior
+  const settings = behavior.settings
+  const petSize = Math.round(128 * settings.scale)
+  const windowMode: PetWindowMode = settingsOpen ? 'settings' : menu ? 'menu' : activeEvent ? 'event' : expanded ? 'quick' : 'compact'
+  const previousScale = useRef(settings.scale)
 
   useEffect(() => {
     if (!initializedRef.current) {
@@ -33,9 +53,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
     const added = newEventsAfter(events, watermarkRef.current)
     watermarkRef.current = eventWatermark(events)
     if (added.length === 0) return
-    for (const event of added) {
-      dispatchNotification(event, dnd).catch(() => setDesktopError(true))
-    }
+    eventArrived(added.some((event) => event.type === 'decision'))
     if (!dnd) {
       setActiveEvent(added[0])
       return
@@ -43,13 +61,17 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
     const { quiet, decision } = routeDndArrivals(added)
     if (quiet.length > 0) setSuppressed((current) => [...quiet, ...current])
     if (decision) setActiveEvent(decision)
-  }, [events, dnd, dispatchNotification])
+  }, [events, dnd, eventArrived])
 
   useEffect(() => {
     const save = () => { void savePetPosition() }
     let active = true
     let stopPersisting: (() => void) | null = null
-    persistPetPositionOnMove().then((stop) => {
+    persistPetPositionOnMove(() => {
+      if (!gestureRef.current) return
+      gestureRef.current = confirmPetDrag(gestureRef.current)
+      finishGestureRef.current()
+    }).then((stop) => {
       if (active) stopPersisting = stop
       else stop()
     }).catch(() => setDesktopError(true))
@@ -62,18 +84,14 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
   }, [])
 
   useEffect(() => {
-    resizePetWindow(expanded, activeEvent !== null).catch(() => setDesktopError(true))
-  }, [expanded, activeEvent])
+    const previous = previousScale.current
+    previousScale.current = settings.scale
+    updatePetWindowLayout(windowMode, settings.scale, previous).catch(() => setDesktopError(true))
+  }, [windowMode, settings.scale])
 
-  const openPanel = async (target: PanelTarget) => {
-    try {
-      await openMainPanel(target)
-      setDesktopError(false)
-      setActiveEvent(null)
-    } catch {
-      setDesktopError(true)
-    }
-  }
+  useEffect(() => {
+    setPetAlwaysOnTop(settings.alwaysOnTop).catch(() => setDesktopError(true))
+  }, [settings.alwaysOnTop])
 
   useEffect(() => {
     let active = true
@@ -88,6 +106,19 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
     }
   }, [])
 
+  const openPanel = async (target: PanelTarget = {}) => {
+    try {
+      await openMainPanel(target)
+      setDesktopError(false)
+      setActiveEvent(null)
+      setExpanded(false)
+      setMenu(null)
+      setSettingsOpen(false)
+    } catch {
+      setDesktopError(true)
+    }
+  }
+
   const toggleDnd = () => {
     const next = !dnd
     setDnd(next)
@@ -98,123 +129,171 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
     }
   }
 
+  const closeMenu = () => {
+    setMenu(null)
+    petButtonRef.current?.focus()
+  }
+
+  const finishGesture = useCallback(() => {
+    const gesture = gestureRef.current
+    gestureRef.current = null
+    const result = endPetGesture(gesture)
+    if (result === 'drag') {
+      dragEnd()
+      setExpanded(false)
+      void savePetPosition()
+    } else if (result === 'poke') {
+      poke()
+      setExpanded((value) => !value)
+      setSettingsOpen(false)
+      setMenu(null)
+    }
+  }, [dragEnd, poke])
+
+  useEffect(() => { finishGestureRef.current = finishGesture }, [finishGesture])
+
+  useEffect(() => {
+    const finish = () => {
+      if (gestureRef.current) finishGesture()
+    }
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+    window.addEventListener('mouseup', finish)
+    return () => {
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      window.removeEventListener('mouseup', finish)
+    }
+  }, [finishGesture])
+
+  const changeSettings = (patch: Partial<PetSettings>) => updatePetSettings(patch)
+
   return (
-    <main className="relative flex h-screen flex-col items-center justify-between overflow-hidden p-3 text-text select-none">
-      <button
-        type="button"
-        className="flex h-7 w-16 cursor-grab items-center justify-center self-start rounded-full border border-border-secondary bg-bg-container/90 text-text-secondary shadow-sm active:cursor-grabbing"
-        aria-label="拖拽宠物"
-        title="拖拽移动宠物"
-        onMouseDown={(event) => {
-          if (event.button === 0) startPetDragging().catch(() => setDesktopError(true))
-        }}
-      >
-        <Move className="h-4 w-4" />
-      </button>
-
-      <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-2">
+    <main
+      className="pet-stage"
+      data-dnd={dnd}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return
+        setExpanded(false)
+        setSettingsOpen(false)
+        setMenu(null)
+      }}
+    >
+      <div className="pet-character-zone">
         <button
+          ref={petButtonRef}
           type="button"
-          className="rounded-full p-1 focus-visible:outline-2 focus-visible:outline-primary"
-          aria-label={expanded ? '收起项目摘要' : '展开项目摘要'}
+          className="pet-character-button"
+          style={{ width: petSize, height: petSize }}
+          aria-label={expanded ? '收起宠物快捷面板' : '轻戳宠物展开快捷面板'}
           aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return
+            gestureRef.current = beginPetGesture({ button: event.button, x: event.clientX, y: event.clientY })
+          }}
+          onPointerMove={(event) => {
+            if (!gestureRef.current) return
+            const moved = movePetGesture(gestureRef.current, { x: event.clientX, y: event.clientY })
+            gestureRef.current = moved
+            if (moved.started) {
+              beginNativePetDrag({
+                showDrag: behavior.dragStart,
+                startDragging: startPetDragging,
+              }).catch(() => setDesktopError(true))
+            }
+          }}
+          onPointerUp={finishGesture}
+          onPointerCancel={finishGesture}
+          onClick={(event) => {
+            if (event.detail !== 0) return
+            behavior.poke()
+            setExpanded((value) => !value)
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            gestureRef.current = null
+            setExpanded(false)
+            setSettingsOpen(false)
+            setMenu({ x: event.clientX, y: event.clientY })
+          }}
         >
-          <PetAvatar status={status} size={expanded ? 72 : 104} />
+          <PetAvatar
+            status={status}
+            size={petSize}
+            action={behavior.state.current}
+            direction={behavior.direction}
+            motion={settings.motion}
+            onComplete={behavior.clipFinished}
+          />
         </button>
-
-        <div className="flex items-center gap-1.5 rounded-full border border-border-secondary bg-bg-container/95 px-3 py-1 text-xs shadow-sm" role="status">
-          <span>{STATUS_LABEL[status]}</span>
-          <span aria-hidden="true">·</span>
-          <span>{fmtCount(summary.running)} 运行</span>
-          {attention > 0 && <span className="text-warning">{fmtCount(attention)} 待处理</span>}
+        <div className="pet-status-pill" role="status" data-status={status}>
+          <span className="pet-status-dot" aria-hidden="true" />
+          <span>{dnd ? '安静陪伴' : STATUS_LABEL[status]}</span>
+          {summary.running > 0 && <span className="tabular-nums">{fmtCount(summary.running)} 运行</span>}
+          {attention > 0 && <span className="pet-attention-count tabular-nums">{fmtCount(attention)} 待处理</span>}
         </div>
-
-        {connState === 'offline' && !bridgeError && (
-          <button type="button" className="inline-flex items-center gap-1 rounded-full bg-bg-container px-3 py-1 text-xs text-error shadow-sm" onClick={reconnect}>
-            <RefreshCw className="h-3 w-3" /> 重连 Agent
-          </button>
-        )}
-
-        {activeEvent && (
-          <section className="w-full rounded-2xl border border-border-secondary bg-bg-container p-3 text-left shadow-lg" aria-label="事件轻拍">
-            <div className="flex items-start gap-2">
-              <Bell className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <p className="min-w-0 flex-1 text-sm break-words">{activeEvent.text}</p>
-              <button type="button" aria-label="忽略事件" onClick={() => setActiveEvent(null)}>
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <button
-              type="button"
-              className="mt-2 w-full rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground"
-              onClick={() => void openPanel({ projectId: activeEvent.projectId, sessionId: activeEvent.sessionId })}
-            >
-              查看并处理
-            </button>
-          </section>
-        )}
-
-        {expanded && (
-          <section className="min-h-0 w-full overflow-y-auto rounded-2xl border border-border-secondary bg-bg-container p-3 text-left shadow-lg" aria-label="项目摘要">
-            <div className="mb-2 flex items-center justify-between">
-              <h1 className="text-sm font-semibold">Agent 项目</h1>
-              <div className="flex items-center gap-2">
-                <button type="button" className="text-xs text-primary" onClick={() => void openPanel({})}>打开主面板</button>
-                <button type="button" aria-label="收起项目摘要" onClick={() => setExpanded(false)}>
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-            {projects.length === 0 ? (
-              <p className="py-3 text-center text-xs text-text-secondary">尚未发现 Agent 会话</p>
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                {projects.map((project) => (
-                  <button
-                    type="button"
-                    key={project.id}
-                    className="rounded-lg border border-border-secondary bg-bg-elevated px-3 py-2 text-left hover:border-primary"
-                    onClick={() => void openPanel({ projectId: project.id })}
-                  >
-                    <span className="block truncate text-sm font-medium">{project.name}</span>
-                    <span className="text-xs text-text-secondary">{fmtCount(project.sessionIds.length)} 个会话</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="mt-3 flex items-center justify-between border-t border-border-secondary pt-2 text-xs">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={dnd} onChange={toggleDnd} />
-                免打扰
-              </label>
-              <span className="inline-flex items-center gap-1 text-text-secondary">
-                <Inbox className="h-3.5 w-3.5" /> {fmtCount(suppressed.length)} 静默
-              </span>
-            </div>
-            {suppressed.length > 0 && (
-              <div className="mt-2 flex flex-col gap-1">
-                {suppressed.map((event) => (
-                  <button
-                    type="button"
-                    key={event.id}
-                    className="truncate rounded-md px-2 py-1 text-left text-xs hover:bg-bg-elevated"
-                    onClick={() => void openPanel({ projectId: event.projectId, sessionId: event.sessionId })}
-                  >
-                    {event.text}
-                  </button>
-                ))}
-              </div>
-            )}
-            <button type="button" className="mt-2 w-full rounded-md px-2 py-1 text-xs text-text-secondary hover:bg-bg-elevated" onClick={() => void quitPetDeck().catch(() => setDesktopError(true))}>
-              退出应用
-            </button>
-          </section>
-        )}
-
-        {bridgeError && <p className="max-w-full rounded-md bg-bg-container px-3 py-2 text-center text-xs text-error" role="alert">{bridgeError}</p>}
-        {desktopError && <p className="text-xs text-error" role="alert">桌面窗口操作失败，请重试</p>}
       </div>
+
+      {connState === 'offline' && !bridgeError && (
+        <button type="button" className="pet-reconnect" onClick={reconnect}>
+          <RefreshCw className="h-3 w-3" /> 重连 Agent
+        </button>
+      )}
+
+      {expanded && (
+        <section className="pet-popover pet-quick-panel" aria-label="宠物快捷面板">
+          <div className="pet-panel-heading">
+            <div>
+              <strong>{dnd ? '我会安静陪着你' : '我在这里陪着你'}</strong>
+              <span>{fmtCount(summary.running)} 运行 · {fmtCount(summary.done)} 完成 · {fmtCount(attention)} 待处理</span>
+            </div>
+            <button type="button" className="pet-icon-button" aria-label="打开宠物设置" onClick={() => { setExpanded(false); setSettingsOpen(true) }}>
+              <Settings2 className="h-4 w-4" />
+            </button>
+          </div>
+          {suppressed.length > 0 && (
+            <button type="button" className="pet-inbox-button" onClick={() => {
+              setActiveEvent(suppressed[0])
+              setSuppressed((current) => current.slice(1))
+              setExpanded(false)
+            }}>
+              <Inbox className="h-4 w-4" /> 查看 {fmtCount(suppressed.length)} 条静默事件
+            </button>
+          )}
+          <button type="button" className="pet-primary-button" onClick={() => void openPanel({})}>
+            <PanelTop className="h-4 w-4" /> 打开主面板
+          </button>
+          <label className="pet-check-field pet-dnd-field">
+            <input type="checkbox" checked={dnd} onChange={toggleDnd} />
+            <span>免打扰，仅重要事项轻拍</span>
+          </label>
+        </section>
+      )}
+
+      {activeEvent && (
+        <PetEventCard
+          event={activeEvent}
+          onDismiss={() => setActiveEvent(null)}
+          onOpen={() => void openPanel({ projectId: activeEvent.projectId, sessionId: activeEvent.sessionId })}
+        />
+      )}
+
+      {menu && (
+        <PetContextMenu
+          point={menu}
+          dnd={dnd}
+          onClose={closeMenu}
+          onOpenPanel={() => void openPanel({})}
+          onToggleDnd={toggleDnd}
+          onSettings={() => setSettingsOpen(true)}
+          onHide={() => hidePet().catch(() => setDesktopError(true))}
+          onQuit={() => quitPetDeck().catch(() => setDesktopError(true))}
+        />
+      )}
+
+      {settingsOpen && <PetQuickSettings settings={settings} onChange={changeSettings} onClose={() => setSettingsOpen(false)} />}
+      {bridgeError && <p className="pet-error" role="alert">{bridgeError}</p>}
+      {desktopError && <p className="pet-error" role="alert">桌面窗口操作失败，请重试</p>}
     </main>
   )
 }

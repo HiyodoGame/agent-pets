@@ -10,7 +10,6 @@ import {
   Button,
   Bubble,
   BubbleContent,
-  ChatInput,
   Separator,
   TypographyMuted,
   Card,
@@ -25,7 +24,7 @@ import {
   EmptyDescription,
   EmptyContent,
 } from 'sparkdesign'
-import { Bell, Check, AlertTriangle, X, MessageCircle, RefreshCw, Inbox } from 'lucide-react'
+import { Check, AlertTriangle, X, MessageCircle, RefreshCw, Inbox } from 'lucide-react'
 import type { AgentStatus, PetEvent, Project } from '../shared/types'
 import { usePetData } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
@@ -33,6 +32,8 @@ import { ClampText, EdgeAlert } from '../shared/edge-kit'
 import { PetAvatar } from '../shared/pet-avatar'
 import { STATUS_LABEL } from '../shared/status-tokens'
 import { getMotionPref, setMotionPref, fmtCount, type MotionPref, type EventWatermark, eventWatermark, newEventsAfter, routeDndArrivals } from '../shared/ui-logic'
+import { getPetSettings, subscribePetSettings, updatePetSettings } from '../shared/pet/pet-settings'
+import { PetQuickSettings } from './pet-quick-settings'
 
 function useAggregate() {
   const { sessions } = usePetData()
@@ -209,36 +210,12 @@ function Screen3_PokeExpand({
   projects,
   onOpenPanel,
   onClose,
-  onCommand,
 }: {
   projects: Project[]
   onOpenPanel: (projectId: string) => void
   onClose: () => void
-  onCommand: (text: string) => void
 }) {
-  const [cmd, setCmd] = useState('')
-  const [emptyDemo, setEmptyDemo] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [sendError, setSendError] = useState(false)
-  const [failNext, setFailNext] = useState(false)
-  const list = emptyDemo ? [] : projects
-
-  const send = (v: string) => {
-    setSending(true)
-    setSendError(false)
-    setTimeout(() => {
-      setSending(false)
-      if (failNext) {
-        setFailNext(false)
-        setSendError(true)
-      } else {
-        onCommand(v)
-        setCmd('')
-      }
-    }, 600)
-  }
-
-  if (list.length === 0) {
+  if (projects.length === 0) {
     return (
       <div className="w-full max-w-sm p-4">
         <Empty>
@@ -250,9 +227,6 @@ function Screen3_PokeExpand({
             <Button variant="primary" onClick={() => onOpenPanel('')}>
               连接 Agent
             </Button>
-            <Button variant="ghost" onClick={() => setEmptyDemo(false)}>
-              恢复示例
-            </Button>
           </EmptyContent>
         </Empty>
       </div>
@@ -263,18 +237,13 @@ function Screen3_PokeExpand({
     <div className="flex w-full max-w-sm flex-col gap-3 rounded-lg border border-border-secondary bg-bg-container p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-text font-semibold">项目</h1>
-        <div className="flex gap-1">
-          <Button variant="ghost" onClick={() => setEmptyDemo(true)}>
-            模拟无项目
-          </Button>
-          <Button variant="ghost" onClick={onClose} aria-label="收起面板">
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
+        <Button variant="ghost" onClick={onClose} aria-label="收起面板">
+          <X className="h-4 w-4" />
+        </Button>
       </div>
       <Separator />
       <div className="flex flex-col gap-2">
-        {list.map((p) => (
+        {projects.map((p) => (
           <button key={p.id} type="button" onClick={() => onOpenPanel(p.id)} className="text-left">
             <Card className="transition-colors hover:bg-bg-elevated">
               <CardHeader>
@@ -287,20 +256,6 @@ function Screen3_PokeExpand({
           </button>
         ))}
       </div>
-      <Separator />
-      {sendError && <EdgeAlert title="发送失败" desc="指令没送出去，重试不会丢失已填内容。" onRetry={() => send(cmd)} />}
-      <ChatInput
-        value={cmd}
-        onChange={setCmd}
-        onSend={send}
-        placeholder="快速下指令…"
-        maxRows={3}
-        sendButtonStatus={sending ? 'generating' : 'normal'}
-        disabled={sending}
-      />
-      <Button variant="ghost" onClick={() => setFailNext(true)}>
-        模拟发送失败
-      </Button>
     </div>
   )
 }
@@ -322,12 +277,15 @@ export function Flow1_PetSurface({
   const [inboxOpen, setInboxOpen] = useState(false)
   const [eventError, setEventError] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [settings, setSettings] = useState(getPetSettings)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const { projects, unhandledEvents, connState } = usePetData()
   const events = unhandledEvents()
   const [eventIdx, setEventIdx] = useState(0)
   const event = events[eventIdx % Math.max(events.length, 1)]
   const replayHead = replay[0]
   const activeEvent = replayHead ?? event
+  useEffect(() => subscribePetSettings(setSettings), [])
 
   // 真实联动：以 (timestamp, 同毫秒 id 集合) 水位线识别新事件 —— 事件列表恒被截断到 50 条时也不会漏检。
   // 首次运行只播种水位线（与旧实现一致：挂载时的存量事件不弹轻拍）。
@@ -371,7 +329,7 @@ export function Flow1_PetSurface({
   return (
     <div className="flex flex-col items-center gap-4 p-6">
       <div className="flex flex-wrap items-center gap-3 rounded-md border border-border-tertiary bg-bg-layout p-2">
-        <TypographyMuted>预览控制</TypographyMuted>
+        <TypographyMuted>真实帧预览 · 状态切换仅用于预览</TypographyMuted>
         <div className="flex flex-wrap gap-1" role="group" aria-label="宠物状态预览">
           {(Object.keys(STATUS_LABEL) as AgentStatus[]).map((s) => (
             <Button key={s} variant={status === s ? 'secondary' : 'ghost'} aria-pressed={status === s} onClick={() => setStatus(s)}>
@@ -379,34 +337,16 @@ export function Flow1_PetSurface({
             </Button>
           ))}
         </div>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            if (events.length === 0) return
-            const next = events[(eventIdx + 1) % events.length]
-            if (!next) return
-            if (dnd && next.type !== 'decision') {
-              setSuppressed((s) => [next, ...s])
-              track('pet', EVENT.notificationSuppressed, { count: 1 })
-              return
-            }
-            setEventIdx((i) => i + 1)
-            setEventError(false)
-            setScreen(2)
-          }}
-        >
-          <Bell className="mr-1 h-4 w-4" /> 模拟事件
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setEventError(true)
-            setScreen(2)
-          }}
-        >
-          模拟事件失败
+        <Button variant="secondary" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>
+          皮肤与动效设置
         </Button>
       </div>
+
+      {settingsOpen && (
+        <div className="pet-preview-settings">
+          <PetQuickSettings settings={settings} onChange={(patch) => updatePetSettings(patch)} onClose={() => setSettingsOpen(false)} />
+        </div>
+      )}
 
       {screen === 1 && (
         <Screen1_AmbientIdle
@@ -466,7 +406,6 @@ export function Flow1_PetSurface({
           projects={projects}
           onOpenPanel={(pid) => openPanel(pid)}
           onClose={() => setScreen(1)}
-          onCommand={() => openPanel('p1')}
         />
       )}
       {/* DND 静默收件箱：逐条查看/关闭；收起不清空，关闭免打扰会逐条补提示 */}

@@ -12,7 +12,7 @@ export function stepperState(count: number, current: number): StepStatus[] {
   return Array.from({ length: count }, (_, i) => (i < current ? 'done' : i === current ? 'current' : 'todo'))
 }
 
-export type MotionPref = 'auto' | 'on' | 'off'
+export type MotionPref = 'auto' | 'on' | 'reduced' | 'off'
 
 /** User preference overrides OS: off=>false, on=>true, auto=>!osReduced. */
 export function resolveMotionEnabled(pref: MotionPref, osReduced: boolean): boolean {
