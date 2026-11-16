@@ -6,7 +6,7 @@ import { PetAvatar } from '../shared/pet-avatar'
 import { STATUS_LABEL } from '../shared/status-tokens'
 import { eventWatermark, newEventsAfter, routeDndArrivals, fmtCount, type EventWatermark } from '../shared/ui-logic'
 import { compactPetStatus, summarizeSessions } from './pet-view'
-import { hidePet, listenForDndChange, movePetBy, openMainPanel, persistPetPositionOnMove, quitPetDeck, savePetPosition, setDesktopDnd, setPetAlwaysOnTop, startPetDragging, updatePetWindowLayout, type PanelTarget } from '../../desktop/window'
+import { hidePet, getDnd, listenForDndChange, movePetBy, openMainPanel, persistPetPositionOnMove, quitPetDeck, savePetPosition, setDesktopDnd, setPetAlwaysOnTop, startPetDragging, updatePetWindowLayout, type PanelTarget } from '../../desktop/window'
 import type { PetWindowMode } from '../../desktop/pet-layout'
 import { updatePetSettings, type PetSettings } from '../shared/pet/pet-settings'
 import { usePetBehavior } from './use-pet-behavior'
@@ -96,6 +96,9 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
   useEffect(() => {
     let active = true
     let unlisten: (() => void) | null = null
+    // DND 持久化（P2-11）：挂载时先取 Rust 侧持久化状态，再订阅变更事件，
+    // 保证托盘勾选态、宠物 UI 与配置文件三处一致（不依赖事件时序）。
+    getDnd().then((v) => { if (active) setDnd(v) }).catch(() => setDesktopError(true))
     listenForDndChange(setDnd).then((fn) => {
       if (active) unlisten = fn
       else fn()

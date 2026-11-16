@@ -55,8 +55,9 @@ import {
   Skeleton,
   Tooltip,
 } from 'sparkdesign'
-import { MoreHorizontal, FolderOpen, MessageSquare, Archive, Trash2, Pencil, ArrowLeft, ArrowRightLeft, Copy, RefreshCw } from 'lucide-react'
+import { MoreHorizontal, FolderOpen, MessageSquare, Archive, Trash2, Pencil, ArrowLeft, ArrowRightLeft, Copy, RefreshCw, List, LayoutGrid } from 'lucide-react'
 import type { Session, SessionStatus } from '../shared/types'
+import { kanbanColumns } from './kanban'
 import { usePetData, mergeSessions, type SessionOverlay } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { EdgeAlert } from '../shared/edge-kit'
@@ -401,6 +402,8 @@ function Screen2_PanelShell({
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  // P2-11 看板：列表（线程）与看板两视图，点卡片直达线程
+  const [mode, setMode] = useState<'thread' | 'board'>('thread')
   const { projects: mockProjects } = usePetData()
   const projects = projectId ? mockProjects.filter((p) => p.id === projectId) : mockProjects
   const current = sessions.find((s) => s.id === sessionId) ?? null
@@ -506,17 +509,64 @@ function Screen2_PanelShell({
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <h1 className="text-text text-sm font-semibold">项目 / 会话面板</h1>
+          {/* 列表 / 看板切换（P2-11）：aria-pressed 标注当前视图 */}
+          <div className="ml-auto flex items-center gap-1" role="group" aria-label="视图切换">
+            <Button variant="ghost" size="sm" aria-pressed={mode === 'thread'} onClick={() => setMode('thread')} aria-label="列表视图">
+              <List className="h-4 w-4" /> 列表
+            </Button>
+            <Button variant="ghost" size="sm" aria-pressed={mode === 'board'} onClick={() => setMode('board')} aria-label="看板视图">
+              <LayoutGrid className="h-4 w-4" /> 看板
+            </Button>
+          </div>
         </div>
-        <Screen3_SessionThread
-          session={current}
-          notFound={notFound}
-          handoff={handoff}
-          onCopyHandoff={onCopyHandoff}
-          onDismissHandoff={onDismissHandoff}
-          onRelay={onRelay}
-          onFollowUp={onFollowUp}
-          onClearSession={() => onSelectSession(null)}
-        />
+        {mode === 'board' ? (
+          <div className="flex flex-1 gap-3 overflow-x-auto p-3">
+            {kanbanColumns(sessions).map((col) => (
+              <section key={col.status} className="flex min-w-[220px] flex-1 flex-col gap-2" aria-label={STATUS_TAG[col.status].label}>
+                <div className="flex items-center gap-2">
+                  <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: STATUS_DOT[col.status] }} role="img" aria-label={STATUS_TAG[col.status].label} />
+                  <h2 className="text-text text-sm font-medium">{STATUS_TAG[col.status].label}</h2>
+                  <span className="text-xs text-text-secondary">{col.sessions.length}</span>
+                </div>
+                {col.sessions.length === 0 ? (
+                  <TypographyMuted className="text-xs">暂无会话</TypographyMuted>
+                ) : (
+                  col.sessions.map((s) => (
+                    <Card key={s.id} className="p-2">
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        aria-label={`打开会话 ${s.title}`}
+                        onClick={() => {
+                          onSelectSession(s.id)
+                          setMode('thread')
+                        }}
+                      >
+                        <p className="text-text truncate text-sm font-medium">{s.title}</p>
+                        <p className="text-text-secondary mt-1 truncate text-xs">
+                          {s.agentId}
+                          {s.stale ? ' · stale' : ''}
+                          {fmtTokens(s.tokens) ? ` · ${fmtTokens(s.tokens)}` : ''}
+                        </p>
+                      </button>
+                    </Card>
+                  ))
+                )}
+              </section>
+            ))}
+          </div>
+        ) : (
+          <Screen3_SessionThread
+            session={current}
+            notFound={notFound}
+            handoff={handoff}
+            onCopyHandoff={onCopyHandoff}
+            onDismissHandoff={onDismissHandoff}
+            onRelay={onRelay}
+            onFollowUp={onFollowUp}
+            onClearSession={() => onSelectSession(null)}
+          />
+        )}
       </SidebarInset>
 
       <AlertDialog open={deleteTarget !== null} onOpenChange={(o) => !o && setDeleteTarget(null)}>

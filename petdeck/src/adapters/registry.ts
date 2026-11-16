@@ -2,6 +2,7 @@
 // Pure logic, unit-tested in logic.test.ts.
 import type { CapabilityTier } from '../flows/shared/types'
 import type { InjectDecision, InjectPayload } from './types'
+import { handoffPackage } from '../../server/tiers.mjs'
 
 export type SourceMode = 'live' | 'mock'
 
@@ -16,20 +17,14 @@ export function gateInject(tier: CapabilityTier): boolean {
 }
 
 /**
- * 离线交接包文本。与 server/tiers.mjs 的 handoffPackage 保持逐字一致
- * （同一字段顺序与中文标签 from/context/instruction/artifacts）——在线 prompt 与
- * 离线剪贴板包必须等价，降级的交接不得丢 from 或产物。parity fixture 见 logic.test.ts。
+ * 交接包文本单一来源（P2-11 合一）：直接引用 server/tiers.mjs 的 handoffPackage，
+ * 不再维护逐字镜像。server 的纯函数无 Node 依赖，Vite 可直接打包。
+ * 保留 handoffPackageText 名称以稳定前端消费方（flow4 / index barrel）。
  */
-export function handoffPackageText(p: Pick<InjectPayload, 'from' | 'context' | 'instruction' | 'artifacts'>): string {
-  const parts = [`Relay handoff from ${p.from ?? 'petdeck'}`]
-  if (p.context) parts.push(`\n上下文：\n${p.context}`)
-  if (p.instruction) parts.push(`\n指令：\n${p.instruction}`)
-  if (Array.isArray(p.artifacts) && p.artifacts.length) parts.push(`\n产物：\n${p.artifacts.join('\n')}`)
-  return parts.join('')
-}
+export { handoffPackage as handoffPackageText } from '../../server/tiers.mjs'
 
 export function clipboardPackage(p: InjectPayload, fallbackReason?: 'tier' | 'cli' | 'bridge-error'): InjectDecision {
-  return { mode: 'clipboard', package: handoffPackageText(p), ...(fallbackReason ? { fallbackReason } : {}) }
+  return { mode: 'clipboard', package: handoffPackage(p), ...(fallbackReason ? { fallbackReason } : {}) }
 }
 
 /** live 且 bridge 可达 → 真注入；demo（非 live）→ 剪贴板（非降级，不带原因）；

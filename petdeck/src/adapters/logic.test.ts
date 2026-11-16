@@ -1,26 +1,9 @@
-// RED tests for frontend adapter pure logic (bus / registry).
+// RED tests for frontend adapter pure logic (registry).
 // Run: node --test src/adapters/logic.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createEventBus } from './bus.ts';
 import { selectSource, gateInject, injectOrClipboard, clipboardPackage, handoffPackageText } from './registry.ts';
 import { handoffPackage } from '../../server/tiers.mjs';
-
-test('event bus: emit -> subscriber, replay capped, unsubscribe', () => {
-  const bus = createEventBus(2);
-  const seen: string[] = [];
-  const un = bus.subscribe((e) => seen.push(e.id));
-  bus.emit({ id: '1', type: 'done', text: 'a' });
-  bus.emit({ id: '2', type: 'done', text: 'b' });
-  bus.emit({ id: '3', type: 'done', text: 'c' });
-  assert.deepEqual(seen, ['1', '2', '3']);
-  un();
-  bus.emit({ id: '4', type: 'done', text: 'd' });
-  assert.equal(seen.length, 3);
-  const late: string[] = [];
-  bus.subscribe((e) => late.push(e.id));
-  assert.deepEqual(late, ['3', '4']); // replay cap 2
-});
 
 test('registry: selectSource mock only on explicit demo', () => {
   assert.equal(selectSource(true), 'mock');
@@ -40,17 +23,10 @@ test('registry: clipboardPackage keeps from + artifacts in unified format', () =
   assert.equal(d.package, 'Relay handoff from codex\n上下文：\nc\n指令：\ni\n产物：\na.png\nb.md');
 });
 
-test('registry: handoffPackageText parity with server builder (online === offline package)', () => {
-  const cases = [
-    { from: 'codex', context: 'CTX', instruction: 'INS', artifacts: ['a.png', 'b.md'] },
-    { from: 'claude', context: '只上下文' },
-    { context: 'c', instruction: 'i' },
-    { from: 'kimi' },
-    { from: 'x', instruction: 'i', artifacts: ['z.txt'] },
-  ];
-  for (const c of cases) {
-    assert.equal(handoffPackageText(c), handoffPackage(c), `parity broken for ${JSON.stringify(c)}`);
-  }
+// 单一来源守卫（P2-11）：handoffPackageText 必须就是 server 的 handoffPackage 本体，
+// 而不是再复制一份逐字镜像——之前是双份手工镜像靠 parity 测试兜底，脆弱。
+test('registry: handoffPackageText is the server builder itself, not a mirror', () => {
+  assert.equal(handoffPackageText, handoffPackage);
 });
 
 test('registry: injectOrClipboard clipboard when bridge throws', async () => {

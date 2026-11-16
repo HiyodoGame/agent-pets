@@ -116,6 +116,12 @@ export async function setDesktopDnd(enabled: boolean): Promise<void> {
   await invoke('set_dnd', { enabled })
 }
 
+/** DND 持久化（P2-11）：启动时读取 Rust 侧持久化的免打扰状态；非 Tauri 环境返回 false。 */
+export async function getDnd(): Promise<boolean> {
+  if (!isTauri()) return false
+  return await invoke<boolean>('get_dnd')
+}
+
 export async function listenForDndChange(handler: (enabled: boolean) => void): Promise<() => void> {
   if (!isTauri()) return () => {}
   return listen<boolean>('petdeck:dnd-changed', (event) => handler(event.payload))

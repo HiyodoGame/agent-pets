@@ -6,6 +6,9 @@
 
 ### 新增
 
+- **Flow3 看板视图**：面板新增「列表 / 看板」切换，会话按状态分五列（运行中/等拍板/已完成/卡住/已归档），空列保留、点卡片直达线程；分组逻辑抽纯函数单测。
+- **免打扰（DND）持久化**：Rust 侧写入应用配置目录 `dnd.json`，启动即恢复托盘勾选态与宠物 UI；前端挂载时经新 `get_dnd` 命令主动拉取（不依赖事件时序）。非 Tauri 环境安全 no-op。
+
 - **三个新适配器（只读观察）**：Kimi Code CLI（`~/.kimi/sessions` context.jsonl）、zcode（`~/.zcode/cli/db` SQLite 只读副本，含 token 用量聚合）、DeepSeek Harness（`~/.dsh/sessions` 多帧 zstd 事件流）。格式依据用户机器实测勘察（`docs/agent-会话存储勘察.md`）；inject 语法均未真机验证，能力分级 observe-only，接力走剪贴板。Antigravity（Gemini 桌面）因会话库为无 schema protobuf 暂缓。
 - **用量/成本 MVP**：观察行携带 `tokens`（claude：jsonl usage 分项聚合；zcode：turn_usage 聚合；kimi：累计 token_count），面板会话头显示紧凑徽标（`↑in ↓out` / 总量）。claude 用量为观察窗口内聚合值，非会话全历史（UI 有标注）。
 - **Claude 5h 用量窗口 + 重置倒计时**：按 jsonl 时间戳推算账户级 5 小时滚动窗口（窗口起点 / 预计重置点 / 剩余分钟 / 窗口内 token 聚合），面板会话头显示 `⏳ 约X后重置` 徽标。全部为推算值（UI 标注「估」，以官方 `/usage` 为准）；订阅配额百分比无法从本地文件得知，不做猜测。
@@ -18,6 +21,7 @@
 
 ### 变更
 
+- **交接包文本合一**：前端 `handoffPackageText` 直接引用 `server/tiers.mjs` 的 `handoffPackage`（单一来源 + 同名导出），删除逐字镜像与 parity 兜底测试；`src/adapters/bus.ts` 死代码删除（全 src 无消费者）。
 - 仓库换行统一 LF（`.gitattributes` `eol=lf`），消除 CRLF 幻影 diff。
 
 ## [0.1.0] — 2026-11-14

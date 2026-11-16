@@ -1,6 +1,5 @@
 // Adapter layer public surface.
-export { createEventBus } from './bus'
-export type { BusEvent, EventBus } from './bus'
+// (bus.ts 已删除——前端事件总线是死代码，全 src 无消费者，P2-11 清理)
 export { selectSource, gateInject, clipboardPackage, handoffPackageText } from './registry'
 export type { SourceMode } from './registry'
 export { DataSourceProvider } from './data'

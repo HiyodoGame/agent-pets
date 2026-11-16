@@ -42,11 +42,42 @@ fn update_dnd(app: &AppHandle, enabled: bool) {
     *state.0.lock().unwrap_or_else(|error| error.into_inner()) = enabled;
     let _ = app.state::<DndMenuItem>().0.set_checked(enabled);
     let _ = app.emit("petdeck:dnd-changed", enabled);
+    save_dnd(app, enabled); // DND 持久化（P2-11）：尽力写盘，失败不阻断 UI 状态
+}
+
+/// DND 持久化文件（app 配置目录/dnd.json）。内容就是字面 true/false，
+/// 避免为此引入 serde_json 解析；读不出合法值一律视为未持久化。
+fn dnd_config_file(app: &AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_config_dir().ok().map(|dir| dir.join("dnd.json"))
+}
+
+fn load_dnd(app: &AppHandle) -> Option<bool> {
+    let file = dnd_config_file(app)?;
+    std::fs::read_to_string(file).ok()?.trim().parse::<bool>().ok()
+}
+
+fn save_dnd(app: &AppHandle, enabled: bool) {
+    if let Some(file) = dnd_config_file(app) {
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(file, if enabled { "true" } else { "false" });
+    }
 }
 
 #[tauri::command]
 fn set_dnd(app: AppHandle, enabled: bool) {
     update_dnd(&app, enabled);
+}
+
+/// 前端挂载时主动拉取当前 DND（持久化值 + 托盘勾选态的单一事实来源）。
+/// 启动时 emit 的事件可能早于前端监听器就绪，所以读值必须走命令而非事件。
+#[tauri::command]
+fn get_dnd(app: AppHandle) -> bool {
+    *app.state::<DndState>()
+        .0
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
 }
 
 #[tauri::command]
@@ -88,12 +119,14 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            app.manage(DndState(Mutex::new(false)));
+            // DND 持久化（P2-11）：启动即读上次状态，托盘勾选态与 DndState 同步初始化
+            let dnd_saved = load_dnd(app.handle()).unwrap_or(false);
+            app.manage(DndState(Mutex::new(dnd_saved)));
 
             let show_pet = MenuItemBuilder::with_id("show-pet", "显示宠物").build(app)?;
             let open_panel_item = MenuItemBuilder::with_id("open-panel", "打开面板").build(app)?;
             let dnd_item = CheckMenuItemBuilder::with_id("dnd", "免打扰")
-                .checked(false)
+                .checked(dnd_saved)
                 .build(app)?;
             let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
             let autostart_item = CheckMenuItemBuilder::with_id("autostart", "开机启动")
@@ -153,6 +186,7 @@ pub fn run() {
             open_panel,
             get_bridge_config,
             set_dnd,
+            get_dnd,
             quit_app
         ])
         .on_window_event(|window, event| {
