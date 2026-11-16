@@ -70,6 +70,12 @@ VITE_PETDECK_BRIDGE_TOKEN=<本地随机值> npm run dev
 
 参考 `.env.example`（仅占位值）。Vite 不会自动把 `.env` 变量传给独立 Node 进程。
 
+## 文档
+
+- 用户手册（安装/接入/日常使用/故障排查）：`docs/用户手册.md`
+- 真机实测矩阵与环境检查：`docs/真机实测矩阵.md`，运行 `node scripts/verify-local.mjs --md` 生成自动检查表（只读观察，不执行注入）
+- 变更历史：根目录 `CHANGELOG.md`
+
 ## 质量门
 
 ```bash
