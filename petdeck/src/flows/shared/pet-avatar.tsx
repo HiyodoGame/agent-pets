@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { AgentStatus } from './types'
-import { STATUS_COLOR, STATUS_LABEL } from './status-tokens'
+import { STATUS_COLOR, statusLabel } from './status-tokens'
 import { loadSkin } from './pet/skin-loader'
 import { getPetSettings, subscribePetSettings } from './pet/pet-settings'
 import { SpritePlayer } from './pet/sprite-player'
 import type { PetAction, PetDirection, PetSkin } from './pet/skin-types'
 import type { MotionPref } from './ui-logic'
+import { t } from '../../i18n/index.ts'
 
 const STATUS_ACTION: Record<AgentStatus, PetAction> = {
   idle: 'idle',
@@ -74,7 +75,7 @@ export function PetAvatar({ status, size = 96, action, direction, motion, skinId
       className="pet-avatar"
       style={{ width: size, height: size }}
       role="img"
-      aria-label={`宠物状态：${STATUS_LABEL[status]}`}
+      aria-label={t('pet.ariaStatus', { status: statusLabel(status) })}
       data-pet-status={status}
       data-pet-action={action ?? STATUS_ACTION[status]}
     >

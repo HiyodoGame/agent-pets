@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { isTauri } from './window.ts'
+import { t } from '../i18n/index.ts'
 
 export interface UpdateInfo {
   available: boolean
@@ -12,13 +13,13 @@ export type UpdatePhase = 'unsupported' | 'idle' | 'checking' | 'available' | 'u
 /** Pure: user-facing status line for the settings panel. */
 export function updateStatusText(phase: UpdatePhase, info?: UpdateInfo | null, error?: string): string {
   switch (phase) {
-    case 'unsupported': return '自动更新仅在桌面版可用'
-    case 'checking': return '正在检查更新…'
-    case 'available': return info?.version ? `发现新版本 ${info.version}` : '发现新版本'
-    case 'uptodate': return '已是最新版本'
-    case 'installing': return '正在下载并安装，应用将会自动重启…'
-    case 'error': return error ? `检查更新失败：${error}` : '检查更新失败'
-    default: return '从 GitHub Releases 检查新版本'
+    case 'unsupported': return t('update.unsupported')
+    case 'checking': return t('update.checking')
+    case 'available': return info?.version ? t('update.available', { version: info.version }) : t('update.availableNoVersion')
+    case 'uptodate': return t('update.uptodate')
+    case 'installing': return t('update.installing')
+    case 'error': return error ? t('update.error', { error }) : t('update.errorGeneric')
+    default: return t('update.idle')
   }
 }
 

@@ -32,43 +32,45 @@ import { EdgeAlert, Stepper } from '../shared/edge-kit'
 import { decideLiveConnect, fmtRateLimitWait, type LiveConnectResult } from '../shared/ui-logic'
 import { usePetData } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
+import { t } from '../../i18n/index.ts'
+import type { MessageKey } from '../../i18n/messages.ts'
 
-const CAP_META: Record<CapabilityTier, { label: string; color: 'success' | 'info' | 'slate' }> = {
-  full: { label: '观察+接力', color: 'success' },
-  'observe-only': { label: '仅观察', color: 'info' },
-  manual: { label: '手动', color: 'slate' },
+const CAP_META: Record<CapabilityTier, { labelKey: MessageKey; color: 'success' | 'info' | 'slate' }> = {
+  full: { labelKey: 'capability.full', color: 'success' },
+  'observe-only': { labelKey: 'capability.observe', color: 'info' },
+  manual: { labelKey: 'capability.manual', color: 'slate' },
 }
-const FORM_META: Record<AgentForm, { label: string; icon: typeof Terminal }> = {
-  cli: { label: 'CLI', icon: Terminal },
-  desktop: { label: '桌面', icon: Monitor },
-  web: { label: '网页', icon: Globe },
+const FORM_META: Record<AgentForm, { labelKey: MessageKey; icon: typeof Terminal }> = {
+  cli: { labelKey: 'form.cli', icon: Terminal },
+  desktop: { labelKey: 'form.desktop', icon: Monitor },
+  web: { labelKey: 'form.web', icon: Globe },
 }
-const DETECT_STEPS = ['检测本地安装', '读取桥接 / 日志', '建立状态通道']
+const DETECT_STEPS: MessageKey[] = ['connect.detectLocal', 'connect.detectBridge', 'connect.detectChannel']
 
 /* SCREEN 1 of 4: Cold Home（+ offline banner） */
 function Screen1_ColdHome({ mock, quickItems, onStart, onQuick }: { mock: boolean; quickItems: { text: string; prompt: string }[]; onStart: () => void; onQuick: (id: string) => void }) {
   const [offline, setOffline] = useState(false)
   return (
     <div className="flex w-full max-w-xl flex-col gap-3">
-      {offline && <EdgeAlert variant="info" title="当前离线" desc="连接 Agent 需网络；可先查看本地缓存引导。" />}
+      {offline && <EdgeAlert variant="info" title={t('connect.offlineTitle')} desc={t('connect.offlineDesc')} />}
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant="icon">
             <Plug className="h-6 w-6" />
           </EmptyMedia>
-          <EmptyTitle>还没有连接任何 Agent</EmptyTitle>
-          <EmptyDescription>连接第一个 Agent，宠物就会点亮并开始替你盯进度</EmptyDescription>
+          <EmptyTitle>{t('connect.noAgents')}</EmptyTitle>
+          <EmptyDescription>{t('connect.noAgentsDesc')}</EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
           <Button variant="primary" onClick={onStart}>
-            <Plug className="mr-1 h-4 w-4" /> 连接第一个 Agent
+            <Plug className="mr-1 h-4 w-4" /> {t('connect.connectFirst')}
           </Button>
           <PromptSuggestions items={quickItems} onSelect={(it) => onQuick(it.prompt)} />
         </EmptyContent>
       </Empty>
       {mock && (
         <Button variant="ghost" onClick={() => setOffline((o) => !o)}>
-          <WifiOff className="mr-1 h-4 w-4" /> 模拟离线
+          <WifiOff className="mr-1 h-4 w-4" /> {t('connect.mockOffline')}
         </Button>
       )}
     </div>
@@ -84,25 +86,25 @@ function Screen2_SelectAgent({ catalog, onPick, onBack }: { catalog: AgentCatalo
   return (
     <div className="flex w-full max-w-2xl flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" onClick={onBack} aria-label="返回">
+        <Button variant="ghost" onClick={onBack} aria-label={t('connect.back')}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <span className="text-text font-semibold">选择 Agent</span>
+        <span className="text-text font-semibold">{t('connect.selectAgent')}</span>
       </div>
-      <Input placeholder="搜索 Agent…" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <Input placeholder={t('connect.search')} value={query} onChange={(e) => setQuery(e.target.value)} />
       {unsupported && (
-        <EdgeAlert variant="warning" title={`${unsupported} 尚未支持`} desc="该 Agent 暂无桥接适配，已记录你的需求；可先连接其他 Agent。" />
+        <EdgeAlert variant="warning" title={t('connect.unsupportedTitle', { name: unsupported })} desc={t('connect.unsupportedDesc')} />
       )}
       {/* empty-search：搜索无结果 / live 未发现任何 Agent */}
       {filtered.length === 0 ? (
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>{query ? `没找到「${query}」` : '未发现 Agent'}</EmptyTitle>
-            <EmptyDescription>{query ? '换个关键词，或清除搜索查看全部 Agent' : '本地 bridge 在线但未发现任何 Agent；启动 Agent 后会自动出现在这里。'}</EmptyDescription>
+            <EmptyTitle>{query ? t('connect.notFound', { query }) : t('connect.noAgentsFound')}</EmptyTitle>
+            <EmptyDescription>{query ? t('connect.notFoundDesc') : t('connect.noAgentsFoundDesc')}</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Button variant="secondary" onClick={() => setQuery('')}>
-              清除搜索
+              {t('connect.clearSearch')}
             </Button>
           </EmptyContent>
         </Empty>
@@ -115,7 +117,7 @@ function Screen2_SelectAgent({ catalog, onPick, onBack }: { catalog: AgentCatalo
             <div key={form} className="flex flex-col gap-2">
               <TypographyMuted>
                 <FormIcon className="mr-1 inline h-3 w-3" />
-                {FORM_META[form].label}
+                {t(FORM_META[form].labelKey)}
               </TypographyMuted>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {items.map((c) => (
@@ -127,8 +129,8 @@ function Screen2_SelectAgent({ catalog, onPick, onBack }: { catalog: AgentCatalo
                       </CardHeader>
                       <CardContent>
                         <div className="flex gap-2">
-                          <Tag color={CAP_META[c.capability].color}>{CAP_META[c.capability].label}</Tag>
-                          {!c.supported && <Tag color="slate">待适配</Tag>}
+                          <Tag color={CAP_META[c.capability].color}>{t(CAP_META[c.capability].labelKey)}</Tag>
+                          {!c.supported && <Tag color="slate">{t('connect.pendingAdapter')}</Tag>}
                         </div>
                       </CardContent>
                     </Card>
@@ -206,47 +208,47 @@ function Screen3_Detect({
   return (
     <div className="flex w-full max-w-xl flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" onClick={onBack} aria-label="返回">
+        <Button variant="ghost" onClick={onBack} aria-label={t('connect.back')}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <span className="text-text font-semibold">连接 {entry.name}</span>
-        <Tag color={CAP_META[entry.capability].color}>{CAP_META[entry.capability].label}</Tag>
+        <span className="text-text font-semibold">{t('connect.connectTo', { name: entry.name })}</span>
+        <Tag color={CAP_META[entry.capability].color}>{t(CAP_META[entry.capability].labelKey)}</Tag>
       </div>
 
-      <EdgeAlert variant="info" title="本地优先" desc="只读本地会话状态与产物，不上传你的代码；授权可随时在设置中撤销。" />
+      <EdgeAlert variant="info" title={t('connect.localFirst')} desc={t('connect.localFirstDesc')} />
 
       {denied && (
         <EdgeAlert
           variant="warning"
-          title="未授权"
-          desc="你拒绝了本地读取授权。去系统设置开启后重试。"
+          title={t('connect.deniedTitle')}
+          desc={t('connect.deniedDesc')}
           extra={
             <Button variant="secondary" onClick={() => setDenied(false)}>
-              <Settings className="mr-1 h-4 w-4" /> 去系统设置
+              <Settings className="mr-1 h-4 w-4" /> {t('connect.openSettings')}
             </Button>
           }
         />
       )}
       {rateLimit !== null && rateLimit > 0 && (
-        <EdgeAlert variant="warning" title="请求过频" desc={fmtRateLimitWait(rateLimit)} />
+        <EdgeAlert variant="warning" title={t('connect.rateLimitTitle')} desc={fmtRateLimitWait(rateLimit)} />
       )}
       {liveFail !== null && (
         <EdgeAlert
           variant="warning"
-          title={liveFail === 'offline' ? '桥接不可用' : 'Agent 已离线'}
-          desc={liveFail === 'offline' ? '无法连接本地 bridge，恢复后重试。' : `${entry.name} 已不在已发现的 Agent 列表中，请返回重新选择。`}
+          title={liveFail === 'offline' ? t('connect.bridgeUnavailable') : t('connect.agentOffline')}
+          desc={liveFail === 'offline' ? t('connect.bridgeUnavailableDesc') : t('connect.agentOfflineDesc', { name: entry.name })}
           onRetry={() => setLiveFail(null)}
-          retryLabel="知道了"
+          retryLabel={t('connect.gotIt')}
         />
       )}
 
       {manual ? (
-        <EdgeAlert variant="warning" title="网页 Agent 无本地桥接" desc={`${entry.name} 为网页服务，使用浏览器扩展读取状态或手动 check-in；接力降级为剪贴板辅助。`} />
+        <EdgeAlert variant="warning" title={t('connect.webNoBridge')} desc={t('connect.webNoBridgeDesc', { name: entry.name })} />
       ) : mock ? (
         <>
           <div className="flex flex-col gap-2 rounded-md border border-border-tertiary bg-bg-container p-3">
-            {DETECT_STEPS.map((label, i) => (
-              <div key={label} className="flex items-center gap-2 text-sm">
+            {DETECT_STEPS.map((labelKey, i) => (
+              <div key={labelKey} className="flex items-center gap-2 text-sm">
                 {error && i === step ? (
                   <AlertTriangle className="h-4 w-4 text-error" />
                 ) : i < step ? (
@@ -256,7 +258,7 @@ function Screen3_Detect({
                 ) : (
                   <span className="h-4 w-4 rounded-full border border-border-secondary" />
                 )}
-                <span className={i <= step ? 'text-text' : 'text-text-secondary'}>{label}</span>
+                <span className={i <= step ? 'text-text' : 'text-text-secondary'}>{t(labelKey)}</span>
               </div>
             ))}
           </div>
@@ -267,31 +269,31 @@ function Screen3_Detect({
         <div className="flex flex-col gap-2 rounded-md border border-border-tertiary bg-bg-container p-3">
           <div className="flex items-center gap-2 text-sm">
             <Check className="h-4 w-4 text-success" />
-            <span className="text-text">本地 bridge 已连接，状态通道就绪</span>
+            <span className="text-text">{t('connect.bridgeConnected')}</span>
           </div>
-          <TypographyMuted>发现 {agentIds.length} 个 Agent；检测由 bridge 后台持续完成，授权即接入真实的 {entry.name}。</TypographyMuted>
+          <TypographyMuted>{t('connect.discovered', { n: agentIds.length, name: entry.name })}</TypographyMuted>
         </div>
       ) : (
         <EdgeAlert
           variant="warning"
-          title="桥接不可用"
-          desc="无法连接本地 bridge，恢复后才能接入真实 Agent。"
+          title={t('connect.bridgeUnavailable')}
+          desc={t('connect.bridgeUnavailableDesc')}
           onRetry={onReconnect}
-          retryLabel="重连"
+          retryLabel={t('shell.reconnect')}
         />
       )}
 
       {error && (
         <EdgeAlert
-          title="检测失败：未找到本地安装"
-          desc={`请确认 ${entry.name} 已安装并在运行，或改用手动配置。`}
+          title={t('connect.detectFailed')}
+          desc={t('connect.detectFailedDesc', { name: entry.name })}
           onRetry={() => {
             setError(false)
             setStep(0)
           }}
           extra={
             <Button variant="secondary" onClick={onSuccess}>
-              手动配置连接
+              {t('connect.manualConnect')}
             </Button>
           }
         />
@@ -301,16 +303,16 @@ function Screen3_Detect({
       <div className="flex flex-wrap gap-2">
         {manual ? (
           <Button variant="primary" loading={connecting} onClick={connect}>
-            手动 check-in 连接
+            {t('connect.manualCheckIn')}
           </Button>
         ) : (
           <Button variant="primary" disabled={!ready || connecting} loading={connecting} onClick={connect}>
-            授权并连接
+            {t('connect.authorize')}
           </Button>
         )}
-        {mock && !manual && !error && <Button variant="ghost" onClick={() => setError(true)}>模拟检测失败</Button>}
-        {mock && !denied && <Button variant="ghost" onClick={() => setDenied(true)}>模拟拒绝授权</Button>}
-        {mock && rateLimit === null && <Button variant="ghost" onClick={() => setRateLimit(5)}>模拟限流</Button>}
+        {mock && !manual && !error && <Button variant="ghost" onClick={() => setError(true)}>{t('connect.simFail')}</Button>}
+        {mock && !denied && <Button variant="ghost" onClick={() => setDenied(true)}>{t('connect.simDeny')}</Button>}
+        {mock && rateLimit === null && <Button variant="ghost" onClick={() => setRateLimit(5)}>{t('connect.simRateLimit')}</Button>}
       </div>
     </div>
   )
@@ -325,20 +327,20 @@ function Screen4_Success({ entry, mock, onDone, onMore }: { entry: AgentCatalogE
       <PetAvatar status="done" size={80} />
       <div className="flex items-center gap-2 text-success">
         <Check className="h-5 w-5" />
-        <span className="text-text font-semibold">已连接 {entry.name || '未命名 Agent'}</span>
+        <span className="text-text font-semibold">{t('connect.connected', { name: entry.name || t('connect.unnamedAgent') })}</span>
       </div>
-      <TypographyMuted>宠物已点亮，开始同步状态与产物</TypographyMuted>
-      {syncError && <EdgeAlert title="首次同步失败" desc="状态没拉下来，重试同步。" onRetry={() => setSyncError(false)} />}
+      <TypographyMuted>{t('connect.syncing')}</TypographyMuted>
+      {syncError && <EdgeAlert title={t('connect.syncFailed')} desc={t('connect.syncFailedDesc')} onRetry={() => setSyncError(false)} />}
       <div className="flex gap-2">
         <Button variant="primary" onClick={onDone}>
-          看项目面板
+          {t('connect.viewPanel')}
         </Button>
         <Button variant="secondary" onClick={onMore}>
-          连接下一个
+          {t('connect.connectNext')}
         </Button>
         {mock && (
           <Button variant="ghost" onClick={() => setSyncError(true)}>
-            模拟同步失败
+            {t('connect.simSyncFail')}
           </Button>
         )}
       </div>
@@ -356,18 +358,18 @@ export function Flow2_ConnectAgent({ onConnected }: { onConnected?: () => void }
     name: a.name,
     form: a.form,
     capability: a.capability,
-    detectHint: '本地 bridge 已发现',
+    detectHint: t('connect.liveDiscovered'),
     supported: true,
   }))
   const catalog = mock ? mockCatalog : liveCatalog
   const agentIds = agents.map((a: Agent) => a.id)
   const quickItems = (mock
     ? [
-        { text: '连接 Qoder', prompt: 'c1' },
-        { text: '连接 Codex', prompt: 'c2' },
-        { text: '连接 kimi work', prompt: 'c6' },
+        { text: t('connect.connectTo', { name: 'Qoder' }), prompt: 'c1' },
+        { text: t('connect.connectTo', { name: 'Codex' }), prompt: 'c2' },
+        { text: t('connect.connectTo', { name: 'kimi work' }), prompt: 'c6' },
       ]
-    : catalog.slice(0, 3).map((c) => ({ text: `连接 ${c.name}`, prompt: c.id }))
+    : catalog.slice(0, 3).map((c) => ({ text: t('connect.connectTo', { name: c.name }), prompt: c.id }))
   ).filter((q) => catalog.some((c) => c.id === q.prompt))
   const [screen, setScreen] = useState<1 | 2 | 3 | 4>(1)
   const [entry, setEntry] = useState<AgentCatalogEntry | null>(null)
@@ -377,8 +379,8 @@ export function Flow2_ConnectAgent({ onConnected }: { onConnected?: () => void }
   }
   return (
     <div className="flex flex-col items-center gap-4 p-6">
-      <h1 className="text-text text-lg font-semibold">接入 Agent</h1>
-      <Stepper steps={['选择', '检测', '授权', '完成']} current={screen - 1} />
+      <h1 className="text-text text-lg font-semibold">{t('connect.title')}</h1>
+      <Stepper steps={[t('connect.stepSelect'), t('connect.stepDetect'), t('connect.stepAuthorize'), t('connect.stepDone')]} current={screen - 1} />
       {screen === 1 && <Screen1_ColdHome mock={mock} quickItems={quickItems} onStart={() => setScreen(2)} onQuick={(id) => { const c = catalog.find((x) => x.id === id); if (c) pick(c) }} />}
       {screen === 2 && <Screen2_SelectAgent catalog={catalog} onPick={pick} onBack={() => setScreen(1)} />}
       {screen === 3 && entry && (

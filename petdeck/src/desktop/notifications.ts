@@ -2,11 +2,12 @@ import { isPermissionGranted, requestPermission, sendNotification } from '@tauri
 import type { PetEvent } from '../flows/shared/types'
 import { notificationDecision } from '../flows/flow-1-pet-surface/pet-view.ts'
 import { isTauri } from './window.ts'
+import { t } from '../i18n/index.ts'
 
 export function notificationBody(event: PetEvent): string {
-  if (event.type === 'decision') return '有 Agent 需要你拍板'
-  if (event.type === 'done' || event.type === 'relay-ready') return '有 Agent 完成任务'
-  return '有 Agent 需要处理'
+  if (event.type === 'decision') return t('notification.decision')
+  if (event.type === 'done' || event.type === 'relay-ready') return t('notification.done')
+  return t('notification.generic')
 }
 
 export function createNotificationDispatcher(notify: (event: PetEvent) => unknown | Promise<unknown>) {
@@ -30,6 +31,6 @@ export async function sendPetSystemNotification(event: PetEvent): Promise<boolea
   let granted = await isPermissionGranted()
   if (!granted) granted = (await requestPermission()) === 'granted'
   if (!granted) return false
-  sendNotification({ title: 'PetDeck 轻拍', body: notificationBody(event) })
+  sendNotification({ title: t('notification.title'), body: notificationBody(event) })
   return true
 }

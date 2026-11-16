@@ -3,10 +3,11 @@ import { Inbox, PanelTop, RefreshCw, Settings2 } from 'lucide-react'
 import { usePetData } from '../../adapters'
 import type { PetEvent } from '../shared/types'
 import { PetAvatar } from '../shared/pet-avatar'
-import { STATUS_LABEL } from '../shared/status-tokens'
+import { statusLabel } from '../shared/status-tokens'
 import { eventWatermark, newEventsAfter, routeDndArrivals, fmtCount, type EventWatermark } from '../shared/ui-logic'
 import { compactPetStatus, summarizeSessions } from './pet-view'
 import { hidePet, getDnd, listenForDndChange, movePetBy, openMainPanel, persistPetPositionOnMove, quitPetDeck, savePetPosition, setDesktopDnd, setPetAlwaysOnTop, startPetDragging, updatePetWindowLayout, type PanelTarget } from '../../desktop/window'
+import { t } from '../../i18n/index.ts'
 import type { PetWindowMode } from '../../desktop/pet-layout'
 import { updatePetSettings, type PetSettings } from '../shared/pet/pet-settings'
 import { usePetBehavior } from './use-pet-behavior'
@@ -188,7 +189,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
           type="button"
           className="pet-character-button"
           style={{ width: petSize, height: petSize }}
-          aria-label={expanded ? '收起宠物快捷面板' : '轻戳宠物展开快捷面板'}
+          aria-label={expanded ? t('pet.ariaCollapse') : t('pet.ariaExpand')}
           aria-expanded={expanded}
           onPointerDown={(event) => {
             if (event.button !== 0) return
@@ -231,26 +232,26 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
         </button>
         <div className="pet-status-pill" role="status" data-status={status}>
           <span className="pet-status-dot" aria-hidden="true" />
-          <span>{dnd ? '安静陪伴' : STATUS_LABEL[status]}</span>
-          {summary.running > 0 && <span className="tabular-nums">{fmtCount(summary.running)} 运行</span>}
-          {attention > 0 && <span className="pet-attention-count tabular-nums">{fmtCount(attention)} 待处理</span>}
+          <span>{dnd ? t('pet.quietCompanion') : statusLabel(status)}</span>
+          {summary.running > 0 && <span className="tabular-nums">{t('common.running', { n: fmtCount(summary.running) })}</span>}
+          {attention > 0 && <span className="pet-attention-count tabular-nums">{t('pet.pendingCount', { n: fmtCount(attention) })}</span>}
         </div>
       </div>
 
       {connState === 'offline' && !bridgeError && (
         <button type="button" className="pet-reconnect" onClick={reconnect}>
-          <RefreshCw className="h-3 w-3" /> 重连 Agent
+          <RefreshCw className="h-3 w-3" /> {t('pet.reconnect')}
         </button>
       )}
 
       {expanded && (
-        <section className="pet-popover pet-quick-panel" aria-label="宠物快捷面板">
+        <section className="pet-popover pet-quick-panel" aria-label={t('pet.quickPanel')}>
           <div className="pet-panel-heading">
             <div>
-              <strong>{dnd ? '我会安静陪着你' : '我在这里陪着你'}</strong>
-              <span>{fmtCount(summary.running)} 运行 · {fmtCount(summary.done)} 完成 · {fmtCount(attention)} 待处理</span>
+              <strong>{dnd ? t('pet.quietTitle') : t('pet.hereTitle')}</strong>
+              <span>{t('pet.summary', { running: fmtCount(summary.running), done: fmtCount(summary.done), pending: fmtCount(attention) })}</span>
             </div>
-            <button type="button" className="pet-icon-button" aria-label="打开宠物设置" onClick={() => { setExpanded(false); setSettingsOpen(true) }}>
+            <button type="button" className="pet-icon-button" aria-label={t('pet.openSettings')} onClick={() => { setExpanded(false); setSettingsOpen(true) }}>
               <Settings2 className="h-4 w-4" />
             </button>
           </div>
@@ -260,15 +261,15 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
               setSuppressed((current) => current.slice(1))
               setExpanded(false)
             }}>
-              <Inbox className="h-4 w-4" /> 查看 {fmtCount(suppressed.length)} 条静默事件
+              <Inbox className="h-4 w-4" /> {t('pet.inboxButton', { n: fmtCount(suppressed.length) })}
             </button>
           )}
           <button type="button" className="pet-primary-button" onClick={() => void openPanel({})}>
-            <PanelTop className="h-4 w-4" /> 打开主面板
+            <PanelTop className="h-4 w-4" /> {t('pet.openPanel')}
           </button>
           <label className="pet-check-field pet-dnd-field">
             <input type="checkbox" checked={dnd} onChange={toggleDnd} />
-            <span>免打扰，仅重要事项轻拍</span>
+            <span>{t('pet.dnd')}</span>
           </label>
         </section>
       )}
@@ -296,7 +297,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
 
       {settingsOpen && <PetQuickSettings settings={settings} onChange={changeSettings} onClose={() => setSettingsOpen(false)} />}
       {bridgeError && <p className="pet-error" role="alert">{bridgeError}</p>}
-      {desktopError && <p className="pet-error" role="alert">桌面窗口操作失败，请重试</p>}
+      {desktopError && <p className="pet-error" role="alert">{t('pet.desktopError')}</p>}
     </main>
   )
 }

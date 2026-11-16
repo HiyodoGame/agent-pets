@@ -1,6 +1,7 @@
 // Pure a11y/UX logic (unit-tested): stepper/motion/freshness + connect & follow-up CTA decisions.
 // 组件只做渲染；是否声称「已连接/已发送」由这里的纯决策决定。
 import type { PetEvent, SessionStatus } from './types'
+import { t } from '../../i18n/index.ts'
 
 /** 计数 999+ 封顶（boundary-overflow）。纯函数，独立于组件文件以利 fast-refresh。 */
 export const fmtCount = (n: number): string => (n > 999 ? '999+' : String(n))
@@ -33,9 +34,9 @@ export function fmtResetCountdown(w?: { active?: boolean; minutesToReset?: numbe
   if (m <= 0) return ''
   if (m >= 60) {
     const h = Math.round((m / 60) * 10) / 10
-    return `约 ${h} 小时后重置`
+    return t('usage.resetHours', { h })
   }
-  return `约 ${m} 分钟后重置`
+  return t('usage.resetMinutes', { m })
 }
 
 export type StepStatus = 'done' | 'current' | 'todo'/** i<current done, i===current current, else todo. */
@@ -81,12 +82,12 @@ export function getOsReducedMotion(matchMediaFn?: (query: string) => { matches: 
 /** 新鲜度相对时间（stale 标记用）。ts 在未来时按「刚刚」处理。 */
 export function fmtAgo(ts: number, now: number): string {
   const s = Math.max(0, Math.floor((now - ts) / 1000))
-  if (s < 60) return '刚刚'
+  if (s < 60) return t('time.justNow')
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m} 分钟前`
+  if (m < 60) return t('time.minutesAgo', { n: m })
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h} 小时前`
-  return `${Math.floor(h / 24)} 天前`
+  if (h < 24) return t('time.hoursAgo', { n: h })
+  return t('time.daysAgo', { n: Math.floor(h / 24) })
 }
 
 // ---- 接入/追问 CTA 的真实行为决策（纯函数，组件只做渲染） ----
@@ -115,21 +116,21 @@ export interface FollowUpPlan {
  *  如实展示交接复制，toast 绝不谎称「已发送」。 */
 export function planFollowUp(d: { mode: 'inject' | 'clipboard'; package?: string }, opts?: { live?: boolean }): FollowUpPlan {
   const live = opts?.live ?? true
-  if (d.mode === 'inject') return { outcome: 'sent', toast: '已发送追问', appendLocal: true }
+  if (d.mode === 'inject') return { outcome: 'sent', toast: t('followUp.sent'), appendLocal: true }
   if (!live) {
     return {
       outcome: 'clipboard',
-      toast: '演示模式：未真实发送，交接内容已复制到剪贴板',
+      toast: t('followUp.demoCopied'),
       copyText: d.package,
       appendLocal: true,
     }
   }
-  return { outcome: 'clipboard', toast: '无法直达 Agent，交接内容已复制到剪贴板', copyText: d.package, appendLocal: false }
+  return { outcome: 'clipboard', toast: t('followUp.copied'), copyText: d.package, appendLocal: false }
 }
 
 /** 限流倒计时文案：只提示可重试时间，不承诺自动重试。 */
 export function fmtRateLimitWait(seconds: number): string {
-  return `桥接限流，${seconds} 秒后可重试。`
+  return t('rateLimit.wait', { seconds })
 }
 
 // ---- 会话状态映射：unknown / 未识别状态绝不冒充 active（运行中） ----

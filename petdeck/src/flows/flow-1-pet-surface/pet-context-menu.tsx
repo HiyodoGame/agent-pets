@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { t } from '../../i18n/index.ts'
 export interface PetMenuPoint { x: number; y: number }
 
 export function PetContextMenu({ point, dnd, onClose, onOpenPanel, onToggleDnd, onSettings, onHide, onQuit }: {
@@ -47,18 +48,18 @@ export function PetContextMenu({ point, dnd, onClose, onOpenPanel, onToggleDnd, 
       className="pet-popover pet-context-menu"
       style={{ left, top }}
       role="menu"
-      aria-label="宠物菜单"
+      aria-label={t('menu.aria')}
       onKeyDown={onKeyDown}
       onContextMenu={(event) => event.preventDefault()}
     >
-      <button type="button" role="menuitem" onClick={() => run(onOpenPanel)}>打开主面板</button>
+      <button type="button" role="menuitem" onClick={() => run(onOpenPanel)}>{t('menu.openPanel')}</button>
       <button type="button" role="menuitemcheckbox" aria-checked={dnd} onClick={() => run(onToggleDnd)}>
-        {dnd ? '关闭免打扰' : '开启免打扰'}
+        {dnd ? t('menu.dndOff') : t('menu.dndOn')}
       </button>
-      <button type="button" role="menuitem" onClick={() => run(onSettings)}>宠物设置</button>
+      <button type="button" role="menuitem" onClick={() => run(onSettings)}>{t('menu.settings')}</button>
       <hr />
-      <button type="button" role="menuitem" onClick={() => run(onHide)}>隐藏宠物</button>
-      <button type="button" role="menuitem" onClick={() => run(onQuit)}>退出 PetDeck</button>
+      <button type="button" role="menuitem" onClick={() => run(onHide)}>{t('menu.hide')}</button>
+      <button type="button" role="menuitem" onClick={() => run(onQuit)}>{t('menu.quit')}</button>
     </div>
   )
 }

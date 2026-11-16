@@ -15,9 +15,10 @@ import { shouldCommitHttp, shouldLoadSnapshot, observedToSessions } from './data
 import { track, EVENT } from '../telemetry'
 import type { ObservedSession, PetData, RawAgentEvent } from './types'
 import { initializeBridgeConfig } from '../desktop/bridge-config'
+import { t } from '../i18n/index.ts'
 
 function liveProjects(sessions: Session[]): Project[] {
-  return [{ id: 'live', name: '实时 Agent', description: '来自本地 bridge 的真实会话', sessionIds: sessions.map((s) => s.id), updatedAt: new Date().toISOString() }]
+  return [{ id: 'live', name: t('data.liveProjectName'), description: t('data.liveProjectDesc'), sessionIds: sessions.map((s) => s.id), updatedAt: new Date().toISOString() }]
 }
 
 function emptyLive(): PetData {

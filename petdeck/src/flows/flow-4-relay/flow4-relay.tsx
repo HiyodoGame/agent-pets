@@ -40,12 +40,14 @@ import { EdgeAlert, Stepper } from '../shared/edge-kit'
 import { LazyResponse } from '../shared/lazy-response'
 import { fieldErrorState } from '../shared/ui-logic'
 import { buildRelayDraft, resolveTarget, canSend, sendStateFromDecision, type RelaySendState } from './relay-draft'
+import { t } from '../../i18n/index.ts'
+import type { MessageKey } from '../../i18n/messages.ts'
 
 const DEFAULT_SOURCE = mockSessions.find((s) => s.id === 's1')!
-const CAP_LABEL: Record<Agent['capability'], string> = {
-  full: '观察+接力',
-  'observe-only': '仅观察',
-  manual: '手动',
+const CAP_LABEL: Record<Agent['capability'], MessageKey> = {
+  full: 'capability.full',
+  'observe-only': 'capability.observe',
+  manual: 'capability.manual',
 }
 
 type SendState = RelaySendState
@@ -70,12 +72,12 @@ function Screen1_Trigger({ source, onOpen }: { source: Session; onOpen: () => vo
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap items-center gap-2">
-            <Tag color="success">已完成</Tag>
+            <Tag color="success">{t('relay.done')}</Tag>
             <TypographyMuted>{agent?.name}</TypographyMuted>
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {source.artifactIds.length === 0 ? (
-              <TypographyMuted>无产物</TypographyMuted>
+              <TypographyMuted>{t('common.noArtifacts')}</TypographyMuted>
             ) : (
               source.artifactIds.map((aid) => (
                 <FileCard key={aid} filename={getArtifact(aid)?.name ?? aid} size={getArtifact(aid)?.size} variant="attachment" />
@@ -84,9 +86,9 @@ function Screen1_Trigger({ source, onOpen }: { source: Session; onOpen: () => vo
           </div>
         </CardContent>
       </Card>
-      <PromptSuggestions items={[{ text: '把素材交给 Qoder 部署', prompt: 'relay' }]} onSelect={() => onOpen()} />
+      <PromptSuggestions items={[{ text: t('relay.suggestion'), prompt: 'relay' }]} onSelect={() => onOpen()} />
       <Button variant="primary" onClick={onOpen}>
-        <ArrowRightLeft className="mr-1 h-4 w-4" /> 接力
+        <ArrowRightLeft className="mr-1 h-4 w-4" /> {t('relay.relay')}
       </Button>
     </div>
   )
@@ -139,18 +141,18 @@ function Screen2_Preview({
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent side="right" className="w-full sm:max-w-md">
         <DrawerHeader>
-          <DrawerTitle>交接预览</DrawerTitle>
-          <DrawerDescription>宠物已打包上下文 + 产物 + 指令，确认即发送给下一个 Agent</DrawerDescription>
+          <DrawerTitle>{t('relay.previewTitle')}</DrawerTitle>
+          <DrawerDescription>{t('relay.previewDesc')}</DrawerDescription>
         </DrawerHeader>
         <div className="flex flex-1 flex-col gap-3 overflow-auto px-4">
           <div className="flex flex-col gap-1">
-            <TypographyMuted>上下文摘要（可编辑）</TypographyMuted>
+            <TypographyMuted>{t('relay.context')}</TypographyMuted>
             <Textarea value={draft.contextSummary} onChange={(e) => setDraft({ ...draft, contextSummary: e.target.value })} rows={3} />
           </div>
           <div className="flex flex-col gap-1">
-            <TypographyMuted>产物（可移除）</TypographyMuted>
+            <TypographyMuted>{t('relay.artifacts')}</TypographyMuted>
             {draft.artifactIds.length === 0 ? (
-              <TypographyMuted>无产物</TypographyMuted>
+              <TypographyMuted>{t('common.noArtifacts')}</TypographyMuted>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {draft.artifactIds.map((aid) => (
@@ -166,11 +168,11 @@ function Screen2_Preview({
             )}
           </div>
           <div className="flex flex-col gap-1">
-            <TypographyMuted>指令草稿（可编辑）</TypographyMuted>
+            <TypographyMuted>{t('relay.instruction')}</TypographyMuted>
             <ChatInput
               value={draft.instruction}
               onChange={(v) => setDraft({ ...draft, instruction: v })}
-              placeholder="下一步要做什么…"
+              placeholder={t('relay.instructionPlaceholder')}
               maxRows={4}
               onBlur={() => setInstructionTouched(true)}
               aria-invalid={instructionError.ariaInvalid}
@@ -178,33 +180,33 @@ function Screen2_Preview({
             />
             {/* error-validation：inline 字段提示，仅在 blur/submit 后出现 */}
             {instructionError.showError && (
-              <span id="relay-instruction-error" role="alert" className="text-error text-sm">请填写下一步指令</span>
+              <span id="relay-instruction-error" role="alert" className="text-error text-sm">{t('relay.instructionRequired')}</span>
             )}
           </div>
           <div className="flex flex-col gap-1">
-            <TypographyMuted>目标 Agent</TypographyMuted>
+            <TypographyMuted>{t('relay.target')}</TypographyMuted>
             <Select value={draft.targetAgentId} onValueChange={(v) => setDraft({ ...draft, targetAgentId: v })}>
               <SelectTrigger>
-                <SelectValue placeholder="选择目标 Agent" />
+                <SelectValue placeholder={t('relay.selectTarget')} />
               </SelectTrigger>
               <SelectContent>
                 {agents.map((a) => (
                   <SelectItem key={a.id} value={a.id}>
-                    {a.name} · {CAP_LABEL[a.capability]}
+                    {a.name} · {t(CAP_LABEL[a.capability])}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {target && <Tag color={target.capability === 'full' ? 'success' : target.capability === 'observe-only' ? 'info' : 'slate'}>{CAP_LABEL[target.capability]}</Tag>}
-            {!target && draft.targetAgentId ? <span className="text-error text-sm">目标不存在，请重新选择</span> : null}
+            {target && <Tag color={target.capability === 'full' ? 'success' : target.capability === 'observe-only' ? 'info' : 'slate'}>{t(CAP_LABEL[target.capability])}</Tag>}
+            {!target && draft.targetAgentId ? <span className="text-error text-sm">{t('relay.targetMissing')}</span> : null}
           </div>
         </div>
         <DrawerFooter>
           <Button variant="primary" disabled={!canSubmit} loading={sending} onClick={confirm}>
-            确认发送
+            {t('relay.confirm')}
           </Button>
           <DrawerClose asChild>
-            <Button variant="ghost">取消（草稿保存）</Button>
+            <Button variant="ghost">{t('relay.cancelSave')}</Button>
           </DrawerClose>
         </DrawerFooter>
       </DrawerContent>
@@ -275,75 +277,75 @@ function Screen3_Tracking({
 
   return (
     <div className="flex w-full max-w-xl flex-col gap-3">
-      <EdgeAlert variant="info" title={`已接力给 ${target.name}`} desc={`源会话「${source.title}」的上下文与产物已交接，等待目标响应。`} />
-      {stale && <EdgeAlert variant="info" title="状态可能滞后" desc="目标 Agent 数据来自离线缓存，恢复连接后以实时状态为准。" />}
+      <EdgeAlert variant="info" title={t('relay.relayedTo', { name: target.name })} desc={t('relay.relayedDesc', { title: source.title })} />
+      {stale && <EdgeAlert variant="info" title={t('relay.staleTitle')} desc={t('relay.staleDesc')} />}
 
       {sendState === 'failed' ? (
         <EdgeAlert
-          title={`注入失败：${target.name}`}
-          desc="可重试（真正重新发送），或复制交接包手动粘贴到目标 Agent。"
+          title={t('relay.failedTitle', { name: target.name })}
+          desc={t('relay.failedDesc')}
           onRetry={onRetry}
-          retryLabel="重试发送"
-          extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> 复制交接包</Button>}
+          retryLabel={t('relay.retrySend')}
+          extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> {t('relay.copyPackage')}</Button>}
         />
       ) : sendState === 'manual' ? (
         <div className="flex flex-col gap-2">
           <EdgeAlert
             variant="warning"
-            title="已生成交接包 · 目标仅观察/手动或 bridge 不可达"
-            desc="复制下方完整交接包，粘贴到目标 Agent 即可（内容含上下文+指令+产物，不丢失）。"
-            extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> 复制交接包</Button>}
+            title={t('relay.manualTitle')}
+            desc={t('relay.manualDesc')}
+            extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> {t('relay.copyPackage')}</Button>}
           />
-          <Textarea readOnly value={packageText} rows={8} aria-label="交接包内容" className="font-mono text-xs" />
-          <Button variant="ghost" onClick={onRetry}>重试注入</Button>
+          <Textarea readOnly value={packageText} rows={8} aria-label={t('relay.packageAria')} className="font-mono text-xs" />
+          <Button variant="ghost" onClick={onRetry}>{t('relay.retryInject')}</Button>
         </div>
       ) : unconfirmed ? (
         <EdgeAlert
           variant="info"
-          title="已发送 · 无法自动确认"
-          desc="目标 CLI 未回传可关联的会话 ID，本次执行从开始即无法自动确认完成（不会谎报完成）。可稍后在面板查看，或复制交接包手动确认。"
-          extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> 复制交接包</Button>}
+          title={t('relay.unconfirmedTitle')}
+          desc={t('relay.unconfirmedDesc')}
+          extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> {t('relay.copyPackage')}</Button>}
           onRetry={onDone}
-          retryLabel="标记完成"
+          retryLabel={t('relay.markDone')}
         />
       ) : isLive && sendState === 'injected' && liveStatus === 'stuck' ? (
         <EdgeAlert
           variant="warning"
-          title="目标执行中断"
-          desc="SSE 收到 turn_aborted；可重试（真正重发），或复制交接包手动粘贴（能力分级降级）。"
+          title={t('relay.interruptedTitle')}
+          desc={t('relay.interruptedDesc')}
           onRetry={onRetry}
-          retryLabel="重试发送"
-          extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> 复制交接包</Button>}
+          retryLabel={t('relay.retrySend')}
+          extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> {t('relay.copyPackage')}</Button>}
         />
       ) : rateLimit !== null && rateLimit > 0 ? (
-        <EdgeAlert variant="warning" title="目标限流" desc={`${rateLimit}s 后自动重试。`} />
+        <EdgeAlert variant="warning" title={t('relay.rateLimitTitle')} desc={t('relay.rateLimitDesc', { seconds: rateLimit })} />
       ) : offline ? (
-        <EdgeAlert variant="warning" title="离线 · 交接包已暂存" desc="网络中断，交接包已本地暂存不会丢；恢复后重试。" onRetry={() => setOffline(false)} retryLabel="恢复重试" />
+        <EdgeAlert variant="warning" title={t('relay.offlineTitle')} desc={t('relay.offlineDesc')} onRetry={() => setOffline(false)} retryLabel={t('relay.recoverRetry')} />
       ) : streaming ? (
-        <Suspense fallback={<span className="text-text-secondary text-sm">状态渲染中…</span>}>
+        <Suspense fallback={<span className="text-text-secondary text-sm">{t('relay.statusRendering')}</span>}>
           <LazyResponse
             phase="streaming"
             finalMarkdown={
               sendState === 'pending'
-                ? `正在注入交接包到 ${target.name}…`
+                ? t('relay.injecting', { name: target.name })
                 : isLive && liveStatus === 'running'
-                  ? `${target.name} 正在执行指令…（SSE 实时）`
+                  ? t('relay.executing', { name: target.name })
                   : !isLive
-                    ? `正在处理交接包：读取上下文 → 载入 ${target.name} → 执行指令…`
-                    : `${target.name} 已接收，等待 SSE 反馈…`
+                    ? t('relay.processing', { name: target.name })
+                    : t('relay.received', { name: target.name })
             }
-            thinkingIndicator={<span className="text-text-secondary text-sm">思考中…</span>}
+            thinkingIndicator={<span className="text-text-secondary text-sm">{t('common.thinking')}</span>}
           />
         </Suspense>
       ) : null}
 
       <Separator />
       <div className="flex flex-wrap gap-2">
-        <Button variant="ghost" onClick={onStop}><StopCircle className="mr-1 h-4 w-4" /> 停止</Button>
+        <Button variant="ghost" onClick={onStop}><StopCircle className="mr-1 h-4 w-4" /> {t('relay.stop')}</Button>
         {/* 演示模拟控制仅用于非实时模式，避免在真实链路伪造状态 */}
-        {!isLive && <Button variant="ghost" onClick={onSimFail}>模拟注入失败</Button>}
-        {!isLive && <Button variant="ghost" onClick={() => setOffline(true)}><WifiOff className="mr-1 h-4 w-4" />模拟断网</Button>}
-        {!isLive && rateLimit === null && <Button variant="ghost" onClick={() => setRateLimit(5)}>模拟限流</Button>}
+        {!isLive && <Button variant="ghost" onClick={onSimFail}>{t('relay.simFail')}</Button>}
+        {!isLive && <Button variant="ghost" onClick={() => setOffline(true)}><WifiOff className="mr-1 h-4 w-4" />{t('relay.simOffline')}</Button>}
+        {!isLive && rateLimit === null && <Button variant="ghost" onClick={() => setRateLimit(5)}>{t('relay.simRateLimit')}</Button>}
       </div>
     </div>
   )
@@ -369,22 +371,22 @@ function Screen4_Complete({
     <div className="flex w-full max-w-xl flex-col gap-3">
       <div className="flex items-center gap-2 text-success">
         <Check className="h-5 w-5" />
-        <span className="text-text font-semibold">接力完成 · {target.name} 已执行</span>
+        <span className="text-text font-semibold">{t('relay.complete', { name: target.name })}</span>
       </div>
-      <Suspense fallback={<span className="text-text-secondary text-sm">回执渲染中…</span>}>
+      <Suspense fallback={<span className="text-text-secondary text-sm">{t('relay.receiptRendering')}</span>}>
         <LazyResponse
           phase="done"
-          finalMarkdown={isLive ? receipt || `${target.name} 已完成本次指令。` : '已接收交接包并完成部署：素材包上传、资源引用更新完毕。'}
-          thinkingIndicator={<span className="text-text-secondary text-sm">思考中…</span>}
+          finalMarkdown={isLive ? receipt || t('relay.receiptFallback', { name: target.name }) : t('relay.demoReceipt')}
+          thinkingIndicator={<span className="text-text-secondary text-sm">{t('common.thinking')}</span>}
         />
       </Suspense>
       <Card>
         <CardHeader>
-          <CardTitle><Package className="mr-1 inline h-4 w-4" /> 产物</CardTitle>
+          <CardTitle><Package className="mr-1 inline h-4 w-4" /> {t('relay.artifactsTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           {artifactNames.length === 0 ? (
-            <TypographyMuted>无产物</TypographyMuted>
+            <TypographyMuted>{t('common.noArtifacts')}</TypographyMuted>
           ) : (
             <div className="flex flex-wrap gap-2">
               {artifactNames.map((n) => (<FileCard key={n} filename={n} variant="attachment" />))}
@@ -393,8 +395,8 @@ function Screen4_Complete({
         </CardContent>
       </Card>
       <div className="flex gap-2">
-        <Button variant="primary" onClick={onNext}><ArrowRightLeft className="mr-1 h-4 w-4" /> 继续接力</Button>
-        <Button variant="secondary" onClick={onExit}>结束</Button>
+        <Button variant="primary" onClick={onNext}><ArrowRightLeft className="mr-1 h-4 w-4" /> {t('relay.continue')}</Button>
+        <Button variant="secondary" onClick={onExit}>{t('relay.exit')}</Button>
       </div>
     </div>
   )
@@ -415,9 +417,9 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
   if (isLive && !source) {
     return (
       <div className="flex w-full max-w-md flex-col items-center gap-4 p-8">
-        <h1 className="text-text text-lg font-semibold">接力交接</h1>
-        <EdgeAlert variant="info" title="请先选择源会话" desc="从面板打开一个已完成会话，点「接力」即可自动打包上下文与产物。" />
-        <Button variant="primary" onClick={() => onExit?.()}>去面板选择</Button>
+        <h1 className="text-text text-lg font-semibold">{t('relay.title')}</h1>
+        <EdgeAlert variant="info" title={t('relay.noSource')} desc={t('relay.noSourceDesc')} />
+        <Button variant="primary" onClick={() => onExit?.()}>{t('relay.goToPanel')}</Button>
       </div>
     )
   }
@@ -443,11 +445,11 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
   const copyPackage = () => {
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(packageText).then(
-        () => toast('交接包已复制到剪贴板'),
-        () => toast('复制失败，请手动选择文本'),
+        () => toast(t('relay.copied')),
+        () => toast(t('relay.copyFailed')),
       )
     } else {
-      toast('当前环境不支持剪贴板，请手动复制')
+      toast(t('relay.copyUnsupported'))
     }
   }
 
@@ -498,8 +500,8 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
   return (
     <div className="flex flex-col items-center gap-4 p-6">
       <Toaster />
-      <h1 className="text-text text-lg font-semibold">接力交接</h1>
-      <Stepper steps={['发起', '预览', '追踪', '完成']} current={screen - 1} />
+      <h1 className="text-text text-lg font-semibold">{t('relay.title')}</h1>
+      <Stepper steps={[t('relay.stepStart'), t('relay.stepPreview'), t('relay.stepTrack'), t('relay.stepDone')]} current={screen - 1} />
       {screen === 1 && source && <Screen1_Trigger source={source} onOpen={() => { track('relay', EVENT.relayStarted, { from: source.agentId, live: isLive }); setScreen(2) }} />}
       {draft && (
         <Screen2_Preview

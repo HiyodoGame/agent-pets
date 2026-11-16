@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Alert, AlertTitle, AlertDescription, Button, TypographyMuted } from 'sparkdesign'
 import { RefreshCw } from 'lucide-react'
 import { stepperState } from './ui-logic'
+import { t } from '../../i18n/index.ts'
 
 /** 长文本截断 + 展开（boundary-long-text） */
 export function ClampText({ text, lines = 2 }: { text: string; lines?: number }) {
@@ -13,7 +14,7 @@ export function ClampText({ text, lines = 2 }: { text: string; lines?: number })
     <div className="flex flex-col gap-1">
       <p className={`text-text text-sm ${expanded ? '' : lines === 1 ? 'line-clamp-1' : 'line-clamp-2'}`}>{text}</p>
       <button type="button" className="self-start" onClick={() => setExpanded((e) => !e)}>
-        <TypographyMuted>{expanded ? '收起' : '展开'}</TypographyMuted>
+        <TypographyMuted>{expanded ? t('edge.collapse') : t('edge.expand')}</TypographyMuted>
       </button>
     </div>
   )
@@ -25,7 +26,7 @@ export function EdgeAlert({
   title,
   desc,
   onRetry,
-  retryLabel = '重试',
+  retryLabel = t('common.retry'),
   extra,
 }: {
   variant?: 'error' | 'warning' | 'info'
@@ -59,7 +60,7 @@ export function EdgeAlert({
 export function Stepper({ steps, current }: { steps: string[]; current: number }) {
   const states = stepperState(steps.length, current)
   return (
-    <ol className="flex flex-wrap items-center gap-2" aria-label="流程步骤">
+    <ol className="flex flex-wrap items-center gap-2" aria-label={t('edge.stepsAria')}>
       {steps.map((label, i) => (
         <li key={label} aria-current={states[i] === 'current' ? 'step' : undefined} className="flex items-center gap-2">
           <span

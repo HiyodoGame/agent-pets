@@ -3,12 +3,50 @@ mod bridge;
 use bridge::{BridgeConfig, BridgeState};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
-use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder};
+use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent, Wry};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_window_state::StateFlags;
+
+#[derive(Clone, Copy, PartialEq)]
+enum UiLocale {
+    Zh,
+    En,
+}
+
+impl UiLocale {
+    fn parse(value: &str) -> Self {
+        if value == "en" {
+            Self::En
+        } else {
+            Self::Zh
+        }
+    }
+    fn code(self) -> &'static str {
+        match self {
+            Self::Zh => "zh",
+            Self::En => "en",
+        }
+    }
+}
+
+fn tr(locale: UiLocale, key: &str) -> &'static str {
+    match (locale, key) {
+        (UiLocale::En, "show_pet") => "Show pet",
+        (UiLocale::En, "open_panel") => "Open panel",
+        (UiLocale::En, "dnd") => "Do not disturb",
+        (UiLocale::En, "autostart") => "Start with Windows",
+        (UiLocale::En, "quit") => "Quit",
+        (_, "show_pet") => "显示宠物",
+        (_, "open_panel") => "打开面板",
+        (_, "dnd") => "免打扰",
+        (_, "autostart") => "开机启动",
+        (_, "quit") => "退出",
+        _ => "",
+    }
+}
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +58,12 @@ struct PanelTarget {
 struct DndState(Mutex<bool>);
 struct DndMenuItem(CheckMenuItem<Wry>);
 struct AutostartMenuItem(CheckMenuItem<Wry>);
+struct LocaleState(Mutex<UiLocale>);
+struct TrayLabels {
+    show_pet: MenuItem<Wry>,
+    open_panel: MenuItem<Wry>,
+    quit: MenuItem<Wry>,
+}
 static BRIDGE_INIT: Mutex<()> = Mutex::new(());
 
 fn bridge_config(app: &AppHandle) -> BridgeConfig {
@@ -71,6 +115,53 @@ fn save_dnd(app: &AppHandle, enabled: bool) {
         }
         let _ = std::fs::write(file, if enabled { "true" } else { "false" });
     }
+}
+
+fn locale_config_file(app: &AppHandle) -> Option<std::path::PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join("locale.json"))
+}
+
+fn load_locale(app: &AppHandle) -> UiLocale {
+    locale_config_file(app)
+        .and_then(|file| std::fs::read_to_string(file).ok())
+        .map(|value| UiLocale::parse(value.trim()))
+        .unwrap_or(UiLocale::Zh)
+}
+
+fn save_locale(app: &AppHandle, locale: UiLocale) {
+    if let Some(file) = locale_config_file(app) {
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(file, locale.code());
+    }
+}
+
+/// Frontend language switch: persist, re-label the native tray, and notify every
+/// window so the pet and the main panel stay in sync.
+#[tauri::command]
+fn set_locale(app: AppHandle, locale: String) {
+    let next = UiLocale::parse(&locale);
+    *app.state::<LocaleState>()
+        .0
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = next;
+    save_locale(&app, next);
+    if let Some(labels) = app.try_state::<TrayLabels>() {
+        let _ = labels.show_pet.set_text(tr(next, "show_pet"));
+        let _ = labels.open_panel.set_text(tr(next, "open_panel"));
+        let _ = labels.quit.set_text(tr(next, "quit"));
+    }
+    if let Some(item) = app.try_state::<DndMenuItem>() {
+        let _ = item.0.set_text(tr(next, "dnd"));
+    }
+    if let Some(item) = app.try_state::<AutostartMenuItem>() {
+        let _ = item.0.set_text(tr(next, "autostart"));
+    }
+    let _ = app.emit("petdeck:locale-changed", next.code());
 }
 
 #[tauri::command]
@@ -182,17 +273,22 @@ pub fn run() {
             // DND 持久化（P2-11）：启动即读上次状态，托盘勾选态与 DndState 同步初始化
             let dnd_saved = load_dnd(app.handle()).unwrap_or(false);
             app.manage(DndState(Mutex::new(dnd_saved)));
+            let locale = load_locale(app.handle());
+            app.manage(LocaleState(Mutex::new(locale)));
 
-            let show_pet = MenuItemBuilder::with_id("show-pet", "显示宠物").build(app)?;
-            let open_panel_item = MenuItemBuilder::with_id("open-panel", "打开面板").build(app)?;
-            let dnd_item = CheckMenuItemBuilder::with_id("dnd", "免打扰")
+            let show_pet =
+                MenuItemBuilder::with_id("show-pet", tr(locale, "show_pet")).build(app)?;
+            let open_panel_item =
+                MenuItemBuilder::with_id("open-panel", tr(locale, "open_panel")).build(app)?;
+            let dnd_item = CheckMenuItemBuilder::with_id("dnd", tr(locale, "dnd"))
                 .checked(dnd_saved)
                 .build(app)?;
             let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
-            let autostart_item = CheckMenuItemBuilder::with_id("autostart", "开机启动")
-                .checked(autostart_enabled)
-                .build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
+            let autostart_item =
+                CheckMenuItemBuilder::with_id("autostart", tr(locale, "autostart"))
+                    .checked(autostart_enabled)
+                    .build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", tr(locale, "quit")).build(app)?;
             let menu = MenuBuilder::new(app)
                 .item(&show_pet)
                 .item(&open_panel_item)
@@ -202,6 +298,11 @@ pub fn run() {
                 .build()?;
             app.manage(DndMenuItem(dnd_item));
             app.manage(AutostartMenuItem(autostart_item));
+            app.manage(TrayLabels {
+                show_pet,
+                open_panel: open_panel_item,
+                quit,
+            });
             TrayIconBuilder::new()
                 .menu(&menu)
                 .tooltip("PetDeck")
@@ -247,6 +348,7 @@ pub fn run() {
             get_bridge_config,
             set_dnd,
             get_dnd,
+            set_locale,
             quit_app,
             check_update,
             install_update

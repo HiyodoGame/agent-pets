@@ -8,6 +8,7 @@
 import { Component } from 'react'
 import type { ReactNode } from 'react'
 import { AppShell } from './app-shell'
+import { t } from '../../i18n/index.ts'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   state = { hasError: false, error: null as Error | null }
@@ -18,14 +19,14 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
     if (this.state.hasError) {
       return (
         <div className="m-4 rounded-md bg-error-bg p-8 text-error">
-          <p className="mb-2 font-semibold">页面发生错误</p>
+          <p className="mb-2 font-semibold">{t('error.title')}</p>
           <pre className="whitespace-pre-wrap text-sm">{String(this.state.error)}</pre>
           <button
             type="button"
             className="mt-4 rounded-md border border-border-secondary bg-bg-container px-3 py-1 text-sm text-text transition-colors hover:bg-bg-elevated"
             onClick={() => window.location.reload()}
           >
-            重新加载
+            {t('error.reload')}
           </button>
         </div>
       )

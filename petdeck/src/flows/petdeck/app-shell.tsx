@@ -14,16 +14,17 @@ import { DataSourceProvider, usePetData } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { fmtCount } from '../shared/ui-logic'
 import { listenForPanelNavigation } from '../../desktop/window'
+import { t, useLocale } from '../../i18n/index.ts'
 
 // 代码分包：五个懒加载单元（四个 flow 在 themed-routes 内 + 本路由模块），
 // sparkdesign barrel 不进入入口静态依赖，也就不会被 HTML 预加载。
 const ThemedRoutes = lazy(() => import('./themed-routes').then((m) => ({ default: m.ThemedRoutes })))
 
 const NAV = [
-  { path: '/pet', label: '桌宠' },
-  { path: '/connect', label: '接入' },
-  { path: '/panel', label: '面板' },
-  { path: '/relay', label: '接力' },
+  { path: '/pet', key: 'nav.pet' as const },
+  { path: '/connect', key: 'nav.connect' as const },
+  { path: '/panel', key: 'nav.panel' as const },
+  { path: '/relay', key: 'nav.relay' as const },
 ]
 
 // 原生状态徽章：取代 Spark Tag（filled 变体的 token 类组合），仅用于 shell chrome。
@@ -44,6 +45,7 @@ function ShellTag({ color, className, children }: { color: keyof typeof SHELL_TA
 
 function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appearance: 'light' | 'dark'; onToggleAppearance: () => void; demo: boolean; onToggleDemo: () => void }) {
   const navigate = useNavigate()
+  const { locale } = useLocale()
   const { sessions, mode, connState, savedAt, reconnect } = usePetData()
   // mount-only：useRef 初始值即挂载时 mode，effect 内读取（不在 render 期写 ref）
   const modeRef = useRef(mode)
@@ -63,21 +65,21 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appeara
   const running = sessions.filter((s) => s.status === 'active').length
   const waiting = sessions.filter((s) => s.status === 'waiting' || s.status === 'stuck').length
   const offline = connState === 'offline' && mode !== 'mock'
-  const clock = savedAt !== null ? new Date(savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : null
+  const clock = savedAt !== null ? new Date(savedAt).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit' }) : null
   const badge = mode === 'mock'
-    ? { color: 'slate' as const, label: '演示' }
+    ? { color: 'slate' as const, label: t('shell.demo') }
     : connState === 'live'
-      ? { color: 'success' as const, label: '实时' }
+      ? { color: 'success' as const, label: t('shell.live') }
       : connState === 'reconnecting'
-        ? { color: 'warning' as const, label: '重连中' }
-        : { color: 'error' as const, label: clock ? `离线 · 截至 ${clock}` : '离线' }
+        ? { color: 'warning' as const, label: t('shell.reconnecting') }
+        : { color: 'error' as const, label: clock ? t('shell.offlineAt', { time: clock }) : t('shell.offline') }
 
   return (
     <div data-theme={appearance} data-style="soft" className="flex min-h-screen flex-col bg-bg-base text-text">
       <header className="flex items-center gap-3 border-b border-border-secondary bg-bg-layout p-3">
         <span className="font-semibold">PetDeck</span>
         <ShellTag color={badge.color}>{badge.label}</ShellTag>
-        <nav className="flex gap-2" aria-label="主导航">
+        <nav className="flex gap-2" aria-label={t('shell.mainNav')}>
           {NAV.map((n) => (
             <NavLink
               key={n.path}
@@ -90,14 +92,14 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appeara
                 }`
               }
             >
-              {n.label}
+              {t(n.key)}
             </NavLink>
           ))}
         </nav>
         <div className="ml-auto flex gap-1">
           <button
             type="button"
-            aria-label="切换演示数据"
+            aria-label={t('shell.toggleDemo')}
             aria-pressed={demo}
             onClick={onToggleDemo}
             className={`rounded-md border p-1.5 transition-colors ${
@@ -110,7 +112,7 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appeara
           </button>
           <button
             type="button"
-            aria-label="切换亮暗色"
+            aria-label={t('shell.toggleAppearance')}
             onClick={onToggleAppearance}
             className="rounded-md border border-border-secondary bg-bg-container p-1.5 text-text-secondary transition-colors hover:bg-bg-elevated"
           >
@@ -123,21 +125,21 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appeara
       {offline && (
         <div className="p-3">
           <div role="alert" className="rounded-md border border-info-border bg-info-bg p-3 text-info">
-            <p className="text-sm font-semibold">当前离线</p>
-            <p className="text-sm">{clock ? `查看的是本地缓存（截至 ${clock}）；恢复后自动同步。` : '尚未连接本地 bridge；启动后自动同步。'}</p>
+            <p className="text-sm font-semibold">{t('shell.offlineTitle')}</p>
+            <p className="text-sm">{clock ? t('shell.offlineCached', { time: clock }) : t('shell.offlineNoBridge')}</p>
             <button
               type="button"
               onClick={reconnect}
               className="mt-2 inline-flex items-center gap-1 rounded-md border border-info-border px-3 py-1 text-sm transition-colors hover:bg-info-bg-hover"
             >
-              重连
+              {t('shell.reconnect')}
             </button>
           </div>
         </div>
       )}
 
       <main className="flex-1 overflow-auto">
-        <Suspense fallback={<div className="p-6 text-text-secondary">加载中…</div>}>
+        <Suspense fallback={<div className="p-6 text-text-secondary">{t('common.loading')}</div>}>
           <ThemedRoutes appearance={appearance} />
         </Suspense>
       </main>
@@ -146,11 +148,11 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appeara
         type="button"
         onClick={() => navigate('/pet')}
         className="fixed bottom-4 right-4 flex items-center gap-2 rounded-full border border-border-secondary bg-bg-container p-2 shadow-sm transition-colors hover:bg-bg-elevated"
-        aria-label="打开桌宠"
+        aria-label={t('shell.openPet')}
       >
         <PetAvatar status={offline ? 'offline' : waiting > 0 ? 'stuck' : running > 0 ? 'running' : 'idle'} size={40} />
         <ShellTag className="tabular-nums" color={offline ? 'error' : waiting > 0 ? 'warning' : 'success'}>
-          {offline ? '离线' : waiting > 0 ? `${fmtCount(waiting)} 待处理` : `${fmtCount(running)} 运行`}
+          {offline ? t('shell.offline') : waiting > 0 ? t('common.pending', { n: fmtCount(waiting) }) : t('common.running', { n: fmtCount(running) })}
         </ShellTag>
       </button>
     </div>

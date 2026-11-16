@@ -1,5 +1,6 @@
 import type { ConnState } from '../../adapters/connection'
 import type { AgentStatus, PetEvent, SessionStatus } from '../shared/types'
+import { t } from '../../i18n/index.ts'
 
 export interface PetSummary {
   running: number
@@ -29,10 +30,10 @@ export function compactPetStatus(connState: ConnState, summary: PetSummary): Age
 
 export function petEventText(event: Pick<PetEvent, 'type' | 'text'>): string {
   if (event.text.trim()) return event.text
-  if (event.type === 'decision') return '有一个 Agent 正在等待你的决定'
-  if (event.type === 'stuck') return '有一个 Agent 遇到困难，需要查看'
-  if (event.type === 'relay-ready') return '任务已完成，可以进行下一次接力'
-  return '有一个 Agent 完成了任务'
+  if (event.type === 'decision') return t('eventText.decision')
+  if (event.type === 'stuck') return t('eventText.stuck')
+  if (event.type === 'relay-ready') return t('eventText.relayReady')
+  return t('eventText.done')
 }
 
 export function notificationDecision(event: Pick<PetEvent, 'type'>, dnd: boolean): 'tap' | 'inbox' {

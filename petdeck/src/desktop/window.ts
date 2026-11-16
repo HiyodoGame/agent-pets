@@ -131,3 +131,10 @@ export async function listenForPanelNavigation(handler: (target: PanelTarget) =>
   if (!isTauri()) return () => {}
   return listen<PanelTarget>('petdeck:navigate', (event) => handler(event.payload))
 }
+
+/** Persist the UI language and re-label the native tray menu. Best-effort: the
+ *  web/dev environment simply skips it. */
+export async function setDesktopLocale(locale: 'zh' | 'en'): Promise<void> {
+  if (!isTauri()) return
+  try { await invoke('set_locale', { locale }) } catch { /* tray sync is best-effort */ }
+}

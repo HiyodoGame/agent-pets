@@ -30,10 +30,11 @@ import { usePetData } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { ClampText, EdgeAlert } from '../shared/edge-kit'
 import { PetAvatar } from '../shared/pet-avatar'
-import { STATUS_LABEL } from '../shared/status-tokens'
+import { STATUS_ORDER, statusLabel } from '../shared/status-tokens'
 import { getMotionPref, setMotionPref, fmtCount, type MotionPref, type EventWatermark, eventWatermark, newEventsAfter, routeDndArrivals } from '../shared/ui-logic'
 import { getPetSettings, subscribePetSettings, updatePetSettings } from '../shared/pet/pet-settings'
 import { PetQuickSettings } from './pet-quick-settings'
+import { t } from '../../i18n/index.ts'
 
 function useAggregate() {
   const { sessions } = usePetData()
@@ -76,37 +77,37 @@ function Screen1_AmbientIdle({
   const { running, done, stuck } = useAggregate()
   const [motion, setMotion] = useState<MotionPref>(getMotionPref())
   useEffect(() => { track('pet', EVENT.ambientGlance) }, [])
-  const summary = `${fmtCount(running)} 运行 · ${fmtCount(done)} 完成 · ${fmtCount(stuck)} 待处理`
+  const summary = t('petSurface.summary', { running: fmtCount(running), done: fmtCount(done), stuck: fmtCount(stuck) })
   return (
     <div className="flex flex-col items-center gap-3 p-6">
-      <h1 className="sr-only">桌宠环境化主形态</h1>
+      <h1 className="sr-only">{t('petSurface.srTitle')}</h1>
       <button
         type="button"
         onClick={status === 'offline' ? onOffline : onPoke}
         className="rounded-full p-2 transition-colors hover:bg-bg-elevated focus-visible:outline-2 focus-visible:outline-primary"
-        aria-label="戳宠物展开面板"
+        aria-label={t('petSurface.pokeAria')}
       >
         <PetAvatar status={status} />
       </button>
       <Tooltip content={summary} side="top">
         <div className="flex items-center gap-2 tabular-nums">
           {refreshing && <Spinner className="h-3 w-3" />}
-          <Tag color={running === 0 ? 'slate' : 'primary'}>{fmtCount(running)} 运行</Tag>
-          <Tag color={done === 0 ? 'slate' : 'success'}>{fmtCount(done)} 完成</Tag>
-          {stuck > 0 && <Tag color="warning">{fmtCount(stuck)} 待处理</Tag>}
-          {status === 'offline' && <Tag color="error">离线</Tag>}
+          <Tag color={running === 0 ? 'slate' : 'primary'}>{t('common.running', { n: fmtCount(running) })}</Tag>
+          <Tag color={done === 0 ? 'slate' : 'success'}>{t('common.done', { n: fmtCount(done) })}</Tag>
+          {stuck > 0 && <Tag color="warning">{t('common.pending', { n: fmtCount(stuck) })}</Tag>}
+          {status === 'offline' && <Tag color="error">{t('status.offline')}</Tag>}
           {/* DND 静默收件箱：真实事件队列，点击可逐条查看/关闭 */}
           {suppressed.length > 0 && (
-            <Tooltip content={`${fmtCount(suppressed.length)} 条事件免打扰静默，点击查看`} side="top">
+            <Tooltip content={t('petSurface.suppressedHint', { n: fmtCount(suppressed.length) })} side="top">
               <button
                 type="button"
                 onClick={onOpenInbox}
-                aria-label="打开静默收件箱"
+                aria-label={t('petSurface.openInbox')}
                 className="rounded-full transition-colors hover:bg-bg-elevated focus-visible:outline-2 focus-visible:outline-primary"
               >
                 <Tag color="slate">
                   <Inbox className="mr-1 inline h-3 w-3" />
-                  {fmtCount(suppressed.length)} 静默
+                  {t('petSurface.silentCount', { n: fmtCount(suppressed.length) })}
                 </Tag>
               </button>
             </Tooltip>
@@ -116,14 +117,14 @@ function Screen1_AmbientIdle({
       {/* offline：重连 CTA（保留缓存状态） */}
       {status === 'offline' && (
         <Button variant="secondary" onClick={onReconnect}>
-          <RefreshCw className="mr-1 h-4 w-4" /> 重连 Agent
+          <RefreshCw className="mr-1 h-4 w-4" /> {t('petSurface.reconnectAgent')}
         </Button>
       )}
-      <TypographyMuted>戳我展开面板 · 有事我会轻拍你</TypographyMuted>
+      <TypographyMuted>{t('petSurface.pokeHint')}</TypographyMuted>
       <div className="flex items-center gap-2">
-        <Switch checked={dnd} onCheckedChange={onDndChange} aria-label="免打扰" />
-        <TypographyMuted>免打扰 · 仅「需拍板」轻拍，其余静默</TypographyMuted>
-        <Button variant="ghost" onClick={onRefresh} aria-label="刷新状态">
+        <Switch checked={dnd} onCheckedChange={onDndChange} aria-label={t('petSurface.dnd')} />
+        <TypographyMuted>{t('petSurface.dndHint')}</TypographyMuted>
+        <Button variant="ghost" onClick={onRefresh} aria-label={t('petSurface.refresh')}>
           <RefreshCw className="h-4 w-4" />
         </Button>
       </div>
@@ -131,9 +132,9 @@ function Screen1_AmbientIdle({
         <Switch
           checked={motion !== 'off'}
           onCheckedChange={(v) => { const p: MotionPref = v ? 'on' : 'off'; setMotion(p); setMotionPref(p) }}
-          aria-label="动效开关"
+          aria-label={t('petSurface.motion')}
         />
-        <TypographyMuted>动效 · 可关可减弱（尊重系统减少动效）</TypographyMuted>
+        <TypographyMuted>{t('petSurface.motionHint')}</TypographyMuted>
       </div>
     </div>
   )
@@ -161,7 +162,7 @@ function Screen2_EventTap({
   if (error) {
     return (
       <div className="flex w-full max-w-sm flex-col gap-3 p-6">
-        <EdgeAlert title="事件没拉取到" desc="网络好像不太通，重试或稍后再看。" onRetry={onRetry} />
+        <EdgeAlert title={t('petSurface.eventErrorTitle')} desc={t('petSurface.eventErrorDesc')} onRetry={onRetry} />
       </div>
     )
   }
@@ -175,7 +176,7 @@ function Screen2_EventTap({
     )
   return (
     <div className="flex flex-col items-center gap-3 p-6">
-      <h2 className="sr-only">事件轻拍</h2>
+      <h2 className="sr-only">{t('petSurface.eventTapSr')}</h2>
       <PetAvatar status={event.type === 'stuck' ? 'stuck' : 'done'} size={64} />
       <Bubble align="start">
         <BubbleContent variant={event.type === 'decision' ? 'received' : 'note'}>
@@ -185,9 +186,9 @@ function Screen2_EventTap({
               <ClampText text={event.text} />
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => onOpen(event)}>
-                  查看
+                  {t('common.view')}
                 </Button>
-                <Button variant="ghost" onClick={onDismiss} aria-label="忽略事件">
+                <Button variant="ghost" onClick={onDismiss} aria-label={t('petSurface.ignore')}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -196,7 +197,7 @@ function Screen2_EventTap({
         </BubbleContent>
       </Bubble>
       <TypographyMuted>
-        {event.type === 'decision' ? '需你拍板 · 会保留到收件箱' : fromSuppressed ? '免打扰期间静默的事件 · 逐条补提示' : '忽略后淡出为圆点，不打断你'}
+        {event.type === 'decision' ? t('petSurface.decisionHint') : fromSuppressed ? t('petSurface.suppressedHint2') : t('petSurface.dismissHint')}
       </TypographyMuted>
     </div>
   )
@@ -220,12 +221,12 @@ function Screen3_PokeExpand({
       <div className="w-full max-w-sm p-4">
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>还没有项目</EmptyTitle>
-            <EmptyDescription>连接 Agent 并创建第一个项目</EmptyDescription>
+            <EmptyTitle>{t('petSurface.noProjects')}</EmptyTitle>
+            <EmptyDescription>{t('petSurface.noProjectsDesc')}</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
             <Button variant="primary" onClick={() => onOpenPanel('')}>
-              连接 Agent
+              {t('petSurface.connectAgent')}
             </Button>
           </EmptyContent>
         </Empty>
@@ -236,8 +237,8 @@ function Screen3_PokeExpand({
   return (
     <div className="flex w-full max-w-sm flex-col gap-3 rounded-lg border border-border-secondary bg-bg-container p-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-text font-semibold">项目</h1>
-        <Button variant="ghost" onClick={onClose} aria-label="收起面板">
+        <h1 className="text-text font-semibold">{t('petSurface.projects')}</h1>
+        <Button variant="ghost" onClick={onClose} aria-label={t('petSurface.collapse')}>
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -329,16 +330,16 @@ export function Flow1_PetSurface({
   return (
     <div className="flex flex-col items-center gap-4 p-6">
       <div className="flex flex-wrap items-center gap-3 rounded-md border border-border-tertiary bg-bg-layout p-2">
-        <TypographyMuted>真实帧预览 · 状态切换仅用于预览</TypographyMuted>
-        <div className="flex flex-wrap gap-1" role="group" aria-label="宠物状态预览">
-          {(Object.keys(STATUS_LABEL) as AgentStatus[]).map((s) => (
+        <TypographyMuted>{t('petSurface.preview')}</TypographyMuted>
+        <div className="flex flex-wrap gap-1" role="group" aria-label={t('petSurface.statusPreview')}>
+          {STATUS_ORDER.map((s) => (
             <Button key={s} variant={status === s ? 'secondary' : 'ghost'} aria-pressed={status === s} onClick={() => setStatus(s)}>
-              {STATUS_LABEL[s]}
+              {statusLabel(s)}
             </Button>
           ))}
         </div>
         <Button variant="secondary" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>
-          皮肤与动效设置
+          {t('petSurface.skinSettings')}
         </Button>
       </div>
 
@@ -412,20 +413,20 @@ export function Flow1_PetSurface({
       {inboxOpen && (
         <div className="flex w-full max-w-sm flex-col gap-2 rounded-md border border-border-secondary bg-bg-container p-3">
           <div className="flex items-center justify-between">
-            <TypographyMuted>静默收件箱 · {fmtCount(suppressed.length)} 条</TypographyMuted>
-            <Button variant="ghost" onClick={() => setInboxOpen(false)} aria-label="收起收件箱">
+            <TypographyMuted>{t('petSurface.inboxCount', { n: fmtCount(suppressed.length) })}</TypographyMuted>
+            <Button variant="ghost" onClick={() => setInboxOpen(false)} aria-label={t('petSurface.collapse')}>
               <X className="h-4 w-4" />
             </Button>
           </div>
           <Separator />
           {suppressed.length === 0 ? (
-            <TypographyMuted>收件箱已清空</TypographyMuted>
+            <TypographyMuted>{t('petSurface.inboxEmpty')}</TypographyMuted>
           ) : (
             <>
               {suppressed.map((e) => (
                 <div key={e.id} className="flex items-center gap-2">
                   <span className="min-w-0 flex-1">
-                    <ClampText text={e.text || `事件 · ${e.type}`} />
+                    <ClampText text={e.text || t('petSurface.eventFallback', { type: e.type })} />
                   </span>
                   <Button
                     variant="secondary"
@@ -434,19 +435,19 @@ export function Flow1_PetSurface({
                       openPanel(e.projectId, e.sessionId)
                     }}
                   >
-                    查看
+                    {t('common.view')}
                   </Button>
                   <Button
                     variant="ghost"
                     onClick={() => setSuppressed((s) => s.filter((x) => x.id !== e.id))}
-                    aria-label="关闭该条事件"
+                    aria-label={t('petSurface.closeEvent')}
                   >
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
               ))}
               <Button variant="ghost" onClick={() => setSuppressed([])}>
-                全部关闭
+                {t('petSurface.closeAll')}
               </Button>
             </>
           )}
