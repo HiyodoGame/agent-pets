@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { parseRollout, inject as codexInject } from './adapters/codex.mjs';
 import { parseClaude, inject as claudeInject } from './adapters/claude.mjs';
-import { parseRun, mapServeStatus, parseServePayload, observe as opencodeObserve, inject as opencodeInject } from './adapters/opencode.mjs';
+import { parseRun, mapServeStatus, parseServePayload, observe as opencodeObserve, inject as opencodeInject, applyExecutionEvent, resetOpenCodeRuntime } from './adapters/opencode.mjs';
 import { TIER, canInject, injectDecision, handoffPackage } from './tiers.mjs';
 import { createBus, toPetEventType } from './bus.mjs';
 import { createApp } from './bridge.mjs';
@@ -149,6 +149,34 @@ test('opencode mapServeStatus: only real signals, else unknown', () => {
   assert.equal(mapServeStatus({ outcome: 'failed' }), 'stuck');
   assert.equal(mapServeStatus({ outcome: null }), 'unknown');
   assert.equal(mapServeStatus({}), 'unknown');
+});
+
+test('opencode mapServeStatus: fresh null-outcome fallback => running, stale => unknown', () => {
+  const now = 1_000_000;
+  assert.equal(mapServeStatus({ outcome: null, time: { updated: now - 1000 } }, now), 'running');
+  assert.equal(mapServeStatus({ outcome: null, time: { updated: now - 300000 } }, now), 'unknown');
+  // Explicit terminal outcome always wins over freshness.
+  assert.equal(mapServeStatus({ outcome: 'succeeded', time: { updated: now - 1000 } }, now), 'done');
+});
+
+test('opencode execution events drive live running status', () => {
+  resetOpenCodeRuntime();
+  applyExecutionEvent({ type: 'session.execution.started', data: { sessionID: 'ses_run' } });
+  assert.equal(mapServeStatus({ id: 'ses_run', outcome: null }), 'running');
+  assert.equal(mapServeStatus({ id: 'ses_other', outcome: null }), 'unknown');
+  applyExecutionEvent({ type: 'session.execution.succeeded', data: { sessionID: 'ses_run' } });
+  assert.equal(mapServeStatus({ id: 'ses_run', outcome: null }), 'unknown');
+  applyExecutionEvent({ type: 'session.execution.started', data: { sessionID: 'ses_run' } });
+  applyExecutionEvent({ type: 'session.execution.interrupted', data: { sessionID: 'ses_run' } });
+  assert.equal(mapServeStatus({ id: 'ses_run', outcome: null }), 'unknown', 'interrupted clears running');
+  resetOpenCodeRuntime();
+});
+
+test('opencode execution events: explicit terminal outcome wins over stale running set', () => {
+  resetOpenCodeRuntime();
+  applyExecutionEvent({ type: 'session.execution.started', data: { sessionID: 'ses_x' } });
+  assert.equal(mapServeStatus({ id: 'ses_x', outcome: 'succeeded' }), 'done');
+  resetOpenCodeRuntime();
 });
 
 test('opencode v2 observe: unwraps {data}, maps outcome, uses CLI discovery', async () => {

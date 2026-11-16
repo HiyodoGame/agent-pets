@@ -249,7 +249,12 @@ export function main({ adapters = REAL_ADAPTERS, startPoll = true } = {}) {
   const server = createApp({ adapters, security });
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`[petdeck-bridge] listening on http://127.0.0.1:${PORT} (home=${os.homedir()}) auth=token`);
-    if (startPoll) startPolling(server);
+    if (startPoll) {
+      startPolling(server);
+      // Live "running" status for opencode v2 comes from its SSE execution events.
+      // Only the long-lived bridge starts the watcher (tests/verify-local stay short-lived).
+      if (adapters.some((a) => a.id === 'opencode')) opencode.startEventWatcher();
+    }
   });
   return server;
 }

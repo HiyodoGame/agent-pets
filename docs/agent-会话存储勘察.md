@@ -8,7 +8,7 @@
 | --- | --- | --- | --- | --- | --- |
 | Claude Code | `claude` CLI | `~/.claude/projects/*.jsonl` | JSONL | ✅ 已有适配器 | ✅ 已有（headless `-p --output-format stream-json`） |
 | Codex | `codex` CLI | `~/.codex/sessions` rollout jsonl | JSONL | ✅ 已有 | ⚠️ `codex exec` 实验性（已有） |
-| opencode | `opencode` CLI | v2 后台服务（动态端口 + CLI 管理密码）；v1 `serve` :4096 | HTTP + Basic Auth（v2：`opencode api session.list`） | ✅ 已有 | ✅ 已有（spike 实证） |
+| opencode | `opencode` CLI | v2 后台服务（动态端口 + CLI 管理密码）；v1 `serve` :4096 | HTTP + Basic Auth；列表 `opencode api session.list`，运行态 SSE `/api/event` | ✅ 已有 | ✅ 已有（spike 实证） |
 | Cursor | `cursor` CLI / IDE 3.29.15 | `~/.cursor/projects/<project>/agent-transcripts/<sessionId>/<sessionId>.jsonl` | JSONL（user/assistant + `turn_ended`） | ✅ 新增（真机 5 会话） | ❓ 无已验证 headless 语法 → observe-only |
 | Gemini CLI | 本机未安装（官方源码确认格式） | `~/.gemini/tmp/<projectShortId>/chats/session-*.jsonl`（兼容 legacy `.json`） | JSONL（metadata + user/gemini/error 记录） | ✅ 新增（仅合成 fixture，本机无数据） | ❓ 无已验证语法 → observe-only |
 | Kimi Code | `~/.kimi-code/bin/kimi.exe` | `~/.kimi/sessions/<projHash>/<uuid>/context.jsonl` | JSONL | ✅ 新增 | ❓ 非交互注入语法未验证 → 先 observe-only |
@@ -40,6 +40,14 @@
 - 状态推断：`turn/start` 后无对应 `turn/end` → running；`approval/asked` 未决 → waiting；`turn/end(reason.kind='completed')` → done；否则 unknown。
 - 成本信号：未见 token 计数事件（暂无成本）。
 - inject 线索：`dsh` 命令存在（npm bin），`.dsh/profiles/acp/` 表明支持 ACP（Agent Client Protocol）——未来注入可走 ACP over stdio，待验证。
+
+### opencode v2（动态后台服务）
+
+- 服务发现：`opencode service status` 输出 `http://127.0.0.1:<port>`；`opencode service get password` 输出访问密码（Basic Auth 用户名 `opencode`）。
+- 会话列表：`opencode api session.list`（CLI 自动发现/鉴权）→ `{"data":[...]}`；行含 `outcome`（succeeded/interrupted/failed/null）与 `time.{created,updated,idle}`，**没有 status 字段**。
+- 运行中状态：SSE `GET /api/event`（Basic Auth）发送 `session.execution.started` / `succeeded` / `failed` / `interrupted`，事件 `data.sessionID` 指向会话。桥接进程维持重连长连接，把 started 后的会话标为 running，终态事件移除。
+- 兜底：仅当 SSE 未连接时，才用 `outcome=null && time.updated < 120s` 推断 running；watcher 在线时不做新鲜度猜测，避免把陈旧会话误报为运行中。
+- `opencode run --format json` 的 inject 不依赖显式 serve（实测约 4.9s）。
 
 ### Cursor（`~/.cursor/projects`）
 
@@ -73,4 +81,4 @@
 2. zcode / dsh / cursor 的会话天然带项目归属（zcode project_id、dsh workspace slug、cursor project slug），可展示「项目」维度。
 3. 成本 MVP 数据源：claude（jsonl usage 字段）、zcode（turn_usage 完整）、kimi-code（token_count 累计）、gemini（tokens 分项）。
 4. Antigravity 列入 blocked，理由如上。
-5. opencode v2 的后台服务端口/密码由 CLI 管理，观察走 `opencode api session.list`，旧 `/session` HTTP 仅作 v1 回退。
+5. opencode v2 的后台服务端口/密码由 CLI 管理，观察走 `opencode api session.list`；运行中状态由桥接进程订阅 SSE `session.execution.*` 得到，watcher 离线时才退回 mtime 新鲜度兜底；旧 `/session` HTTP 仅作 v1 回退。
