@@ -21,6 +21,7 @@
 
 ### 修复
 
+- **opencode v2 观察**：v2 后台服务改为动态端口 + CLI 管理密码，旧 `/session` 路径返回 Web UI HTML。观察改用 `opencode api session.list`（CLI 自动发现与鉴权），保留 v1 HTTP 4096 回退；状态按 `outcome`（succeeded/interrupted/failed）映射，无终态信号时保持 unknown。
 - **Claude 注入**：Claude CLI 2.1+ 要求 `--print --output-format stream-json` 必须显式带 `--verbose`，否则直接 exit 1。补上参数，并把 stream-json 解析为最终 assistant 文本（不再把原始 JSON 当作接力响应）。
 - **dsh 多帧会话读取**：Node 24 的 zstd 解压在一次性喂入拼接帧时只解压第一帧，导致 `session.v4.jsonl.zstd` 仅读到 `session` 头、会话被整体跳过。改为按 zstd magic 逐帧解压（损坏前缀与伪边界容错），并补回归测试。
 

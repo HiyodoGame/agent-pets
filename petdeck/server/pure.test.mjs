@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { parseRollout, inject as codexInject } from './adapters/codex.mjs';
 import { parseClaude, inject as claudeInject } from './adapters/claude.mjs';
-import { parseRun, mapServeStatus, inject as opencodeInject } from './adapters/opencode.mjs';
+import { parseRun, mapServeStatus, parseServePayload, observe as opencodeObserve, inject as opencodeInject } from './adapters/opencode.mjs';
 import { TIER, canInject, injectDecision, handoffPackage } from './tiers.mjs';
 import { createBus, toPetEventType } from './bus.mjs';
 import { createApp } from './bridge.mjs';
@@ -144,7 +144,35 @@ test('bridge: waiting status transition emits a decision event', async () => {
 test('opencode mapServeStatus: only real signals, else unknown', () => {
   assert.equal(mapServeStatus({ status: 'busy' }), 'running');
   assert.equal(mapServeStatus({ status: 'idle' }), 'unknown');
+  assert.equal(mapServeStatus({ outcome: 'succeeded' }), 'done');
+  assert.equal(mapServeStatus({ outcome: 'interrupted' }), 'stuck');
+  assert.equal(mapServeStatus({ outcome: 'failed' }), 'stuck');
+  assert.equal(mapServeStatus({ outcome: null }), 'unknown');
   assert.equal(mapServeStatus({}), 'unknown');
+});
+
+test('opencode v2 observe: unwraps {data}, maps outcome, uses CLI discovery', async () => {
+  const calls = [];
+  const run = async (cmd, args) => {
+    calls.push([cmd, ...args]);
+    return { status: 0, stdout: JSON.stringify({ data: [
+      { id: 'ses_1', outcome: 'succeeded', title: 'done one' },
+      { id: 'ses_2', outcome: null, title: 'old one' },
+    ] }), stderr: '', error: false, summary: '' };
+  };
+  const rows = await opencodeObserve({ run });
+  assert.deepEqual(calls[0], ['opencode', 'api', 'session.list']);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].session, 'ses_1');
+  assert.equal(rows[0].status, 'done');
+  assert.equal(rows[0].source, 'serve-api');
+  assert.equal(rows[1].status, 'unknown');
+});
+
+test('opencode parseServePayload: accepts bare array (v1) and rejects non-arrays', () => {
+  assert.deepEqual(parseServePayload([{ id: 'a' }]), [{ id: 'a' }]);
+  assert.deepEqual(parseServePayload({ data: [{ id: 'b' }] }), [{ id: 'b' }]);
+  assert.throws(() => parseServePayload({ error: 'x' }));
 });
 
 test('tiers: capability gating', () => {
