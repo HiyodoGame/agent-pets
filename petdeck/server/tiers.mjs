@@ -8,6 +8,8 @@ export const TIER = {
   'kimi-code': 'observe-only',
   zcode: 'observe-only',
   dsh: 'observe-only',
+  cursor: 'observe-only',
+  gemini: 'observe-only',
 };
 
 export function canInject(tier) {

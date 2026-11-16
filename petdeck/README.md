@@ -10,8 +10,13 @@ Windows 优先的 Agent 桌面宠物：透明、无边框、置顶的小窗常�
 - 本地 Agent CLI 均为可选；缺失只影响对应卡片：
   - **Codex**：读取 `~/.codex/sessions` rollout jsonl；`codex exec` 注入为实验能力，失败降级剪贴板。
   - **Claude**：读取 `~/.claude/projects/*.jsonl`，使用 headless `claude -p --output-format stream-json`。
-  - **opencode**：观察依赖本地 `opencode serve`，默认 `http://127.0.0.1:4096`。
+  - **opencode**：观察依赖本地 `opencode serve`，默认 `http://127.0.0.1:4096`；v2 由 `opencode api session.list` 自动发现后台服务。
   - **kimi work**：hosted web Agent，仅观察层，注入恒为剪贴板交接。
+  - **Kimi Code**：读取 `~/.kimi/sessions/*/*/context.jsonl`，仅观察层（注入恒剪贴板）。
+  - **zcode**：读取 `~/.zcode/cli/db/db.sqlite` 的只读副本，仅观察层（注入恒剪贴板）。
+  - **DeepSeek Harness**：读取 `~/.dsh/sessions/*/*/session.v4.jsonl.zstd`（多帧 zstd），仅观察层（注入恒剪贴板）。
+  - **Cursor**：读取 `~/.cursor/projects/*/agent-transcripts/*/*.jsonl`，仅观察层（注入恒剪贴板）。
+  - **Gemini CLI**：读取 `~/.gemini/tmp/*/chats/session-*.jsonl`，仅观察层（注入恒剪贴板；本机未安装时无数据）。
 
 > 真实 CLI 的兼容性尚未在所有适配器上逐一完成安装版实测。现有自动化测试使用 fake spawn/fetch/adapter；首次接入时请小步验证，不以测试替代真机结论。
 

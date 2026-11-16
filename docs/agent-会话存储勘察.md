@@ -1,6 +1,6 @@
 # Agent 本地会话存储勘察（2026-11-16，用户机器实测）
 
-> 目的：为新增适配器（Gemini/Antigravity、Kimi Code、zcode、DeepSeek Harness）提供真实数据格式依据。全部结论来自 `C:\Users\Con_WKK` 下实际文件的只读检查，不含猜测；未能确认的项如实标注。
+> 目的：为新增适配器（Cursor、Gemini CLI、Kimi Code、zcode、DeepSeek Harness）提供真实数据格式依据。结论来自 `C:\Users\Con_WKK` 下实际文件的只读检查或官方源码，不含猜测；未能确认的项如实标注。
 
 ## 总览
 
@@ -8,11 +8,13 @@
 | --- | --- | --- | --- | --- | --- |
 | Claude Code | `claude` CLI | `~/.claude/projects/*.jsonl` | JSONL | ✅ 已有适配器 | ✅ 已有（headless `-p --output-format stream-json`） |
 | Codex | `codex` CLI | `~/.codex/sessions` rollout jsonl | JSONL | ✅ 已有 | ⚠️ `codex exec` 实验性（已有） |
-| opencode | `opencode` CLI | `opencode serve` :4096 | HTTP | ✅ 已有 | ✅ 已有（spike 实证） |
+| opencode | `opencode` CLI | v2 后台服务（动态端口 + CLI 管理密码）；v1 `serve` :4096 | HTTP + Basic Auth（v2：`opencode api session.list`） | ✅ 已有 | ✅ 已有（spike 实证） |
+| Cursor | `cursor` CLI / IDE 3.29.15 | `~/.cursor/projects/<project>/agent-transcripts/<sessionId>/<sessionId>.jsonl` | JSONL（user/assistant + `turn_ended`） | ✅ 新增（真机 5 会话） | ❓ 无已验证 headless 语法 → observe-only |
+| Gemini CLI | 本机未安装（官方源码确认格式） | `~/.gemini/tmp/<projectShortId>/chats/session-*.jsonl`（兼容 legacy `.json`） | JSONL（metadata + user/gemini/error 记录） | ✅ 新增（仅合成 fixture，本机无数据） | ❓ 无已验证语法 → observe-only |
 | Kimi Code | `~/.kimi-code/bin/kimi.exe` | `~/.kimi/sessions/<projHash>/<uuid>/context.jsonl` | JSONL | ✅ 新增 | ❓ 非交互注入语法未验证 → 先 observe-only |
 | zcode | CLI 存放位置待确认 | `~/.zcode/cli/db/db.sqlite`(+wal) | SQLite（node:sqlite 可只读副本解析） | ✅ 新增 | ❓ CLI 注入语法未验证 → 先 observe-only |
 | DeepSeek Harness | `dsh` CLI（npm `@deepseek-ai`） | `~/.dsh/sessions/<workspaceSlug>/<sessionId>/session.v4.jsonl.zstd` | 多帧 zstd 拼接的 JSONL（每帧一条事件，magic `28 B5 2F FD`） | ✅ 新增 | ⚠️ `dsh` CLI 存在但注入语法未验证 → 先 observe-only；发现 `.dsh/profiles/acp` 支持 ACP 协议，未来可走 ACP 注入 |
-| Gemini / Antigravity | Antigravity 桌面 | `~/.gemini/antigravity/conversations/<brainId>.db` | SQLite，payload 为 protobuf 二进制（无 schema） | ⚠️ 缓做：需逆向 protobuf；未发现 Gemini CLI（npm 无 gemini bin、无 `~/.gemini/tmp`） | ❌ 无 CLI 注入面 |
+| Antigravity | Antigravity 桌面 | `~/.gemini/antigravity/conversations/<brainId>.db` | SQLite，payload 为 protobuf 二进制（无 schema） | ⚠️ 缓做：需逆向 protobuf | ❌ 无 CLI 注入面 |
 
 ## 各 Agent 关键格式细节
 
@@ -39,6 +41,27 @@
 - 成本信号：未见 token 计数事件（暂无成本）。
 - inject 线索：`dsh` 命令存在（npm bin），`.dsh/profiles/acp/` 表明支持 ACP（Agent Client Protocol）——未来注入可走 ACP over stdio，待验证。
 
+### Cursor（`~/.cursor/projects`）
+
+- 目录结构：`projects/<项目slug>/agent-transcripts/<sessionId>/<sessionId>.jsonl`；子代理在 `<sessionId>/subagents/<id>.jsonl`，观察时跳过。
+- 行格式：`{"role":"user"|"assistant","message":{"content":[{type:"text",text},{type:"tool_use",name,input}]}}`；每回合末行 `{"type":"turn_ended","status":"success"|"error"}`。
+- 真机统计（2026-11-16，7 个顶层 transcript）：6 个 success / 1 个 error，无缺终态样本。
+- 状态推断：`turn_ended(success)` → done；`error`/`aborted`/`interrupted` → stuck；新的 `user` 行清除上一回合终态；无终态且 mtime < 120s → running；否则 unknown。
+- 标题：使用项目 slug（transcript 本身无标题）。另有 `globalStorage/conversation-search.db`（title/updated_at 索引，10 条，其中 6 条 id 与 transcript 重合），当前不做跨库 join，避免额外 I/O 与锁风险。
+- inject：Cursor CLI 尚无已验证的非交互注入语法 → observe-only。
+
+### Gemini CLI（`~/.gemini/tmp`，官方源码确认）
+
+- 依据：google-gemini/gemini-cli 源码 `packages/core/src/config/storage.ts`、`packages/core/src/services/chatRecordingTypes.ts`、`chatRecordingService.ts`（2026-11-16 查阅）。
+- 目录结构：`~/.gemini/tmp/<projectShortId>/chats/session-<timestamp>-<id8>.jsonl`；legacy `.json` 为单对象 `{sessionId, projectHash, messages}`。
+- 行类型：
+  - metadata：`{sessionId, projectHash, startTime, lastUpdated, kind?, summary?}`；
+  - message：`{id, timestamp, content, type: user|gemini|info|error|warning, tokens?}`；
+  - 更新/回退：`{$set}`、`{$patch}`、`{$rewindTo}`。
+- 状态推断：没有显式回合终止信号，按最后一条会话消息推断：`user` → running、`gemini` → done、`error` → stuck；`info`/`warning` 不改变状态；`kind='subagent'` 跳过。
+- 成本信号：gemini 消息的 `tokens`（input/output/cached/total）。
+- 限制：本机未安装 Gemini CLI（无 `~/.gemini/tmp`），仅按官方源码实现并通过合成测试，未做真机回填。
+
 ### Gemini / Antigravity（缓做原因）
 
 - 用户机器上未安装 Gemini CLI（无 `~/.gemini/tmp`、npm 无 gemini bin），Gemini 使用形态是 **Antigravity 桌面**。
@@ -46,7 +69,8 @@
 
 ## 对实现的影响
 
-1. 新增 3 个 observe-only 适配器：`kimi-code`、`zcode`、`dsh`（DeepSeek Harness）；`TIER` 全部 observe-only（inject 语法未验证，不假装能注入）。
-2. zcode / dsh 的会话 id 天然带 workspace 归属（zcode project_id、dsh workspace slug），可展示「项目」维度。
-3. 成本 MVP 数据源：claude（jsonl usage 字段，待勘察确认字段名）、zcode（turn_usage 完整）、kimi-code（token_count 累计）。
+1. 新增 5 个 observe-only 适配器：`kimi-code`、`zcode`、`dsh`（DeepSeek Harness）、`cursor`、`gemini`；`TIER` 全部 observe-only（inject 语法未验证，不假装能注入）。
+2. zcode / dsh / cursor 的会话天然带项目归属（zcode project_id、dsh workspace slug、cursor project slug），可展示「项目」维度。
+3. 成本 MVP 数据源：claude（jsonl usage 字段）、zcode（turn_usage 完整）、kimi-code（token_count 累计）、gemini（tokens 分项）。
 4. Antigravity 列入 blocked，理由如上。
+5. opencode v2 的后台服务端口/密码由 CLI 管理，观察走 `opencode api session.list`，旧 `/session` HTTP 仅作 v1 回退。

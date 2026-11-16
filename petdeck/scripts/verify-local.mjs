@@ -9,6 +9,8 @@ import * as codex from '../server/adapters/codex.mjs';
 import * as claude from '../server/adapters/claude.mjs';
 import * as opencode from '../server/adapters/opencode.mjs';
 import * as kimi from '../server/adapters/kimi.mjs';
+import * as cursor from '../server/adapters/cursor.mjs';
+import * as gemini from '../server/adapters/gemini.mjs';
 
 const home = process.env.PETDECK_OBSERVE_HOME || os.homedir();
 const md = process.argv.includes('--md');
@@ -53,15 +55,27 @@ async function checkOpencode() {
   const cli = await probe('opencode');
   const dir = path.join(home, '.opencode');
   let observeNote = '—';
-  try {
-    const r = await fetch('http://127.0.0.1:4096/session', { signal: AbortSignal.timeout(1500) });
-    if (!r.ok) observeNote = `serve ${r.status}`;
-    else {
-      const list = await r.json();
-      if (!Array.isArray(list)) observeNote = 'serve 返回非数组';
-      else observeNote = `observe: ${opencode.observe().length} 个会话`;
-    }
-  } catch { observeNote = 'serve 未运行（4096 无响应）'; }
+  try { observeNote = `observe: ${(await opencode.observe()).length} 个会话`; } catch (e) { observeNote = `observe 报错: ${e?.code ?? e?.name ?? '?'}`; }
+  return { cli, note: observeNote, dirOk: await dirExists(dir) };
+}
+
+async function checkCursor() {
+  const cli = await probe('cursor');
+  const dir = path.join(home, '.cursor', 'projects');
+  let observeNote = '—';
+  if (await dirExists(dir)) {
+    try { observeNote = `observe: ${(await cursor.observe()).length} 个会话`; } catch (e) { observeNote = `observe 报错: ${e?.code ?? e?.name ?? '?'}`; }
+  }
+  return { cli, note: observeNote, dirOk: await dirExists(dir) };
+}
+
+async function checkGemini() {
+  const cli = await probe('gemini');
+  const dir = path.join(home, '.gemini', 'tmp');
+  let observeNote = '—';
+  if (await dirExists(dir)) {
+    try { observeNote = `observe: ${(await gemini.observe()).length} 个会话`; } catch (e) { observeNote = `observe 报错: ${e?.code ?? e?.name ?? '?'}`; }
+  }
   return { cli, note: observeNote, dirOk: await dirExists(dir) };
 }
 
@@ -74,6 +88,8 @@ const rows = [
   { adapter: claude, home: '~/.claude/projects', check: checkClaude },
   { adapter: opencode, home: '~/.opencode + serve', check: checkOpencode },
   { adapter: kimi, home: '—（托管）', check: checkKimi },
+  { adapter: cursor, home: '~/.cursor/projects', check: checkCursor },
+  { adapter: gemini, home: '~/.gemini/tmp', check: checkGemini },
 ];
 
 const results = [];
