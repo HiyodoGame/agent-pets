@@ -32,6 +32,9 @@ jobs:
       - name: Web build
         working-directory: petdeck
         run: npm run build
+      - name: Rust fmt check
+        working-directory: petdeck
+        run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
       - name: Rust tests
         working-directory: petdeck
         run: cargo test --manifest-path src-tauri/Cargo.toml
