@@ -99,6 +99,10 @@ test('latestFiles: a new file appears once the directory mtime moves', () => {
   latestFiles(dir, pred, 5); // warm the cache
   const c = path.join(dir, 'c.jsonl');
   fs.writeFileSync(c, 'x');
+  // NTFS 上目录 mtime 可能在同一时间片内不更新（Windows CI 曾因此抖红，2026-11-16），
+  // 显式推进目录 mtime，断言才只依赖「mtime 变化 => 缓存失效」这一契约。
+  const t = Date.now() / 1000 + 5;
+  fs.utimesSync(dir, t, t);
   const r = latestFiles(dir, pred, 5);
   assert.ok(r.includes(c), 'cache must invalidate when the directory mtime changes');
   assert.ok(r.includes(a) && r.includes(b));
