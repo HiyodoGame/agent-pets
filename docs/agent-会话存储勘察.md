@@ -48,7 +48,7 @@
 - 真机统计（2026-11-16，7 个顶层 transcript）：6 个 success / 1 个 error，无缺终态样本。
 - 状态推断：`turn_ended(success)` → done；`error`/`aborted`/`interrupted` → stuck；新的 `user` 行清除上一回合终态；无终态且 mtime < 120s → running；否则 unknown。
 - 标题：使用项目 slug（transcript 本身无标题）。另有 `globalStorage/conversation-search.db`（title/updated_at 索引，10 条，其中 6 条 id 与 transcript 重合），当前不做跨库 join，避免额外 I/O 与锁风险。
-- inject：Cursor CLI 尚无已验证的非交互注入语法 → observe-only。
+- inject 复核（2026-11-17，Cursor 3.29.15）：顶层 CLI 的 `agent` 子命令（终端 TUI）与 `desktop` 子命令（操作运行中的桌面会话，定义中带 `--json/--force/--stdin`）在当前构建中均未接线——`cursor agent --help` / `cursor desktop --json` 被当作普通参数传给 Electron 并退出 0；安装目录内未发现独立 `cursor-agent` 可执行文件。npm 上的 `cursor-agent` 是第三方任务序列工具（zalab-inc），非官方。故 inject 保持未验证 → observe-only。
 
 ### Gemini CLI（`~/.gemini/tmp`，官方源码确认）
 

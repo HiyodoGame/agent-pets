@@ -1,7 +1,8 @@
 // Cursor adapter — observe: ~/.cursor/projects/<project>/agent-transcripts/<id>/<id>.jsonl
 // (read-only). Each line is {role:'user'|'assistant', message:{content:[...]}} and the last
-// line of a turn is {type:'turn_ended', status:'success'|'error'}. inject: no verified
-// headless CLI syntax => tier observe-only (clipboard).
+// line of a turn is {type:'turn_ended', status:'success'|'error'}. inject: Cursor 3.29.15
+// exposes no wired headless subcommand (agent/desktop are not dispatched to the CLI entry
+// and no standalone cursor-agent binary is installed) => tier observe-only (clipboard).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

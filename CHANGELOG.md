@@ -33,6 +33,7 @@
 - **真机注入实测（2026-11-16 Windows）**：codex 0.157.1 / claude 2.1.312 / opencode 2.0.27 的 observe 与 inject 结果已回填 `docs/真机实测矩阵.md`；codex 首次受本机 CC Switch 模型路由阻塞，修正配置后注入成功。
 - **新增适配器真机 observe（2026-11-16）**：dsh / kimi-code / zcode 在本机分别返回 4 / 5 / 5 条会话，状态与 token 字段符合预期；dsh 多帧 zstd 修复经真实会话验证。三者 inject 仍为 observe-only 剪贴板。
 - **verify-local 覆盖全部适配器**：自动检查新增 Kimi Code / zcode / DeepSeek Harness / Cursor / Gemini CLI 行；opencode 检查改用适配器自身的 v2 观察，不再手探已失效的 `/session`。
+- **Cursor inject 复核（2026-11-17）**：Cursor 3.29.15 未提供可用的 headless 子命令（`agent`/`desktop` 未接线，安装目录无独立 `cursor-agent`），注入保持未验证，继续 observe-only + 剪贴板。
 - 仓库换行统一 LF（`.gitattributes` `eol=lf`），消除 CRLF 幻影 diff。
 
 ## [0.1.0] — 2026-11-14
