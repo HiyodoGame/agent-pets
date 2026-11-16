@@ -1,0 +1,11 @@
+# 换行归一化：仓库统一 LF，检出时按平台处理（避免 CRLF 幻影 diff）
+* text=auto eol=lf
+
+# 二进制文件不做换行处理
+*.png binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.exe binary
+*.dll binary
