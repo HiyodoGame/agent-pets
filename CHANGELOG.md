@@ -30,6 +30,7 @@
 - **宠物皮肤整体替换**：新皮肤「蓝噗」（原创灰紫色毛绒小怪物，11 个动作 / 65 帧 / 256×256 RGBA，逐帧边界与循环接缝经 validation.json 校验）顶替原「薄荷皮皮」。内部皮肤键保持 `default`——skin-loader 回退链、既有用户设置与新 art 无缝衔接；皮肤系统仍支持多皮肤扩展。设计过程与校验记录见 `petdeck/docs/pet-design/lilac-nubo/`（大体积源文件与历史 zip 留存本机，不入库）。
 - **交接包文本合一**：前端 `handoffPackageText` 直接引用 `server/tiers.mjs` 的 `handoffPackage`（单一来源 + 同名导出），删除逐字镜像与 parity 兜底测试；`src/adapters/bus.ts` 死代码删除（全 src 无消费者）。
 - **真机注入实测（2026-11-16 Windows）**：codex 0.157.1 / claude 2.1.312 / opencode 2.0.27 的 observe 与 inject 结果已回填 `docs/真机实测矩阵.md`；codex 首次受本机 CC Switch 模型路由阻塞，修正配置后注入成功。
+- **新增适配器真机 observe（2026-11-16）**：dsh / kimi-code / zcode 在本机分别返回 4 / 5 / 5 条会话，状态与 token 字段符合预期；dsh 多帧 zstd 修复经真实会话验证。三者 inject 仍为 observe-only 剪贴板。
 - 仓库换行统一 LF（`.gitattributes` `eol=lf`），消除 CRLF 幻影 diff。
 
 ## [0.1.0] — 2026-11-14
