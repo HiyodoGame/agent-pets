@@ -11,6 +11,9 @@ import * as opencode from '../server/adapters/opencode.mjs';
 import * as kimi from '../server/adapters/kimi.mjs';
 import * as cursor from '../server/adapters/cursor.mjs';
 import * as gemini from '../server/adapters/gemini.mjs';
+import * as kimiCode from '../server/adapters/kimi-code.mjs';
+import * as zcode from '../server/adapters/zcode.mjs';
+import * as dsh from '../server/adapters/dsh.mjs';
 
 const home = process.env.PETDECK_OBSERVE_HOME || os.homedir();
 const md = process.argv.includes('--md');
@@ -83,11 +86,44 @@ async function checkKimi() {
   return { cli: null, note: '托管网页 Agent，仅观察层（人工/扩展录入）', dirOk: true };
 }
 
+async function checkKimiCode() {
+  const cli = await probe('kimi');
+  const dir = path.join(home, '.kimi', 'sessions');
+  let observeNote = '—';
+  if (await dirExists(dir)) {
+    try { observeNote = `observe: ${(await kimiCode.observe()).length} 个会话`; } catch (e) { observeNote = `observe 报错: ${e?.code ?? e?.name ?? '?'}`; }
+  }
+  return { cli, note: observeNote, dirOk: await dirExists(dir) };
+}
+
+async function checkZcode() {
+  const cli = await probe('zcode');
+  const dir = path.join(home, '.zcode', 'cli', 'db');
+  let observeNote = '—';
+  if (await dirExists(dir)) {
+    try { observeNote = `observe: ${(await zcode.observe()).length} 个会话`; } catch (e) { observeNote = `observe 报错: ${e?.code ?? e?.name ?? '?'}`; }
+  }
+  return { cli, note: observeNote, dirOk: await dirExists(dir) };
+}
+
+async function checkDsh() {
+  const cli = await probe('dsh');
+  const dir = path.join(home, '.dsh', 'sessions');
+  let observeNote = '—';
+  if (await dirExists(dir)) {
+    try { observeNote = `observe: ${(await dsh.observe()).length} 个会话`; } catch (e) { observeNote = `observe 报错: ${e?.code ?? e?.name ?? '?'}`; }
+  }
+  return { cli, note: observeNote, dirOk: await dirExists(dir) };
+}
+
 const rows = [
   { adapter: codex, home: '~/.codex/sessions', check: checkCodex },
   { adapter: claude, home: '~/.claude/projects', check: checkClaude },
   { adapter: opencode, home: '~/.opencode + serve', check: checkOpencode },
   { adapter: kimi, home: '—（托管）', check: checkKimi },
+  { adapter: kimiCode, home: '~/.kimi/sessions', check: checkKimiCode },
+  { adapter: zcode, home: '~/.zcode/cli/db', check: checkZcode },
+  { adapter: dsh, home: '~/.dsh/sessions', check: checkDsh },
   { adapter: cursor, home: '~/.cursor/projects', check: checkCursor },
   { adapter: gemini, home: '~/.gemini/tmp', check: checkGemini },
 ];
