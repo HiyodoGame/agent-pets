@@ -1,5 +1,5 @@
 // Adapter-layer contracts (frontend). Domain types live in flows/shared/types.
-import type { Agent, Artifact, CapabilityTier, PetEvent, Project, Session, TokenUsage } from '../flows/shared/types'
+import type { Agent, Artifact, CapabilityTier, PetEvent, Project, Session, TokenUsage, UsageWindow } from '../flows/shared/types'
 
 /** Unified observe row emitted by every server adapter. */
 export interface ObservedSession {
@@ -12,6 +12,7 @@ export interface ObservedSession {
   turn?: string
   title?: string
   tokens?: TokenUsage
+  usageWindow?: UsageWindow
   stale?: boolean
   lastSeen?: number
 }

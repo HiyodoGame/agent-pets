@@ -94,3 +94,16 @@ test('data-sync: tokens from observed rows pass through for cost display', () =>
   const [bare] = observedToSessions([row({ tokens: undefined })], NOW);
   assert.equal(bare.tokens, undefined, 'no usage data must stay absent, not zero-fabricated');
 });
+
+// ---- 用量窗口（P1-7 后半）：usageWindow 透传到 Session ----
+
+test('data-sync: usageWindow from observed rows passes through for reset countdown', () => {
+  const w = {
+    active: true, blockStart: '2026-11-16T06:00:00.000Z', resetAt: '2026-11-16T11:00:00.000Z',
+    minutesToReset: 180, windowTokens: { input: 10, output: 20, cacheRead: 30 },
+  };
+  const [s] = observedToSessions([row({ usageWindow: w })], NOW);
+  assert.deepEqual(s.usageWindow, w);
+  const [bare] = observedToSessions([row({ usageWindow: undefined })], NOW);
+  assert.equal(bare.usageWindow, undefined, '无窗口数据保持缺席，不零伪造');
+});

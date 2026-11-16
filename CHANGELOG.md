@@ -8,6 +8,7 @@
 
 - **三个新适配器（只读观察）**：Kimi Code CLI（`~/.kimi/sessions` context.jsonl）、zcode（`~/.zcode/cli/db` SQLite 只读副本，含 token 用量聚合）、DeepSeek Harness（`~/.dsh/sessions` 多帧 zstd 事件流）。格式依据用户机器实测勘察（`docs/agent-会话存储勘察.md`）；inject 语法均未真机验证，能力分级 observe-only，接力走剪贴板。Antigravity（Gemini 桌面）因会话库为无 schema protobuf 暂缓。
 - **用量/成本 MVP**：观察行携带 `tokens`（claude：jsonl usage 分项聚合；zcode：turn_usage 聚合；kimi：累计 token_count），面板会话头显示紧凑徽标（`↑in ↓out` / 总量）。claude 用量为观察窗口内聚合值，非会话全历史（UI 有标注）。
+- **Claude 5h 用量窗口 + 重置倒计时**：按 jsonl 时间戳推算账户级 5 小时滚动窗口（窗口起点 / 预计重置点 / 剩余分钟 / 窗口内 token 聚合），面板会话头显示 `⏳ 约X后重置` 徽标。全部为推算值（UI 标注「估」，以官方 `/usage` 为准）；订阅配额百分比无法从本地文件得知，不做猜测。
 - 读端点（`/api/agents`、`/api/sessions`、`/api/events`）与 inject 同一套访问纪律：Host 回环校验之外，带 Origin 必须在白名单内；配置 token 后读取同样要求鉴权（SSE 支持经 `?token=` 查询参数，因 EventSource 无法自定义 header）。修复本机其它进程可未授权读取会话标题与最后消息的问题。
 - SSE 建连后立即发送注释行，客户端可即时确认连接成功。
 - MIT LICENSE。

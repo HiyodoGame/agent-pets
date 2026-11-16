@@ -29,6 +29,7 @@ export function observedToSessions(rows: ObservedSession[], now: string): Sessio
     artifactIds: [],
     updatedAt: now,
     tokens: r.tokens,
+    usageWindow: r.usageWindow,
     stale: r.stale,
     lastSeen: r.lastSeen,
   }))

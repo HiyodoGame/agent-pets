@@ -24,9 +24,21 @@ export function fmtTokens(t?: { input?: number; output?: number; cacheRead?: num
   return `↑${fmtCompact(i)} ↓${fmtCompact(o)}`
 }
 
-export type StepStatus = 'done' | 'current' | 'todo'
+/** 5h 用量窗口重置倒计时（P1-7 后半，推算值由 UI 标注「估」）：
+ *  >=60 分钟显示「约 X 小时后重置」（1 位小数），否则「约 X 分钟后重置」；
+ *  inactive / 0 分钟 / 无数据返回空串（窗口已到点不展示）。 */
+export function fmtResetCountdown(w?: { active?: boolean; minutesToReset?: number }): string {
+  if (!w?.active) return ''
+  const m = w.minutesToReset ?? 0
+  if (m <= 0) return ''
+  if (m >= 60) {
+    const h = Math.round((m / 60) * 10) / 10
+    return `约 ${h} 小时后重置`
+  }
+  return `约 ${m} 分钟后重置`
+}
 
-/** i<current done, i===current current, else todo. */
+export type StepStatus = 'done' | 'current' | 'todo'/** i<current done, i===current current, else todo. */
 export function stepperState(count: number, current: number): StepStatus[] {
   return Array.from({ length: count }, (_, i) => (i < current ? 'done' : i === current ? 'current' : 'todo'))
 }

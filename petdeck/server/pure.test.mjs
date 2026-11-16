@@ -283,3 +283,29 @@ test('tiers: a successful inject has no fallbackReason', () => {
   assert.equal(d.mode, 'inject');
   assert.equal(d.fallbackReason, undefined);
 });
+
+// ---- Claude 用量窗口（P1-7 后半）：带时间戳的 usageMarks，供 5h 窗口计算 ----
+
+test('claude parseClaude: collects timestamped usageMarks for the 5h window', () => {
+  const lines = [
+    J({ type: 'assistant', timestamp: '2026-11-16T06:00:00.000Z', message: { stop_reason: 'end_turn', content: [], usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30 } } }),
+    J({ type: 'assistant', timestamp: '2026-11-16T07:30:00.000Z', message: { stop_reason: 'tool_use', content: [], usage: { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3 } } }),
+    J({ type: 'user', timestamp: '2026-11-16T08:00:00.000Z', message: { content: 'hi' } }), // user 行无 usage，不产生 mark
+  ];
+  const r = parseClaude(lines);
+  assert.deepEqual(r.usageMarks, [
+    { ts: '2026-11-16T06:00:00.000Z', tokens: { input: 10, output: 20, cacheRead: 30 } },
+    { ts: '2026-11-16T07:30:00.000Z', tokens: { input: 1, output: 2, cacheRead: 3 } },
+  ]);
+});
+
+test('claude parseClaude: assistant usage without timestamp yields no mark', () => {
+  const r = parseClaude([J({ type: 'assistant', message: { stop_reason: 'end_turn', content: [], usage: { input_tokens: 5, output_tokens: 5, cache_read_input_tokens: 0 } } })]);
+  assert.deepEqual(r.usageMarks, [], '窗口计算依赖时间戳，缺 ts 的 usage 不得伪造 mark');
+});
+
+test('claude parseClaude: usageMarks absent on usage-less lines keeps zero tokens intact', () => {
+  const r = parseClaude([J({ type: 'result', is_error: false })]);
+  assert.deepEqual(r.tokens, { input: 0, output: 0, cacheRead: 0 });
+  assert.deepEqual(r.usageMarks, []);
+});

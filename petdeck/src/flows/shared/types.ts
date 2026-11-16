@@ -68,8 +68,19 @@ export interface Session {
   artifactIds: string[]
   updatedAt: string
   tokens?: TokenUsage
+  /** 账户级 5h 用量窗口（reset 倒计时，按最后活动推算=估）。仅 claude 等提供该数据的适配器有值。 */
+  usageWindow?: UsageWindow
   stale?: boolean
   lastSeen?: number
+}
+
+/** 5 小时滚动用量窗口（订阅限额口径，对标 petdash）。均为推算值，UI 必须标注「估」。 */
+export interface UsageWindow {
+  active: boolean
+  blockStart: string | null
+  resetAt: string | null
+  minutesToReset: number
+  windowTokens: TokenUsage
 }
 
 export interface Project {

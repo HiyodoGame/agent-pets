@@ -2,7 +2,7 @@
 // Run: node --test src/flows/shared/ui-logic.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stepperState, resolveMotionEnabled, getOsReducedMotion, fmtAgo, fmtTokens, decideLiveConnect, planFollowUp, fmtRateLimitWait, mapSessionStatus, eventWatermark, newEventsAfter, routeDndArrivals, shouldStreamResponse, fieldErrorState } from './ui-logic.ts';
+import { stepperState, resolveMotionEnabled, getOsReducedMotion, fmtAgo, fmtTokens, fmtResetCountdown, decideLiveConnect, planFollowUp, fmtRateLimitWait, mapSessionStatus, eventWatermark, newEventsAfter, routeDndArrivals, shouldStreamResponse, fieldErrorState } from './ui-logic.ts';
 import type { PetEvent } from './types.ts';
 import type { InjectDecision } from '../../adapters/types.ts';
 
@@ -58,6 +58,17 @@ test('fmtTokens: in/out arrows for split usage, total for cumulative, empty for 
   assert.equal(fmtTokens({ total: 158_100 }), '158.1k', 'kimi 只有累计 token_count');
   assert.equal(fmtTokens(undefined), '');
   assert.equal(fmtTokens({ input: 0, output: 0 }), '');
+});
+
+// ---- fmtResetCountdown（P1-7 后半）：5h 用量窗口重置倒计时 ----
+
+test('fmtResetCountdown: >=60min as 小时(1 位小数), <60min as 分钟, inactive/absent empty', () => {
+  assert.equal(fmtResetCountdown({ active: true, minutesToReset: 150 }), '约 2.5 小时后重置');
+  assert.equal(fmtResetCountdown({ active: true, minutesToReset: 60 }), '约 1 小时后重置');
+  assert.equal(fmtResetCountdown({ active: true, minutesToReset: 40 }), '约 40 分钟后重置');
+  assert.equal(fmtResetCountdown({ active: true, minutesToReset: 0 }), '', '0 分钟不展示(窗口已到点)');
+  assert.equal(fmtResetCountdown({ active: false, minutesToReset: 0 }), '');
+  assert.equal(fmtResetCountdown(undefined), '');
 });
 
 test('fmtAgo: relative freshness buckets', () => {  const now = 1_700_000_000_000;
