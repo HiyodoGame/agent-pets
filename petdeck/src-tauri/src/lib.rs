@@ -7,6 +7,7 @@ use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItemBuil
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent, Wry};
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_window_state::StateFlags;
 
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -108,6 +109,57 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateInfo {
+    available: bool,
+    version: Option<String>,
+    body: Option<String>,
+}
+
+/// Check GitHub Releases for a newer signed build. Returns version/notes only; the
+/// actual download happens only after the user explicitly confirms install_update.
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
+    let update = app
+        .updater()
+        .map_err(|error| error.to_string())?
+        .check()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(match update {
+        Some(update) => UpdateInfo {
+            available: true,
+            version: Some(update.version),
+            body: update.body,
+        },
+        None => UpdateInfo {
+            available: false,
+            version: None,
+            body: None,
+        },
+    })
+}
+
+/// Download and install the pending update. On Windows the updater exits the app
+/// after launching the NSIS installer, so no explicit restart is needed here.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    let update = app
+        .updater()
+        .map_err(|error| error.to_string())?
+        .check()
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(update) = update else {
+        return Err("no update available".to_string());
+    };
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|error| error.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -119,6 +171,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(StateFlags::POSITION)
@@ -194,7 +247,9 @@ pub fn run() {
             get_bridge_config,
             set_dnd,
             get_dnd,
-            quit_app
+            quit_app,
+            check_update,
+            install_update
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

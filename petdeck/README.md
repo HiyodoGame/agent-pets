@@ -46,6 +46,20 @@ npm run tauri:build
 
 NSIS 安装包输出到 `src-tauri/target/release/bundle/nsis/`。安装器包含前端、应用图标、WebView2 检查及 `server/` bridge resources。Node 24 暂不内嵌。
 
+本地打包含签名更新产物时，需要设置签名私钥（见 `docs/自动更新与签名.md`）：
+
+```bash
+TAURI_SIGNING_PRIVATE_KEY="$(cat <私钥路径>)" \
+TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<密码> \
+npm run tauri:build
+```
+
+## 自动更新
+
+桌面版在「右键宠物 → 宠物设置 → 自动更新」检查 GitHub Releases；打开设置会自动检查一次，但下载与安装必须由用户确认。更新包使用 Tauri 签名校验，发布流程与密钥管理见 `docs/自动更新与签名.md`。
+
+> v0.1.0 未内置 updater，需要手动安装 v0.1.1 一次；从 v0.1.1 起可在应用内自动更新。
+
 ## Web 开发/演示预览
 
 Web 版用于开发、设计走查和演示，不再是默认产品形态：

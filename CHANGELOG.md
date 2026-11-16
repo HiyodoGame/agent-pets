@@ -6,6 +6,7 @@
 
 ### 新增
 
+- **自动更新**：接入 Tauri updater + GitHub Releases `latest.json`；宠物设置内提供「检查更新 / 安装并重启」，打开设置自动检查但安装必须由用户确认；更新包使用 Minisign 签名校验。发布工作流改用 `tauri-action` 生成签名更新包与 `latest.json`。密钥与发布说明见 `docs/自动更新与签名.md`。
 - **Flow3 看板视图**：面板新增「列表 / 看板」切换，会话按状态分五列（运行中/等拍板/已完成/卡住/已归档），空列保留、点卡片直达线程；分组逻辑抽纯函数单测。
 - **免打扰（DND）持久化**：Rust 侧写入应用配置目录 `dnd.json`，启动即恢复托盘勾选态与宠物 UI；前端挂载时经新 `get_dnd` 命令主动拉取（不依赖事件时序）。非 Tauri 环境安全 no-op。
 
@@ -16,8 +17,9 @@
 - 读端点（`/api/agents`、`/api/sessions`、`/api/events`）与 inject 同一套访问纪律：Host 回环校验之外，带 Origin 必须在白名单内；配置 token 后读取同样要求鉴权（SSE 支持经 `?token=` 查询参数，因 EventSource 无法自定义 header）。修复本机其它进程可未授权读取会话标题与最后消息的问题。
 - SSE 建连后立即发送注释行，客户端可即时确认连接成功。
 - MIT LICENSE。
-- Release 工作流：推送 `v*` tag 自动构建 NSIS 安装包并发布 GitHub Release。
+- Release 工作流：推送 `v*` tag 自动构建并签名 NSIS 安装包，生成 updater `latest.json` 后发布 GitHub Release。
 - Desktop CI 补 `cargo fmt --check`（与 README 质量门一致）。
+- **版本 0.1.1**：`package.json` / `Cargo.toml` / `tauri.conf.json` 统一为 0.1.1，作为首个内置 updater 的版本；v0.1.0 用户需手动安装一次。
 - 2026-11-16 全面检查与竞品调研报告（`docs/2026-11-16-全面检查与竞品调研报告.md`）。
 
 ### 修复

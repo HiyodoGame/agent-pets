@@ -1,8 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { PetAvatar } from '../shared/pet-avatar'
 import { listSkinIds, loadSkin } from '../shared/pet/skin-loader'
 import type { PetSettings } from '../shared/pet/pet-settings'
+import { isTauri } from '../../desktop/window'
+import {
+  checkForUpdate,
+  installPendingUpdate,
+  updateAvailable,
+  updateStatusText,
+  type UpdateInfo,
+  type UpdatePhase,
+} from '../../desktop/updater'
 
 export function PetQuickSettings({ settings, onChange, onClose }: {
   settings: PetSettings
@@ -10,6 +19,53 @@ export function PetQuickSettings({ settings, onChange, onClose }: {
   onClose: () => void
 }) {
   const [skins, setSkins] = useState([{ id: 'default', name: '蓝噗' }])
+  const desktop = isTauri()
+  const [updatePhase, setUpdatePhase] = useState<UpdatePhase>(desktop ? 'checking' : 'unsupported')
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
+  const [updateError, setUpdateError] = useState('')
+
+  const runUpdateCheck = useCallback(async () => {
+    if (!desktop) return
+    setUpdatePhase('checking')
+    setUpdateError('')
+    try {
+      const next = await checkForUpdate()
+      setUpdateInfo(next)
+      setUpdatePhase(next.available ? 'available' : 'uptodate')
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : String(error))
+      setUpdatePhase('error')
+    }
+  }, [desktop])
+
+  const installUpdate = useCallback(async () => {
+    setUpdatePhase('installing')
+    setUpdateError('')
+    try {
+      await installPendingUpdate()
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : String(error))
+      setUpdatePhase('error')
+    }
+  }, [])
+
+  useEffect(() => {
+    // 打开设置时自动检查一次；不下载，安装必须由用户确认。
+    if (!desktop) return
+    let active = true
+    checkForUpdate()
+      .then((next) => {
+        if (!active) return
+        setUpdateInfo(next)
+        setUpdatePhase(next.available ? 'available' : 'uptodate')
+      })
+      .catch((error) => {
+        if (!active) return
+        setUpdateError(error instanceof Error ? error.message : String(error))
+        setUpdatePhase('error')
+      })
+    return () => { active = false }
+  }, [desktop])
 
   useEffect(() => {
     let active = true
@@ -68,6 +124,27 @@ export function PetQuickSettings({ settings, onChange, onClose }: {
         <input type="checkbox" checked={settings.alwaysOnTop} onChange={(event) => onChange({ alwaysOnTop: event.target.checked })} />
         <span>保持在其他窗口上方</span>
       </label>
+      <div className="pet-field pet-update-field">
+        <span>自动更新</span>
+        <div className="pet-update-row">
+          <span className="pet-update-status" role="status">{updateStatusText(updatePhase, updateInfo, updateError)}</span>
+          {updateAvailable(updateInfo) && updatePhase !== 'installing' ? (
+            <button type="button" className="pet-update-button" onClick={installUpdate}>安装并重启</button>
+          ) : (
+            <button
+              type="button"
+              className="pet-update-button"
+              disabled={updatePhase === 'checking' || updatePhase === 'installing' || updatePhase === 'unsupported'}
+              onClick={runUpdateCheck}
+            >
+              {updatePhase === 'checking' ? '检查中…' : '检查更新'}
+            </button>
+          )}
+        </div>
+        {updatePhase === 'available' && updateInfo?.body ? (
+          <p className="pet-update-notes">{updateInfo.body.slice(0, 200)}</p>
+        ) : null}
+      </div>
     </section>
   )
 }

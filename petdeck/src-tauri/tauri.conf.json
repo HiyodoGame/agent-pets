@@ -1,8 +1,16 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "PetDeck",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.hiyodogame.petdeck",
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc0NDQwQkJCQjc4MTY1RDEKUldUUlpZRzN1d3RFZEpqZ1NvOU8yUDIvQW11VmpadFdNWW14T2M1N3VlTkphV0hUWUlUNFFEd2YK",
+      "endpoints": [
+        "https://github.com/HiyodoGame/agent-pets/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "build": {
     "beforeDevCommand": "npm run dev -- --port 5183 --strictPort",
     "devUrl": "http://localhost:5183",
@@ -41,6 +49,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": [
       "nsis"
     ],

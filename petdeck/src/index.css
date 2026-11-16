@@ -381,6 +381,49 @@ html[data-pet-window='true'] #root {
 
 .pet-settings-panel > .pet-check-field { margin-top: 12px; }
 
+.pet-update-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pet-update-status {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.pet-update-button {
+  flex: none;
+  padding: 5px 9px;
+  border: 1px solid var(--color-border-secondary);
+  border-radius: 8px;
+  background: var(--color-bg-container);
+  color: var(--color-text);
+  font-size: 11px;
+}
+
+.pet-update-button:hover:not(:disabled) {
+  background: var(--color-bg-elevated);
+}
+
+.pet-update-button:disabled {
+  opacity: 0.55;
+}
+
+.pet-update-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.pet-update-notes {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .pet-reconnect {
   position: absolute;
   bottom: 8px;
