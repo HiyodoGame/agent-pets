@@ -1,0 +1,626 @@
+{
+  "skin": "lilac-nubo",
+  "totalAnimationFrames": 65,
+  "frameSize": [
+    256,
+    256
+  ],
+  "anchor": {
+    "x": 128,
+    "y": 224
+  },
+  "direction": "right",
+  "sourceAtlasSha256": "219a25e1234788331f0e5168fb0aff0631aadee00e0a42896e4099d5d1a93cf0",
+  "checks": {
+    "allRgba": true,
+    "allTransparent": true,
+    "continuousNumbering": true,
+    "standingSafetyBounds": true,
+    "standingContactY224": true,
+    "loopSeamNoDifferenceSpike": true,
+    "restHeightAtLeast90Percent": true,
+    "oneShotEndsAtIdle": true,
+    "previewEqualsIdle": true,
+    "otherNineActionsUnchanged": true,
+    "blinkMuzzleUnchanged": true
+  },
+  "clips": [
+    {
+      "action": "idle",
+      "frames": 8,
+      "fps": 8,
+      "loop": true,
+      "bounds": [
+        [
+          38,
+          34,
+          212,
+          224
+        ],
+        [
+          38,
+          33,
+          212,
+          224
+        ],
+        [
+          37,
+          32,
+          212,
+          224
+        ],
+        [
+          37,
+          33,
+          212,
+          224
+        ],
+        [
+          37,
+          34,
+          212,
+          224
+        ],
+        [
+          38,
+          35,
+          212,
+          224
+        ],
+        [
+          38,
+          35,
+          212,
+          224
+        ],
+        [
+          38,
+          35,
+          212,
+          224
+        ]
+      ],
+      "adjacentRgbaMeanDifference": [
+        2.5467,
+        1.659,
+        1.4023,
+        2.3003,
+        3.0192,
+        1.7317,
+        1.866,
+        2.3172
+      ],
+      "loopSeamDifference": 2.3172
+    },
+    {
+      "action": "walk",
+      "frames": 8,
+      "fps": 12,
+      "loop": true,
+      "bounds": [
+        [
+          39,
+          34,
+          212,
+          224
+        ],
+        [
+          38,
+          37,
+          209,
+          224
+        ],
+        [
+          37,
+          37,
+          207,
+          224
+        ],
+        [
+          36,
+          37,
+          209,
+          224
+        ],
+        [
+          37,
+          34,
+          212,
+          224
+        ],
+        [
+          38,
+          37,
+          216,
+          224
+        ],
+        [
+          40,
+          37,
+          217,
+          224
+        ],
+        [
+          40,
+          37,
+          216,
+          224
+        ]
+      ],
+      "adjacentRgbaMeanDifference": [
+        4.8183,
+        4.3667,
+        4.065,
+        4.6373,
+        4.7202,
+        4.1445,
+        3.8768,
+        4.4919
+      ],
+      "loopSeamDifference": 4.4919
+    },
+    {
+      "action": "sleep",
+      "frames": 6,
+      "fps": 6,
+      "loop": true,
+      "bounds": [
+        [
+          43,
+          46,
+          220,
+          224
+        ],
+        [
+          43,
+          44,
+          220,
+          224
+        ],
+        [
+          42,
+          44,
+          220,
+          224
+        ],
+        [
+          43,
+          46,
+          220,
+          224
+        ],
+        [
+          43,
+          47,
+          220,
+          224
+        ],
+        [
+          44,
+          47,
+          220,
+          224
+        ]
+      ],
+      "adjacentRgbaMeanDifference": [
+        2.3916,
+        0.3494,
+        2.2355,
+        2.3853,
+        0.3136,
+        2.1965
+      ],
+      "loopSeamDifference": 2.1965
+    },
+    {
+      "action": "drag",
+      "frames": 2,
+      "fps": 8,
+      "loop": true,
+      "bounds": [
+        [
+          36,
+          21,
+          207,
+          215
+        ],
+        [
+          35,
+          21,
+          207,
+          216
+        ]
+      ],
+      "adjacentRgbaMeanDifference": [
+        1.1635,
+        1.1635
+      ],
+      "loopSeamDifference": 1.1635
+    },
+    {
+      "action": "drop",
+      "frames": 6,
+      "fps": 12,
+      "loop": false,
+      "bounds": [
+        [
+          36,
+          21,
+          207,
+          215
+        ],
+        [
+          36,
+          25,
+          206,
+          220
+        ],
+        [
+          41,
+          46,
+          221,
+          224
+        ],
+        [
+          39,
+          37,
+          216,
+          224
+        ],
+        [
+          37,
+          31,
+          211,
+          223
+        ],
+        [
+          38,
+          34,
+          212,
+          224
+        ]
+      ],
+      "adjacentRgbaMeanDifference": [
+        10.669,
+        16.5246,
+        8.142,
+        8.1824,
+        5.6755,
+        16.8465
+      ],
+      "loopSeamDifference": null
+    },
+    {
+      "action": "pet",
+      "frames": 6,
+      "fps": 12,
+      "loop": false,
+      "bounds": [
+        [
+          38,
+          34,
+          212,
+          224
+        ],
+        [
+          36,
+          36,
+          207,
+          224
+        ],
+        [
+          35,
+          38,
+          207,
+          224
+        ],
+        [
+          36,
+          36,
+          207,
+          224
+        ],
+        [
+          37,
+          35,
+          207,
+          224
+        ],
+        [
+          38,
+          34,
+          212,
+          224
+        ]
+      ],
+      "adjacentRgbaMeanDifference": [
+        5.3708,
+        3.2331,
+        1.8866,
+        3.9609,
+        4.1634,
+        0.0504
+      ],
+      "loopSeamDifference": null
+    },
+    {
+      "action": "work",
+      "frames": 8,
+      "fps": 12,
+      "loop": true,
+      "bounds": [
+        [
+          38,
+          35,
+          219,
+          224
+        ],
+        [
+          38,
+          34,
+          219,
+          224
+        ],
+        [
+          38,
+          34,
+          219,
+          224
+        ],
+        [
+          38,
+          34,
+          219,
+          224
+        ],
+        [
+          38,
+          35,
+          219,
+          224
+        ],
+        [
+          38,
+          35,
+          219,
+          224
+        ],
+        [
+          39,
+          35,
+          219,
+          224
+        ],
+        [
+          39,
+          35,
+          219,
+          224
+        ]
+      ],
+      "adjacentRgbaMeanDifference": [
+        1.3998,
+        1.0134,
+        0.75,
+        1.2501,
+        1.4555,
+        0.9949,
+        0.7293,
+        1.2924
+      ],
+      "loopSeamDifference": 1.2924
+    },
+    {
+      "action": "think",
+      "frames": 6,
+      "fps": 10,
+      "loop": true,
+      "bounds": [
+        [
+          39,
+          34,
+          206,
+          224
+        ],
+        [
+          38,
+          33,
+          207,
+          224
+        ],
+        [
+          37,
+          33,
+          207,
+          224
+        ],
+        [
+          37,
+          34,
+          206,
+          224
+        ],
+        [
+          39,
+          34,
+          206,
+          224
+        ],
+        [
+          39,
+          34,
+          206,
+          224
+        ]
+      ],
+      "adjacentRgbaMeanDifference": [
+        2.8071,
+        0.6597,
+        2.496,
+        2.8165,
+        0.6556,
+        2.4885
+      ],
+      "loopSeamDifference": 2.4885
+    },
+    {
+      "action": "done",
+      "frames": 8,
+      "fps": 12,
+      "loop": false,
+      "bounds": [
+        [
+          38,
+          34,
+          212,
+          224
+        ],
+        [
+          39,
+          38,
+          216,
+          224
+        ],
+        [
+          37,
+          27,
+          225,
+          219
+        ],
+        [
+          35,
+          19,
+          226,
+          212
+        ],
+        [
+          34,
+          24,
+          225,
+          216
+        ],
+        [
+          36,
+          39,
+          217,
+          224
+        ],
+        [
+          37,
+          33,
+          213,
+          224
+        ],
+        [
+          38,
+          34,
+          212,
+          224
+        ]
+      ],
+      "adjacentRgbaMeanDifference": [
+        5.6661,
+        12.6568,
+        13.3812,
+        10.0858,
+        15.8641,
+        6.8143,
+        2.9495,
+        0.0
+      ],
+      "loopSeamDifference": null
+    },
+    {
+      "action": "attention",
+      "frames": 6,
+      "fps": 10,
+      "loop": false,
+      "bounds": [
+        [
+          38,
+          34,
+          212,
+          224
+        ],
+        [
+          39,
+          34,
+          212,
+          224
+        ],
+        [
+          39,
+          33,
+          211,
+          224
+        ],
+        [
+          39,
+          33,
+          211,
+          224
+        ],
+        [
+          39,
+          34,
+          211,
+          224
+        ],
+        [
+          38,
+          34,
+          212,
+          224
+        ]
+      ],
+      "adjacentRgbaMeanDifference": [
+        4.4649,
+        4.493,
+        0.073,
+        3.979,
+        4.944,
+        0.0
+      ],
+      "loopSeamDifference": null
+    },
+    {
+      "action": "offline",
+      "frames": 1,
+      "fps": 1,
+      "loop": false,
+      "bounds": [
+        [
+          45,
+          40,
+          208,
+          224
+        ]
+      ],
+      "adjacentRgbaMeanDifference": [
+        0.0
+      ],
+      "loopSeamDifference": null
+    }
+  ],
+  "artRevision": 6,
+  "workProp": {
+    "asset": "nubo-laptop-v5.png",
+    "box": [
+      110,
+      139,
+      108,
+      66
+    ],
+    "orientation": "screen inward toward Nubo; opaque lid back toward viewer",
+    "visiblePaws": 1,
+    "rightPaw": "occluded by laptop",
+    "leftArmBox": [
+      96,
+      153,
+      25,
+      36
+    ],
+    "armConstruction": "original whole parts; no segment assembly or limb extension"
+  },
+  "eyeTransition": "painted full-size eyelids; no eyeball compression or crossfade"
+}

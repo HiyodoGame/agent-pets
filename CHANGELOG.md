@@ -21,6 +21,7 @@
 
 ### 变更
 
+- **宠物皮肤整体替换**：新皮肤「蓝噗」（原创灰紫色毛绒小怪物，11 个动作 / 65 帧 / 256×256 RGBA，逐帧边界与循环接缝经 validation.json 校验）顶替原「薄荷皮皮」。内部皮肤键保持 `default`——skin-loader 回退链、既有用户设置与新 art 无缝衔接；皮肤系统仍支持多皮肤扩展。设计过程与校验记录见 `petdeck/docs/pet-design/lilac-nubo/`（大体积源文件与历史 zip 留存本机，不入库）。
 - **交接包文本合一**：前端 `handoffPackageText` 直接引用 `server/tiers.mjs` 的 `handoffPackage`（单一来源 + 同名导出），删除逐字镜像与 parity 兜底测试；`src/adapters/bus.ts` 死代码删除（全 src 无消费者）。
 - 仓库换行统一 LF（`.gitattributes` `eol=lf`），消除 CRLF 幻影 diff。
 

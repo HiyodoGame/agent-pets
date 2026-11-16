@@ -1,4 +1,6 @@
 {
   "schemaVersion": 1,
-  "skins": ["default"]
+  "skins": [
+    "default"
+  ]
 }

@@ -9,7 +9,7 @@ export function PetQuickSettings({ settings, onChange, onClose }: {
   onChange: (patch: Partial<PetSettings>) => void
   onClose: () => void
 }) {
-  const [skins, setSkins] = useState([{ id: 'default', name: '薄荷皮皮' }])
+  const [skins, setSkins] = useState([{ id: 'default', name: '蓝噗' }])
 
   useEffect(() => {
     let active = true
