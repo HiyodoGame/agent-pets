@@ -29,6 +29,19 @@ test('tailLines: missing file => [] (ENOENT tolerated)', () => {
   assert.deepEqual(tailLines(path.join(tmp, 'gone.jsonl'), 10), []);
 });
 
+test('latestFiles: identical mtimes tiebreak deterministically by path (no flaky order)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'petdeck-tie-'));
+  const b = path.join(dir, 'b.jsonl');
+  const a = path.join(dir, 'a.jsonl'); // created AFTER b: same-name-first would differ per fs
+  fs.writeFileSync(b, 'x');
+  fs.writeFileSync(a, 'x');
+  const at = fs.statSync(a).mtimeMs;
+  const d = new Date(at); // utimesSync 接受 Date；直接传毫秒数会被当秒导致时间错乱
+  fs.utimesSync(b, d, d); // force identical mtimes: order must not depend on creation luck
+  const r = latestFiles(dir, (n) => n.endsWith('.jsonl'), 5);
+  assert.deepEqual(r, [a, b], 'mtime 打平时必须按路径升序，跨平台确定性');
+});
+
 test('tailLines: reads lines from a real file', () => {
   const lines = tailLines(aFile, 10);
   assert.equal(lines.length, 1);

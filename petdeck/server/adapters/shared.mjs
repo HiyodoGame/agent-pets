@@ -85,7 +85,9 @@ export function latestFiles(dir, pred, limit = 20) {
   for (const p of candidates) {
     try { found.push({ p, mtime: fs.statSync(p).mtimeMs }); } catch { /* vanished mid-walk */ }
   }
-  return found.sort((a, b) => b.mtime - a.mtime).slice(0, limit).map((x) => x.p);
+  // newest-first；mtime 打平时按路径升序 tiebreak——排序必须跨平台确定（CI 的 ext4
+  // 与本地 NTFS 的 mtime 粒度不同，靠「恰好打平 + 稳定排序」的断言会抖）。
+  return found.sort((a, b) => b.mtime - a.mtime || (a.p < b.p ? -1 : a.p > b.p ? 1 : 0)).slice(0, limit).map((x) => x.p);
 }
 
 export function safeJson(line) {

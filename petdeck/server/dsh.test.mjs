@@ -93,11 +93,16 @@ test('observe: walks real directory layout, newest-first cap 5, uses workspace s
     { type: 'session', seq: 0, data: { id: 'session-bbb', cwd: 'F:\\ws2' } },
     { type: 'turn/start', data: { turn: 1 } },
   ]));
+  // 显式 mtime：bbb 更新（newest-first => bbb 排第一）。依赖文件创建顺序的隐式 mtime
+  // 在 CI 的 ext4 上严格递增而本地可能打平，之前正是这里在 CI 抖红（2026-11-16）。
+  fs.utimesSync(path.join(mk('ws1', 'session-aaa'), 'session.v4.jsonl.zstd'), new Date(NOW - 60000), new Date(NOW - 60000));
+  fs.utimesSync(path.join(mk('ws2', 'session-bbb'), 'session.v4.jsonl.zstd'), new Date(NOW), new Date(NOW));
   const rows = await observe({ home, now: NOW });
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].session, 'session-aaa');
-  assert.equal(rows[0].status, 'done');
-  assert.equal(rows[1].status, 'running');
+  assert.equal(rows[0].session, 'session-bbb', 'newest-first：mtime 更新的 bbb 必须在前');
+  assert.equal(rows[0].status, 'running');
+  assert.equal(rows[1].session, 'session-aaa');
+  assert.equal(rows[1].status, 'done');
   assert.equal(rows[0].agent, 'dsh');
 });
 
