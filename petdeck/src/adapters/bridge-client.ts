@@ -32,13 +32,18 @@ export async function fetchHealth(): Promise<boolean> {
 
 const FETCH_TIMEOUT_MS = 3000
 
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  // 读端点与 inject 同一套 token：本机其它进程不应读取会话内容（server 侧 readGuard 强制）。
+  return bridgeConfig.token ? { 'X-Petdeck-Token': bridgeConfig.token, ...extra } : extra
+}
+
 export async function fetchAgents(): Promise<Agent[]> {
-  const r = await fetch(`${bridgeConfig.url}/api/agents`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+  const r = await fetch(`${bridgeConfig.url}/api/agents`, { headers: authHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   return r.json()
 }
 
 export async function fetchSessions(): Promise<ObservedSession[]> {
-  const r = await fetch(`${bridgeConfig.url}/api/sessions`, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+  const r = await fetch(`${bridgeConfig.url}/api/sessions`, { headers: authHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   return r.json()
 }
 
@@ -46,7 +51,11 @@ export function subscribeEvents(
   fn: (e: Record<string, unknown>) => void,
   hooks?: { onOpen?: () => void; onError?: () => void },
 ): () => void {
-  const es = new EventSource(`${bridgeConfig.url}/api/events`)
+  // EventSource 不能带自定义 header，token 走 ?token= 查询参数（仅本地回环 + Origin 白名单兜底）。
+  const sseUrl = bridgeConfig.token
+    ? `${bridgeConfig.url}/api/events?token=${encodeURIComponent(bridgeConfig.token)}`
+    : `${bridgeConfig.url}/api/events`
+  const es = new EventSource(sseUrl)
   es.onmessage = (m) => {
     try { fn(JSON.parse(m.data)) } catch { /* ignore malformed */ }
   }

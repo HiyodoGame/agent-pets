@@ -52,7 +52,7 @@ test('desktop bridge: runtime URL is used for SSE', (t) => {
   }
   globalThis.EventSource = FakeEventSource as unknown as typeof EventSource
   const close = subscribeEvents(() => {})
-  assert.equal(seenUrl, 'http://127.0.0.1:6322/api/events')
+  assert.equal(seenUrl, 'http://127.0.0.1:6322/api/events?token=desktop-secret')
   close()
 })
 

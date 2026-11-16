@@ -204,6 +204,62 @@ test('main: PETDECK_BRIDGE_ORIGINS merged with defaults (extra origin passes the
   assert.equal((await post('http://evil.example')).status, 403, 'unknown origin must still be rejected');
 });
 
+// --- GET read endpoints: same Host+Origin discipline, token when configured ---
+// 会话标题与最后消息只应暴露给受信任的前端 Origin；本机其它进程无 Origin 可伪造白名单。
+
+test('GET /api/sessions: disallowed Origin => 403', async () => {
+  await withApp({}, async ({ base }) => {
+    const res = await fetch(`${base}/api/sessions`, { headers: { Origin: 'http://evil.example' } });
+    assert.equal(res.status, 403);
+  });
+});
+
+test('GET /api/sessions: allowed Origin, no token configured => 200', async () => {
+  await withApp({}, async ({ base }) => {
+    const res = await fetch(`${base}/api/sessions`, { headers: { Origin: 'http://localhost:5173' } });
+    assert.equal(res.status, 200);
+  });
+});
+
+test('GET /api/sessions: token configured, header missing => 401 (local scripts must not read sessions)', async () => {
+  await withApp({ token: 'sekret' }, async ({ base }) => {
+    const res = await fetch(`${base}/api/sessions`, { headers: { Origin: 'http://localhost:5173' } });
+    assert.equal(res.status, 401);
+  });
+});
+
+test('GET /api/sessions: token configured, wrong token => 401, correct => 200', async () => {
+  await withApp({ token: 'sekret' }, async ({ base }) => {
+    const wrong = await fetch(`${base}/api/sessions`, { headers: { Origin: 'http://localhost:5173', 'X-Petdeck-Token': 'nope' } });
+    assert.equal(wrong.status, 401);
+    const ok = await fetch(`${base}/api/sessions`, { headers: { Origin: 'http://tauri.localhost', 'X-Petdeck-Token': 'sekret' } });
+    assert.equal(ok.status, 200);
+  });
+});
+
+test('GET /api/agents: same guard (correct token => 200, missing => 401)', async () => {
+  await withApp({ token: 'sekret' }, async ({ base }) => {
+    assert.equal((await fetch(`${base}/api/agents`, { headers: { Origin: 'http://tauri.localhost' } })).status, 401);
+    assert.equal((await fetch(`${base}/api/agents`, { headers: { Origin: 'http://tauri.localhost', 'X-Petdeck-Token': 'sekret' } })).status, 200);
+  });
+});
+
+test('GET /api/events (SSE): wrong token => 401, correct token via ?token= query => 200 stream', async () => {
+  await withApp({ token: 'sekret' }, async ({ base }) => {
+    const wrong = await fetch(`${base}/api/events`, { headers: { Origin: 'http://tauri.localhost' } });
+    assert.equal(wrong.status, 401);
+    const ok = await fetch(`${base}/api/events?token=sekret`, { headers: { Origin: 'http://tauri.localhost' } });
+    assert.equal(ok.status, 200);
+    await ok.body?.cancel();
+  });
+});
+
+test('GET /api/health stays reachable without token (pre-auth connectivity probe only)', async () => {
+  await withApp({ token: 'sekret' }, async ({ base }) => {
+    assert.equal((await fetch(`${base}/api/health`)).status, 200);
+  });
+});
+
 test('main: desktop WebView origins accept correct token and reject wrong token', async (t) => {
   withEnv(t, {
     PETDECK_BRIDGE_TOKEN: 'sekret',

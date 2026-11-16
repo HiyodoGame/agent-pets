@@ -145,12 +145,30 @@ export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = creat
     // Every route is bound to a local loopback Host (DNS-rebinding guard).
     if (!hostAllowed(req, sec)) return json(res, req, 403, { ok: false, error: 'forbidden host' });
 
+    // Read-endpoint guard: sessions/events expose session titles and last messages, so a
+    // browser context must present a whitelisted Origin, and a configured token must be
+    // presented (header; SSE may use ?token= since EventSource cannot set headers).
+    // A request without an Origin header is a non-browser client and still needs the token.
+    const readGuard = (allowQueryToken = false) => {
+      const origin = req.headers.origin;
+      if (origin && !sec.allowedOrigins.includes(origin)) { json(res, req, 403, { ok: false, error: 'forbidden origin' }); return true; }
+      if (sec.token) {
+        const presented = req.headers['x-petdeck-token'] ?? (allowQueryToken ? url.searchParams.get('token') : undefined);
+        if (presented !== sec.token) { json(res, req, 401, { ok: false, error: 'unauthorised' }); return true; }
+      }
+      return false;
+    };
+
     if (url.pathname === '/api/health') return json(res, req, 200, { ok: true, authRequired: Boolean(sec.token), agents: adapters.map((a) => ({ id: a.id, name: a.name, tier: TIER[a.id] })), sources });
-    if (url.pathname === '/api/agents') return json(res, req, 200, adapters.map((a) => ({ id: a.id, name: a.name, form: 'cli', capability: TIER[a.id], status: 'idle', projectIds: [] })));
-    if (url.pathname === '/api/sessions') return json(res, req, 200, sessions);
+    if (url.pathname === '/api/agents') { if (readGuard()) return; return json(res, req, 200, adapters.map((a) => ({ id: a.id, name: a.name, form: 'cli', capability: TIER[a.id], status: 'idle', projectIds: [] }))); }
+    if (url.pathname === '/api/sessions') { if (readGuard()) return; return json(res, req, 200, sessions); }
     if (url.pathname === '/api/events') {
+      if (readGuard(true)) return;
       cors(res, req);
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+      // Flush headers immediately (an SSE comment line) so clients observe connection
+      // success before the first event; without it the response headers are buffered.
+      res.write(': sse connected\n\n');
       const un = bus.subscribe((e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
       req.on('close', un);
       return;

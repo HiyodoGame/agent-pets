@@ -63,8 +63,8 @@ VITE_PETDECK_BRIDGE_TOKEN=<本地随机值> npm run dev
 
 | 变量 | 作用 |
 | --- | --- |
-| `PETDECK_BRIDGE_TOKEN` | bridge 进程读取；缺失时拒绝启动 |
-| `VITE_PETDECK_BRIDGE_TOKEN` | Web 前端读取；注入携带 `X-Petdeck-Token` |
+| `PETDECK_BRIDGE_TOKEN` | bridge 进程读取；缺失时拒绝启动。读端点（agents/sessions/events）与 inject 同样要求此 token |
+| `VITE_PETDECK_BRIDGE_TOKEN` | Web 前端读取；读取与注入请求携带 `X-Petdeck-Token`，SSE 走 `?token=` 查询参数 |
 | `PETDECK_BRIDGE_ORIGINS` | 逗号分隔的额外允许 Origin；桌面 Origin 已内置 |
 | `PETDECK_BRIDGE_PORT` | Web 手动模式端口，默认 `5199`；桌面版自动选择 |
 
