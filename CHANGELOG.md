@@ -1,0 +1,38 @@
+# Changelog
+
+本项目的全部重要变更记录于此。格式参考 Keep a Changelog；版本号遵循 SemVer（桌面端 0.x 阶段）。
+
+## [Unreleased]
+
+### 新增
+
+- 读端点（`/api/agents`、`/api/sessions`、`/api/events`）与 inject 同一套访问纪律：Host 回环校验之外，带 Origin 必须在白名单内；配置 token 后读取同样要求鉴权（SSE 支持经 `?token=` 查询参数，因 EventSource 无法自定义 header）。修复本机其它进程可未授权读取会话标题与最后消息的问题。
+- SSE 建连后立即发送注释行，客户端可即时确认连接成功。
+- MIT LICENSE。
+- Release 工作流：推送 `v*` tag 自动构建 NSIS 安装包并发布 GitHub Release。
+- Desktop CI 补 `cargo fmt --check`（与 README 质量门一致）。
+- 2026-11-16 全面检查与竞品调研报告（`docs/2026-11-16-全面检查与竞品调研报告.md`）。
+
+### 变更
+
+- 仓库换行统一 LF（`.gitattributes` `eol=lf`），消除 CRLF 幻影 diff。
+
+## [0.1.0] — 2026-11-14
+
+首个桌面 Beta（Windows）。方向 B「接力秘书」：聚合本地 AI Agent 状态的桌宠 + Agent 间接力。
+
+### 新增
+
+- **桌宠环境化壳**：透明无边框置顶小窗常驻桌面；四态 + idle/offline；聚合计数；事件轻拍 + 免打扰分级收件箱；拖拽记忆位置；托盘（显示宠物/打开面板/免打扰/开机启动/退出）；桌面通知。
+- **接力交接（Flow4）**：任务完成→交接预览（上下文/指令/产物可编辑）→一键发送→SSE 追踪→完成；能力分级 full / observe-only / manual + 剪贴板降级；attempt 归属追踪与「无法自动确认」状态。
+- **项目/会话面板（Flow3）**：项目→任务→会话三级钻取，只读会话 + 追问注入；rename/archive/delete + Undo；stale 新鲜度标记。
+- **Agent 接入（Flow2）**：≤5 分钟接入向导，检测/授权/降级分流。
+- **本地 bridge**：Node HTTP+SSE（仅绑定 127.0.0.1）；适配器 codex / claude / opencode / kimi（观察）；`pollOnce` 新鲜度权威（stale 保留 + 部分同步语义）；inject 无 shell 异步执行、参数注入防护、超时终止。
+- **安全**：强制启动 token、Host/Origin 白名单、Content-Type 强制、请求体上限、注入并发上限；日志只记结构化元数据（不回显内容）。
+- **离线一致性**：连接状态机（live/reconnecting/offline）、快照缓存、SSE 重放去重、断连保留内存 last-good。
+- **埋点**：13 事件本地优先，只报行为不报内容，递归脱敏 + 损坏自恢复。
+- Tauri 2 桌面壳：bridge 子进程托管（崩溃重启）、Node ≥24 检测、随机 token + 动态端口、NSIS 打包（含 WebView2 bootstrapper）。
+- 质量：约 290 单测、oxlint 0 告警、tsc --noEmit、GitHub Actions CI。
+
+[Unreleased]: https://github.com/HiyodoGame/agent-pets/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/HiyodoGame/agent-pets/releases/tag/v0.1.0
