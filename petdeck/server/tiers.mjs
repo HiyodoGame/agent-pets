@@ -4,6 +4,10 @@ export const TIER = {
   claude: 'full',
   opencode: 'full',
   kimi: 'observe-only',
+  // 新增适配器：inject 语法未在真机验证，先只读（诚实约定，见 docs/agent-会话存储勘察.md）
+  'kimi-code': 'observe-only',
+  zcode: 'observe-only',
+  dsh: 'observe-only',
 };
 
 export function canInject(tier) {

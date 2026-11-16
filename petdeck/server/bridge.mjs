@@ -11,11 +11,14 @@ import codex from './adapters/codex.mjs';
 import claude from './adapters/claude.mjs';
 import opencode from './adapters/opencode.mjs';
 import kimi from './adapters/kimi.mjs';
+import kimiCode from './adapters/kimi-code.mjs';
+import zcode from './adapters/zcode.mjs';
+import dsh from './adapters/dsh.mjs';
 import { TIER, injectDecision } from './tiers.mjs';
 import { createBus } from './bus.mjs';
 import { pollOnce } from './freshness.mjs';
 
-const REAL_ADAPTERS = [codex, claude, opencode, kimi];
+const REAL_ADAPTERS = [codex, claude, opencode, kimi, kimiCode, zcode, dsh];
 const DEFAULT_ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '::1'];
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://tauri.localhost', 'http://localhost:5183'];
 
