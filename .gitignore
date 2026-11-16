@@ -17,3 +17,12 @@ petdeck/.tmp-observe/
 # os
 .DS_Store
 Thumbs.db
+
+# 蓝噗皮肤设计过程素材：运行所需帧/manifest、README、validation.json 与最新检查图入库，
+# 历史 zip、源图层、动作预览、逐版本检查图与生成脚本仅本机留存。
+petdeck/docs/pet-design/lilac-nubo/*
+!petdeck/docs/pet-design/lilac-nubo/README.md
+!petdeck/docs/pet-design/lilac-nubo/validation.json
+!petdeck/docs/pet-design/lilac-nubo/actions-review-v6.png
+!petdeck/docs/pet-design/lilac-nubo/contact-sheet.png
+petdeck/scripts/build-nubo-art.py
