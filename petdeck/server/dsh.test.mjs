@@ -76,6 +76,20 @@ test('parseDshEvents: last assistant text block becomes lastMessage (reasoning s
   assert.equal(r.status, 'unknown', 'no turn signal must not fabricate done/running');
 });
 
+test('decodeDshEvents: skips leading garbage, still decodes every frame', async () => {
+  const buf = Buffer.concat([
+    Buffer.from([0, 1, 2, 3]),
+    zstdSession([
+      { type: 'session', seq: 0, data: { id: 'session-ddd' } },
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    ]),
+  ]);
+  const events = await decodeDshEvents(buf);
+  assert.equal(events.length, 3);
+  assert.equal(events[2].data.reason.kind, 'completed');
+});
+
 test('observe: walks real directory layout, newest-first cap 5, uses workspace slug as project', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'petdeck-dsh-'));
   const mk = (slug, id) => {

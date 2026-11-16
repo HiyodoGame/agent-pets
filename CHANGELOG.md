@@ -19,6 +19,10 @@
 - Desktop CI 补 `cargo fmt --check`（与 README 质量门一致）。
 - 2026-11-16 全面检查与竞品调研报告（`docs/2026-11-16-全面检查与竞品调研报告.md`）。
 
+### 修复
+
+- **dsh 多帧会话读取**：Node 24 的 zstd 解压在一次性喂入拼接帧时只解压第一帧，导致 `session.v4.jsonl.zstd` 仅读到 `session` 头、会话被整体跳过。改为按 zstd magic 逐帧解压（损坏前缀与伪边界容错），并补回归测试。
+
 ### 变更
 
 - **宠物皮肤整体替换**：新皮肤「蓝噗」（原创灰紫色毛绒小怪物，11 个动作 / 65 帧 / 256×256 RGBA，逐帧边界与循环接缝经 validation.json 校验）顶替原「薄荷皮皮」。内部皮肤键保持 `default`——skin-loader 回退链、既有用户设置与新 art 无缝衔接；皮肤系统仍支持多皮肤扩展。设计过程与校验记录见 `petdeck/docs/pet-design/lilac-nubo/`（大体积源文件与历史 zip 留存本机，不入库）。

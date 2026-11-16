@@ -11,28 +11,40 @@ export const id = 'dsh';
 export const name = 'DeepSeek Harness';
 export const tier = 'observe-only';
 
-/** Decode a multi-frame session.v4.jsonl.zstd: every frame is one JSON event line.
- *  Streaming decompressor natively handles concatenated frames. */
-export function decodeDshEvents(buf) {
-  return decodeStream(zlib.createZstdDecompress(), buf);
-}
+/** Zstd frame magic (little-endian 0xFD2FB528). */
+const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 
-function decodeStream(decompressor, buf) {
-  return new Promise((resolve, reject) => {
-    const out = [];
-    decompressor.on('data', (d) => out.push(d));
-    decompressor.on('error', reject);
-    decompressor.on('end', () => {
-      const text = Buffer.concat(out).toString('utf8');
-      const events = [];
-      for (const ln of text.split('\n')) {
-        if (!ln.trim()) continue;
-        try { events.push(JSON.parse(ln)); } catch { /* skip malformed line */ }
-      }
-      resolve(events);
-    });
-    decompressor.end(buf);
-  });
+/** Decode a multi-frame session.v4.jsonl.zstd: every frame is one JSON event line.
+ *
+ *  Node's zstd decompressor stops after the first frame when a whole concatenated
+ *  buffer is fed at once (verified on Node 24.18: both `zstdDecompressSync(buf)` and
+ *  `createZstdDecompress().end(buf)` silently drop later frames), so split on the
+ *  frame magic and decompress each frame separately. If a magic sequence occurs
+ *  inside a compressed payload, that candidate segment fails to decode and is
+ *  folded into the next one; a bogus leading magic is skipped. Corrupt frames are
+ *  ignored without failing the whole file (freshness contract). */
+export function decodeDshEvents(buf) {
+  const offsets = [];
+  for (let i = buf.indexOf(ZSTD_MAGIC); i !== -1; i = buf.indexOf(ZSTD_MAGIC, i + ZSTD_MAGIC.length)) offsets.push(i);
+
+  const events = [];
+  let i = 0;
+  while (i < offsets.length) {
+    let text = null;
+    let consumedTo = i;
+    for (let j = i + 1; j <= offsets.length; j++) {
+      const end = j < offsets.length ? offsets[j] : buf.length;
+      try { text = zlib.zstdDecompressSync(buf.subarray(offsets[i], end)).toString('utf8'); consumedTo = j; break; }
+      catch { /* truncated by a bogus boundary — extend and retry */ }
+    }
+    if (text === null) { i++; continue; } // no frame starts here (bogus magic)
+    for (const ln of text.split('\n')) {
+      if (!ln.trim()) continue;
+      try { events.push(JSON.parse(ln)); } catch { /* skip malformed line */ }
+    }
+    i = consumedTo;
+  }
+  return events;
 }
 
 /**
@@ -73,7 +85,7 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
     let buf;
     try { buf = fs.readFileSync(f); } catch { continue; }
     let events;
-    try { events = await decodeDshEvents(buf); }
+    try { events = decodeDshEvents(buf); }
     catch { continue; } // 单文件损坏只跳过该会话，不让整个适配器故障（freshness 契约保留）
     const r = parseDshEvents(events, now);
     if (r.status === 'unknown' && !r.lastMessage && !r.title) continue;

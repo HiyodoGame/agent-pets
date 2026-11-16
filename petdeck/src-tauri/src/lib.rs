@@ -48,12 +48,19 @@ fn update_dnd(app: &AppHandle, enabled: bool) {
 /// DND 持久化文件（app 配置目录/dnd.json）。内容就是字面 true/false，
 /// 避免为此引入 serde_json 解析；读不出合法值一律视为未持久化。
 fn dnd_config_file(app: &AppHandle) -> Option<std::path::PathBuf> {
-    app.path().app_config_dir().ok().map(|dir| dir.join("dnd.json"))
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join("dnd.json"))
 }
 
 fn load_dnd(app: &AppHandle) -> Option<bool> {
     let file = dnd_config_file(app)?;
-    std::fs::read_to_string(file).ok()?.trim().parse::<bool>().ok()
+    std::fs::read_to_string(file)
+        .ok()?
+        .trim()
+        .parse::<bool>()
+        .ok()
 }
 
 fn save_dnd(app: &AppHandle, enabled: bool) {
