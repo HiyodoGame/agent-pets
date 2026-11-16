@@ -49,6 +49,15 @@ export interface Message {
   artifactIds: string[]
 }
 
+/** 用量（成本 MVP）。input/output/cacheRead = 分项聚合（claude/zcode）；
+ *  total = 仅累计值（kimi）。字段按来源可选——没有的数据不得伪造为 0。 */
+export interface TokenUsage {
+  input?: number
+  output?: number
+  cacheRead?: number
+  total?: number
+}
+
 export interface Session {
   id: string
   projectId: string
@@ -58,6 +67,7 @@ export interface Session {
   messages: Message[]
   artifactIds: string[]
   updatedAt: string
+  tokens?: TokenUsage
   stale?: boolean
   lastSeen?: number
 }

@@ -61,7 +61,7 @@ import { usePetData, mergeSessions, type SessionOverlay } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { EdgeAlert } from '../shared/edge-kit'
 import { LazyResponse } from '../shared/lazy-response'
-import { fmtCount, fmtAgo, planFollowUp, shouldStreamResponse } from '../shared/ui-logic'
+import { fmtCount, fmtAgo, fmtTokens, planFollowUp, shouldStreamResponse } from '../shared/ui-logic'
 
 const STATUS_TAG: Record<SessionStatus, { label: string; color: 'info' | 'warning' | 'success' | 'error' | 'slate' }> = {
   active: { label: '运行中', color: 'info' },
@@ -263,6 +263,8 @@ function Screen3_SessionThread({
         <Tag color={STATUS_TAG[session.status].color}>{STATUS_TAG[session.status].label}</Tag>
         {session.stale && <Tag color="slate">stale · {fmtAgo(session.lastSeen ?? now, now)}</Tag>}
         <TypographyMuted>{agent?.name}</TypographyMuted>
+        {/* 成本 MVP：观察窗口内的用量徽标（claude/zcode 分项、kimi 累计），无数据不显示 */}
+        {fmtTokens(session.tokens) && <Tag color="slate" title="用量（观察窗口内聚合，非会话全历史）">{fmtTokens(session.tokens)}</Tag>}
         {readOnly && <Tag color="info">仅观察 · 不可指挥</Tag>}
         <div className="ml-auto">
           <Button variant="secondary" onClick={() => onRelay(session)} disabled={readOnly}>

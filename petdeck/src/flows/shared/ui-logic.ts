@@ -5,6 +5,25 @@ import type { PetEvent, SessionStatus } from './types'
 /** 计数 999+ 封顶（boundary-overflow）。纯函数，独立于组件文件以利 fast-refresh。 */
 export const fmtCount = (n: number): string => (n > 999 ? '999+' : String(n))
 
+/** 紧凑数字：<1k 原样；k/M 一位小数截断。 */
+export function fmtCompact(n: number): string {
+  if (n >= 1_000_000) return `${Math.round(n / 100_000) / 10}M`
+  if (n >= 1_000) return `${Math.round(n / 100) / 10}k`
+  return String(n)
+}
+
+/** 用量徽标（成本 MVP）：分项来源显示 ↑in ↓out，仅累计来源显示总量；无数据返回空串。 */
+export function fmtTokens(t?: { input?: number; output?: number; cacheRead?: number; total?: number }): string {
+  if (!t) return ''
+  if (typeof t.total === 'number' && t.input === undefined && t.output === undefined) {
+    return t.total > 0 ? fmtCompact(t.total) : ''
+  }
+  const i = t.input ?? 0
+  const o = t.output ?? 0
+  if (i === 0 && o === 0) return ''
+  return `↑${fmtCompact(i)} ↓${fmtCompact(o)}`
+}
+
 export type StepStatus = 'done' | 'current' | 'todo'
 
 /** i<current done, i===current current, else todo. */

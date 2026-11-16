@@ -85,3 +85,12 @@ test('data-sync: unknown observed statuses never pose as running — they map to
   // 修正后的映射：known 保留语义，任何未知值按 waiting 展示，绝不谎报 active。
   assert.deepEqual(statuses, ['done', 'active', 'stuck', 'waiting', 'waiting', 'waiting', 'waiting']);
 });
+
+// ---- 用量（成本 MVP）：观察行 tokens 透传到 Session ----
+
+test('data-sync: tokens from observed rows pass through for cost display', () => {
+  const [s] = observedToSessions([row({ tokens: { input: 150, output: 25, cacheRead: 5000 } })], NOW);
+  assert.deepEqual(s.tokens, { input: 150, output: 25, cacheRead: 5000 });
+  const [bare] = observedToSessions([row({ tokens: undefined })], NOW);
+  assert.equal(bare.tokens, undefined, 'no usage data must stay absent, not zero-fabricated');
+});

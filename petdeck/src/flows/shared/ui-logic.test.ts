@@ -2,7 +2,7 @@
 // Run: node --test src/flows/shared/ui-logic.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stepperState, resolveMotionEnabled, getOsReducedMotion, fmtAgo, decideLiveConnect, planFollowUp, fmtRateLimitWait, mapSessionStatus, eventWatermark, newEventsAfter, routeDndArrivals, shouldStreamResponse, fieldErrorState } from './ui-logic.ts';
+import { stepperState, resolveMotionEnabled, getOsReducedMotion, fmtAgo, fmtTokens, decideLiveConnect, planFollowUp, fmtRateLimitWait, mapSessionStatus, eventWatermark, newEventsAfter, routeDndArrivals, shouldStreamResponse, fieldErrorState } from './ui-logic.ts';
 import type { PetEvent } from './types.ts';
 import type { InjectDecision } from '../../adapters/types.ts';
 
@@ -50,8 +50,17 @@ test('os-reduced-motion: throwing matchMedia degrades to false', () => {
   assert.equal(getOsReducedMotion(() => { throw new Error('no media') }), false);
 });
 
-test('fmtAgo: relative freshness buckets', () => {
-  const now = 1_700_000_000_000;
+// ---- fmtTokens（成本 MVP）：紧凑用量徽标 ----
+
+test('fmtTokens: in/out arrows for split usage, total for cumulative, empty for absent', () => {
+  assert.equal(fmtTokens({ input: 150, output: 25 }), '↑150 ↓25');
+  assert.equal(fmtTokens({ input: 28_797_711, output: 136_316, cacheRead: 28_020_672 }), '↑28.8M ↓136.3k');
+  assert.equal(fmtTokens({ total: 158_100 }), '158.1k', 'kimi 只有累计 token_count');
+  assert.equal(fmtTokens(undefined), '');
+  assert.equal(fmtTokens({ input: 0, output: 0 }), '');
+});
+
+test('fmtAgo: relative freshness buckets', () => {  const now = 1_700_000_000_000;
   assert.equal(fmtAgo(now - 30_000, now), '刚刚');
   assert.equal(fmtAgo(now - 5 * 60_000, now), '5 分钟前');
   assert.equal(fmtAgo(now - 3 * 3_600_000, now), '3 小时前');

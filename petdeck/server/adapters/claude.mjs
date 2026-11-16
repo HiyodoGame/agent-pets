@@ -10,10 +10,12 @@ export const id = 'claude';
 export const name = 'Claude';
 export const tier = 'full';
 
-/** Pure: parse claude project jsonl lines -> {status,lastMessage,cwd}.
- *  Status is derived from an explicit terminal signal; absence never claims 'done'. */
+/** Pure: parse claude project jsonl lines -> {status,lastMessage,cwd,tokens}.
+ *  Status is derived from an explicit terminal signal; absence never claims 'done'.
+ *  tokens = 观察窗口内 assistant usage 的聚合（input/output/cacheRead），非会话全历史。 */
 export function parseClaude(lines) {
   let status = 'unknown', lastMessage = '', cwd = '';
+  const tokens = { input: 0, output: 0, cacheRead: 0 };
   for (const ln of lines) {
     const j = safeJson(ln);
     if (!j) continue;
@@ -23,6 +25,12 @@ export function parseClaude(lines) {
       status = (stop === 'end_turn' || stop === 'stop_sequence') ? 'done' : 'running';
       const c = j.message?.content;
       if (Array.isArray(c)) { const txt = c.find((x) => x.type === 'text'); if (txt) lastMessage = txt.text; }
+      const u = j.message?.usage;
+      if (u) {
+        tokens.input += u.input_tokens ?? 0;
+        tokens.output += u.output_tokens ?? 0;
+        tokens.cacheRead += u.cache_read_input_tokens ?? 0;
+      }
     } else if (j.type === 'user') {
       // 只有 string content 才是真实用户输入；tool_result 等数组内容不改变状态。
       if (typeof j.message?.content === 'string') status = 'waiting';
@@ -30,7 +38,7 @@ export function parseClaude(lines) {
       status = j.is_error ? 'stuck' : 'done';
     }
   }
-  return { status, lastMessage, cwd };
+  return { status, lastMessage, cwd, tokens };
 }
 
 export function observe() {
@@ -39,9 +47,10 @@ export function observe() {
   const files = latestFiles(dir, (n) => n.endsWith('.jsonl'), 5);
   const out = [];
   for (const f of files) {
-    const r = parseClaude(tailLines(f, 200));
+    // 用量为观察窗口（尾部 N 行）内的聚合值，不是会话全历史——UI 需据此标注。
+    const r = parseClaude(tailLines(f, 400));
     if (r.status === 'unknown' && !r.lastMessage) continue;
-    out.push({ agent: id, source: 'projects-jsonl', session: path.basename(f), status: r.status, lastMessage: r.lastMessage.slice(0, 200), cwd: r.cwd });
+    out.push({ agent: id, source: 'projects-jsonl', session: path.basename(f), status: r.status, lastMessage: r.lastMessage.slice(0, 200), cwd: r.cwd, tokens: r.tokens });
   }
   return out;
 }

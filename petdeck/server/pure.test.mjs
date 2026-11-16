@@ -63,6 +63,20 @@ test('claude parseClaude: end_turn stop_reason => done', () => {
   assert.equal(r.status, 'done');
 });
 
+test('claude parseClaude: aggregates usage over the window (input/output/cacheRead)', () => {
+  const lines = [
+    J({ type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'text', text: 'a' }], usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 5000, cache_creation_input_tokens: 10 } } }),
+    J({ type: 'assistant', message: { stop_reason: 'tool_use', content: [{ type: 'text', text: 'b' }], usage: { input_tokens: 50, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }),
+  ];
+  const r = parseClaude(lines);
+  assert.deepEqual(r.tokens, { input: 150, output: 25, cacheRead: 5000 },
+    'usage sums over the observe window; cache read is separate from input');
+});
+
+test('claude parseClaude: no usage lines => zero tokens (no fabrication)', () => {
+  assert.deepEqual(parseClaude([J({ type: 'result', is_error: false })]).tokens, { input: 0, output: 0, cacheRead: 0 });
+});
+
 test('claude parseClaude: result is_error => stuck', () => {
   const r = parseClaude([J({ type: 'result', is_error: true })]);
   assert.equal(r.status, 'stuck');
