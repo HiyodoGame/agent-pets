@@ -66,11 +66,31 @@ export function observe(now = Date.now()) {
   return out;
 }
 
+/** Pure: extract the final assistant text from `claude -p --verbose --output-format stream-json`
+ *  stdout (system init / assistant / result events). Falls back to `result.result`. */
+export function parseStreamResponse(stdout) {
+  let text = '';
+  for (const ln of (stdout || '').split('\n')) {
+    const j = safeJson(ln);
+    if (!j) continue;
+    if (j.type === 'assistant') {
+      const c = j.message?.content;
+      if (Array.isArray(c)) { const t = c.find((x) => x.type === 'text'); if (t?.text) text = t.text; }
+    } else if (j.type === 'result' && typeof j.result === 'string' && j.result) {
+      text = j.result;
+    }
+  }
+  return text;
+}
+
 export async function inject(payload, { run = runCli } = {}) {
   const prompt = `${handoffPackage(payload)}\nDo not use any tools.`;
   // No shell: prompt rides as a literal argv element (leading-dash guarded).
-  const r = await run('claude', ['-p', '--output-format', 'stream-json', guardDash(prompt)], { timeout: 60000 });
-  if (r.status === 0 && r.stdout) return { ok: true, response: r.stdout.trim().slice(0, 400), sessionID: '' };
+  // Claude CLI ≥2.1 要求 --print 与 --output-format stream-json 同时显式带 --verbose，
+  // 否则直接 exit 1（真机 2.1.312 实测）。
+  const r = await run('claude', ['-p', '--verbose', '--output-format', 'stream-json', guardDash(prompt)], { timeout: 60000 });
+  const response = parseStreamResponse(r.stdout);
+  if (r.status === 0 && response) return { ok: true, response: response.slice(0, 400), sessionID: '' };
   return { ok: false, response: '', summary: r.summary ?? '' };
 }
 

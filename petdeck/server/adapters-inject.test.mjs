@@ -25,11 +25,12 @@ test('codex.inject: async, no shell, prompt verbatim in argv', async () => {
 });
 
 test('claude.inject: async, no shell, prompt verbatim in argv', async () => {
-  const { calls, run } = captureRun('hi');
+  const { calls, run } = captureRun(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } }));
   const r = await claude.inject({ context: 'c', instruction: EVIL }, { run });
   assert.equal(r.ok, true);
   assert.notEqual(calls[0].opts.shell, true);
   assert.ok(JSON.stringify(calls[0].args).includes(EVIL));
+  assert.ok(calls[0].args.includes('--verbose'), 'stream-json in print mode requires --verbose (CLI 2.1+)');
 });
 
 test('codex.inject: leading-dash prompt guarded against option injection', async () => {
@@ -37,6 +38,18 @@ test('codex.inject: leading-dash prompt guarded against option injection', async
   await codex.inject({ instruction: '-rf', context: '--no-sandbox' }, { run });
   const promptArg = calls[0].args.at(-1);
   assert.ok(!promptArg.trimStart().startsWith('-'), 'prompt passed as option must be neutralised');
+});
+
+test('claude.inject: parses stream-json into assistant text', async () => {
+  const stream = [
+    JSON.stringify({ type: 'system', subtype: 'init' }),
+    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'OK' }] } }),
+    JSON.stringify({ type: 'result', subtype: 'success', result: 'OK' }),
+  ].join('\n');
+  const { run } = captureRun(stream);
+  const r = await claude.inject({ instruction: 'x' }, { run });
+  assert.equal(r.ok, true);
+  assert.equal(r.response, 'OK');
 });
 
 test('opencode.inject: prompt routed via stdin, no shell, parses sessionID', async () => {
