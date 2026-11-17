@@ -77,6 +77,12 @@ npm run tauri:build
 
 等级阈值与文案见 `src/flows/shared/pet/growth.ts` 与 `src/i18n/messages.ts`。
 
+## 跨机器会话（SSH observe）
+
+设置 `PETDECK_REMOTE_HOSTS=me@build-box,dev2` 后重启 PetDeck。远程主机的 Claude Code / Codex 会话会以只读形式出现在面板，带 `@host` 标记；远程会话不可接力/注入。需要远程主机有 `node`，且本机已配置 SSH 密钥与 `known_hosts`。
+
+安全细节、限制与验证方式见 `docs/远程会话.md`。
+
 ## Web 开发/演示预览
 
 Web 版用于开发、设计走查和演示，不再是默认产品形态：

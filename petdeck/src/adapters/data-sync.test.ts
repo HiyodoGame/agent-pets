@@ -57,6 +57,14 @@ test('data-sync: observed rows project to sessions with derived id and live proj
   );
 });
 
+test('data-sync: remote host is preserved and prefixes the id (no cross-host collision)', () => {
+  const [remote, local] = observedToSessions([row({ host: 'build-box' }), row()], NOW);
+  assert.equal(remote.id, 'build-box@kimi:s-1');
+  assert.equal(remote.host, 'build-box');
+  assert.equal(local.id, 'kimi:s-1');
+  assert.equal(local.host, undefined);
+});
+
 test('data-sync: title falls back to the session id when there is no last message, and messages mirror it', () => {
   const [silent, chatty] = observedToSessions(
     [row({ lastMessage: '' }), row({ lastMessage: 'working on it' })],

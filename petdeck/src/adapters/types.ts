@@ -13,6 +13,8 @@ export interface ObservedSession {
   title?: string
   tokens?: TokenUsage
   usageWindow?: UsageWindow
+  /** SSH 远程主机的别名（本地会话为空）。远程会话只读，不可接力/注入。 */
+  host?: string
   stale?: boolean
   lastSeen?: number
 }

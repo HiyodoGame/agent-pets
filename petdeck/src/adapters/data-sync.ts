@@ -18,7 +18,7 @@ export function shouldLoadSnapshot(hasMemory: boolean, cacheShown: boolean): boo
 /** 观察行 → Session 投影；时间戳统一来自 `now`，便于测试与复现。 */
 export function observedToSessions(rows: ObservedSession[], now: string): Session[] {
   return rows.map((r) => ({
-    id: `${r.agent}:${r.session}`,
+    id: `${r.host ? `${r.host}@` : ''}${r.agent}:${r.session}`,
     projectId: 'live',
     agentId: r.agent,
     title: r.lastMessage || r.session,
@@ -30,6 +30,7 @@ export function observedToSessions(rows: ObservedSession[], now: string): Sessio
     updatedAt: now,
     tokens: r.tokens,
     usageWindow: r.usageWindow,
+    host: r.host,
     stale: r.stale,
     lastSeen: r.lastSeen,
   }))

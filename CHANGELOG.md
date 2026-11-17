@@ -6,6 +6,7 @@
 
 ### 新增
 
+- **跨机器会话（SSH observe）**：桥接进程通过 `PETDECK_REMOTE_HOSTS` 以只读 SSH 探针观察远程主机的 Claude Code / Codex 会话；远程会话带 `@host` 标记并强制禁用接力/注入。探针自包含、仅读文件，SSH 使用 `BatchMode` + `StrictHostKeyChecking=yes`，主机名白名单校验。
 - **宠物成长（使用驱动）**：完成 Agent 任务/接力 +10 XP、抚摸 +2 XP（30 秒冷却）；8 个等级与称号、连续活跃天数、进度条与完成任务数；`localStorage` 持久化 + `BroadcastChannel` 跨窗口同步。不引入饥饿或衰减惩罚。
 - **中英双语界面（i18n）**：新增 zh/en 消息字典、系统语言检测与本地持久化；宠物设置内可切换语言，应用壳、四个流程、宠物快捷面板、通知、更新提示及 Rust 托盘菜单即时跟随。演示模式的样例会话/事件内容仍为中文示例数据。
 - **自动更新**：接入 Tauri updater + GitHub Releases `latest.json`；宠物设置内提供「检查更新 / 安装并重启」，打开设置自动检查但安装必须由用户确认；更新包使用 Minisign 签名校验。发布工作流改用 `tauri-action` 生成签名更新包与 `latest.json`。密钥与发布说明见 `docs/自动更新与签名.md`。

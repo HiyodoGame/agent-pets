@@ -16,11 +16,12 @@ import zcode from './adapters/zcode.mjs';
 import dsh from './adapters/dsh.mjs';
 import cursor from './adapters/cursor.mjs';
 import gemini from './adapters/gemini.mjs';
+import remote from './adapters/remote.mjs';
 import { TIER, injectDecision } from './tiers.mjs';
 import { createBus } from './bus.mjs';
 import { pollOnce } from './freshness.mjs';
 
-const REAL_ADAPTERS = [codex, claude, opencode, kimi, kimiCode, zcode, dsh, cursor, gemini];
+const REAL_ADAPTERS = [codex, claude, opencode, kimi, kimiCode, zcode, dsh, cursor, gemini, remote];
 const DEFAULT_ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '::1'];
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://tauri.localhost', 'http://localhost:5183'];
 
@@ -165,7 +166,7 @@ export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = creat
     };
 
     if (url.pathname === '/api/health') return json(res, req, 200, { ok: true, authRequired: Boolean(sec.token), agents: adapters.map((a) => ({ id: a.id, name: a.name, tier: TIER[a.id] })), sources });
-    if (url.pathname === '/api/agents') { if (readGuard()) return; return json(res, req, 200, adapters.map((a) => ({ id: a.id, name: a.name, form: 'cli', capability: TIER[a.id], status: 'idle', projectIds: [] }))); }
+    if (url.pathname === '/api/agents') { if (readGuard()) return; return json(res, req, 200, adapters.filter((a) => a.id !== 'remote').map((a) => ({ id: a.id, name: a.name, form: 'cli', capability: TIER[a.id], status: 'idle', projectIds: [] }))); }
     if (url.pathname === '/api/sessions') { if (readGuard()) return; return json(res, req, 200, sessions); }
     if (url.pathname === '/api/events') {
       if (readGuard(true)) return;

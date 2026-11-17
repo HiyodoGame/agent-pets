@@ -231,7 +231,8 @@ function Screen3_SessionThread({
     )
   }
   const agent = getAgent(session.agentId)
-  const readOnly = agent?.capability !== 'full'
+  // Remote SSH sessions are read-only: never offer relay/inject against the wrong machine.
+  const readOnly = agent?.capability !== 'full' || Boolean(session.host)
 
   if (loading) {
     return (
@@ -267,6 +268,7 @@ function Screen3_SessionThread({
         <Tag color={STATUS_TAG[session.status].color}>{statusText(session.status)}</Tag>
         {session.stale && <Tag color="slate">{t('panel.staleAgo', { ago: fmtAgo(session.lastSeen ?? now, now) })}</Tag>}
         <TypographyMuted>{agent?.name}</TypographyMuted>
+        {session.host && <Tag color="slate" title={t('panel.remoteHost')}>@{session.host}</Tag>}
         {/* 成本 MVP：观察窗口内的用量徽标（claude/zcode 分项、kimi 累计），无数据不显示 */}
         {fmtTokens(session.tokens) && <Tag color="slate" title={t('panel.tokensTitle')}>{fmtTokens(session.tokens)}</Tag>}
         {/* 5h 用量窗口倒计时（P1-7）：按最后活动推算，均为估算值，以官方 /usage 为准 */}
@@ -548,6 +550,7 @@ function Screen2_PanelShell({
                         <p className="text-text truncate text-sm font-medium">{s.title}</p>
                         <p className="text-text-secondary mt-1 truncate text-xs">
                           {s.agentId}
+                          {s.host ? ` · @${s.host}` : ''}
                           {s.stale ? ' · stale' : ''}
                           {fmtTokens(s.tokens) ? ` · ${fmtTokens(s.tokens)}` : ''}
                         </p>

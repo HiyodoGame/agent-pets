@@ -70,6 +70,8 @@ export interface Session {
   tokens?: TokenUsage
   /** 账户级 5h 用量窗口（reset 倒计时，按最后活动推算=估）。仅 claude 等提供该数据的适配器有值。 */
   usageWindow?: UsageWindow
+  /** SSH 远程主机别名；远程会话只读，不可接力/注入。 */
+  host?: string
   stale?: boolean
   lastSeen?: number
 }
