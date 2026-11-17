@@ -6,7 +6,7 @@
 
 | Agent | CLI/形态 | 本地存储 | 格式 | observe 可行性 | inject 可行性 |
 | --- | --- | --- | --- | --- | --- |
-| Claude Code | `claude` CLI | `~/.claude/projects/*.jsonl` | JSONL | ✅ 已有适配器 | ✅ 已有（headless `-p --output-format stream-json`） |
+| Claude Code | `claude` CLI | `~/.claude/projects/*.jsonl` | JSONL | ✅ 已有适配器 | ✅ 已有（headless `-p --verbose --output-format stream-json`） |
 | Codex | `codex` CLI | `~/.codex/sessions` rollout jsonl | JSONL | ✅ 已有 | ⚠️ `codex exec` 实验性（已有） |
 | opencode | `opencode` CLI | v2 后台服务（动态端口 + CLI 管理密码）；v1 `serve` :4096 | HTTP + Basic Auth；列表 `opencode api session.list`，运行态 SSE `/api/event` | ✅ 已有 | ✅ 已有（spike 实证） |
 | Cursor | `cursor` CLI / IDE 3.29.15 | `~/.cursor/projects/<project>/agent-transcripts/<sessionId>/<sessionId>.jsonl` | JSONL（user/assistant + `turn_ended`） | ✅ 新增（真机 5 会话） | ❓ 无已验证 headless 语法 → observe-only |

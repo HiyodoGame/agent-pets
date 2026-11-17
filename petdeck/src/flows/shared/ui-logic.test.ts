@@ -2,7 +2,7 @@
 // Run: node --test src/flows/shared/ui-logic.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stepperState, resolveMotionEnabled, getOsReducedMotion, fmtAgo, fmtTokens, fmtResetCountdown, decideLiveConnect, planFollowUp, fmtRateLimitWait, mapSessionStatus, eventWatermark, newEventsAfter, routeDndArrivals, shouldStreamResponse, fieldErrorState } from './ui-logic.ts';
+import { stepperState, resolveMotionEnabled, getOsReducedMotion, fmtAgo, fmtTokens, fmtResetCountdown, decideLiveConnect, planFollowUp, fmtRateLimitWait, nextRateLimit, rateLimitPhase, mapSessionStatus, eventWatermark, newEventsAfter, routeDndArrivals, shouldStreamResponse, fieldErrorState } from './ui-logic.ts';
 import type { PetEvent } from './types.ts';
 import type { InjectDecision } from '../../adapters/types.ts';
 
@@ -122,6 +122,16 @@ test('follow-up: clipboard fallback without package still does not claim sent', 
 test('rate-limit copy: states retry wait without promising auto retry', () => {
   assert.equal(fmtRateLimitWait(5), '桥接限流，5 秒后可重试。');
   assert.ok(!fmtRateLimitWait(5).includes('自动'));
+});
+
+test('rate-limit state: countdown reaches a stable manual-retry state', () => {
+  assert.equal(nextRateLimit(null), null);
+  assert.equal(nextRateLimit(2), 1);
+  assert.equal(nextRateLimit(1), 0);
+  assert.equal(nextRateLimit(0), 0);
+  assert.equal(rateLimitPhase(null), null);
+  assert.equal(rateLimitPhase(1), 'waiting');
+  assert.equal(rateLimitPhase(0), 'ready');
 });
 
 // ---- Task 5: 状态映射 —— unknown / 未识别状态绝不冒充 active（运行中） ----

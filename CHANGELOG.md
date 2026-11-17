@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-11-17
+
+### 文档与维护
+
+- 新增仓库根 README、文档索引与统一路线图；Phase 1–3 和 2026-11-16 调研报告明确标为历史资料，不再与当前计划并行。
+- 修正开发 README、用户手册与皮肤文档中的相对链接、适配器覆盖、opencode v2、Claude `--verbose`、蓝噗 `default` 集成方式及复现材料边界。
+- 新增 `npm run docs:check` 并接入 CI，校验 Markdown 本地链接和 package/Cargo/Tauri 版本一致性。
+- 接力离线与限流的中英文提示改为如实说明手动重试及非持久化行为，不再承诺离线交接包自动暂存。
+
+### 性能
+
+- 生产构建使用 `lottie-web` light player，消除未使用的 direct `eval`；通过 PostCSS 移除 Spark 全局样式中未使用且缺少资源的 Seti 字体声明。
+- 按 Spark、Lottie、KaTeX、Markdown 拆分稳定依赖缓存包，主路由相关文件均低于 500 kB；按需 Mermaid 的单一预构建模块仍保留 662 kB 提示，未通过提高阈值隐藏。
+
+### 修复
+
+- 演示接力的模拟限流倒计时结束后现在会显示「重试发送」，点击后继续完成流程，不再停留在无操作的中间态。
+
 ## [0.1.1] — 2026-11-17
 
 ### 新增
@@ -61,6 +79,7 @@
 - Tauri 2 桌面壳：bridge 子进程托管（崩溃重启）、Node ≥24 检测、随机 token + 动态端口、NSIS 打包（含 WebView2 bootstrapper）。
 - 质量：约 290 单测、oxlint 0 告警、tsc --noEmit、GitHub Actions CI。
 
-[Unreleased]: https://github.com/HiyodoGame/agent-pets/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/HiyodoGame/agent-pets/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/HiyodoGame/agent-pets/releases/tag/v0.1.2
 [0.1.1]: https://github.com/HiyodoGame/agent-pets/releases/tag/v0.1.1
 [0.1.0]: https://github.com/HiyodoGame/agent-pets/releases/tag/v0.1.0

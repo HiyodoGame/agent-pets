@@ -133,6 +133,18 @@ export function fmtRateLimitWait(seconds: number): string {
   return t('rateLimit.wait', { seconds })
 }
 
+// 0 是稳定的可手动重试状态；只有用户操作才能回到 null。
+export type RateLimitPhase = 'waiting' | 'ready' | null
+
+export function rateLimitPhase(seconds: number | null): RateLimitPhase {
+  if (seconds === null) return null
+  return seconds > 0 ? 'waiting' : 'ready'
+}
+
+export function nextRateLimit(seconds: number | null): number | null {
+  return seconds !== null && seconds > 0 ? seconds - 1 : seconds
+}
+
 // ---- 会话状态映射：unknown / 未识别状态绝不冒充 active（运行中） ----
 
 const SESSION_STATUS_MAP: Record<string, SessionStatus> = {

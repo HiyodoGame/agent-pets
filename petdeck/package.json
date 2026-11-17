@@ -1,13 +1,14 @@
 {
   "name": "petdeck",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
     "dev": "vite",
+    "docs:check": "node scripts/check-docs.mjs",
     "build": "vite build",
     "lint": "oxlint src server",
     "preview": "vite preview",
