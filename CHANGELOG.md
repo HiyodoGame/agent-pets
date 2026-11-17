@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-11-17
+
 ### 新增
 
 - **跨机器会话（SSH observe）**：桥接进程通过 `PETDECK_REMOTE_HOSTS` 以只读 SSH 探针观察远程主机的 Claude Code / Codex 会话；远程会话带 `@host` 标记并强制禁用接力/注入。探针自包含、仅读文件，SSH 使用 `BatchMode` + `StrictHostKeyChecking=yes`，主机名白名单校验。
@@ -59,5 +61,6 @@
 - Tauri 2 桌面壳：bridge 子进程托管（崩溃重启）、Node ≥24 检测、随机 token + 动态端口、NSIS 打包（含 WebView2 bootstrapper）。
 - 质量：约 290 单测、oxlint 0 告警、tsc --noEmit、GitHub Actions CI。
 
-[Unreleased]: https://github.com/HiyodoGame/agent-pets/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/HiyodoGame/agent-pets/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/HiyodoGame/agent-pets/releases/tag/v0.1.1
 [0.1.0]: https://github.com/HiyodoGame/agent-pets/releases/tag/v0.1.0
