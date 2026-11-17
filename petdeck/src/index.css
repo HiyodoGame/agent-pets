@@ -381,6 +381,59 @@ html[data-pet-window='true'] #root {
 
 .pet-settings-panel > .pet-check-field { margin-top: 12px; }
 
+.pet-growth {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--color-bg-elevated);
+}
+
+.pet-growth-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.pet-growth-head strong {
+  animation: pet-level-pop 0.55s ease;
+}
+
+.pet-growth-head span {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+}
+
+.pet-growth-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-bg-container);
+}
+
+.pet-growth-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-primary);
+  transition: width 0.3s ease;
+}
+
+.pet-growth-xp {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+}
+
+@keyframes pet-level-pop {
+  0% { transform: scale(1); }
+  50% { color: var(--color-primary); transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
 .pet-update-row {
   display: flex;
   align-items: center;

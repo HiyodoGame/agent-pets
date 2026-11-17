@@ -10,6 +10,8 @@ import { hidePet, getDnd, listenForDndChange, movePetBy, openMainPanel, persistP
 import { t } from '../../i18n/index.ts'
 import type { PetWindowMode } from '../../desktop/pet-layout'
 import { updatePetSettings, type PetSettings } from '../shared/pet/pet-settings'
+import { awardPetGrowth, awardTaskGrowth } from '../shared/pet/growth.ts'
+import { useGrowth } from '../shared/pet/use-growth.ts'
 import { usePetBehavior } from './use-pet-behavior'
 import { beginNativePetDrag, beginPetGesture, confirmPetDrag, endPetGesture, movePetGesture, type PetGesture } from './pet-gesture'
 import { PetContextMenu, type PetMenuPoint } from './pet-context-menu'
@@ -33,6 +35,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
   const events = unhandledEvents()
   const summary = summarizeSessions(sessions)
   const status = compactPetStatus(connState, summary)
+  const growth = useGrowth()
   const attention = summary.waiting + summary.stuck
   const overlayOpen = expanded || settingsOpen || menu !== null || activeEvent !== null
   const onWalk = useCallback((direction: 'left' | 'right') => {
@@ -54,6 +57,10 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
     const added = newEventsAfter(events, watermarkRef.current)
     watermarkRef.current = eventWatermark(events)
     if (added.length === 0) return
+    // Usage-driven growth: completed tasks (and completed relays) grant XP. Only the
+    // persistent pet window awards, so an open main panel cannot double-count.
+    const completed = added.filter((event) => event.type === 'done' || event.type === 'relay-ready').length
+    if (completed > 0) awardTaskGrowth(completed)
     eventArrived(added.some((event) => event.type === 'decision'))
     if (!dnd) {
       setActiveEvent(added[0])
@@ -147,6 +154,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
       setExpanded(false)
       void savePetPosition()
     } else if (result === 'poke') {
+      awardPetGrowth()
       poke()
       setExpanded((value) => !value)
       setSettingsOpen(false)
@@ -254,6 +262,29 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
             <button type="button" className="pet-icon-button" aria-label={t('pet.openSettings')} onClick={() => { setExpanded(false); setSettingsOpen(true) }}>
               <Settings2 className="h-4 w-4" />
             </button>
+          </div>
+          <div className="pet-growth">
+            <div className="pet-growth-head">
+              <strong key={growth.progress.level}>{t('growth.level', { level: growth.progress.level })} · {t(growth.progress.titleKey)}</strong>
+              <span>{t('growth.streak', { days: growth.state.streakDays })}</span>
+            </div>
+            <div
+              className="pet-growth-bar"
+              role="progressbar"
+              aria-label={t('growth.progressAria')}
+              aria-valuenow={growth.progress.percent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <span style={{ width: `${growth.progress.percent}%` }} />
+            </div>
+            <span className="pet-growth-xp">
+              {growth.progress.nextMinXp !== null
+                ? t('growth.xp', { current: growth.progress.xpIntoLevel, next: growth.progress.xpForNext })
+                : t('growth.max')}
+              {' · '}
+              {t('growth.tasks', { n: growth.state.tasks })}
+            </span>
           </div>
           {suppressed.length > 0 && (
             <button type="button" className="pet-inbox-button" onClick={() => {

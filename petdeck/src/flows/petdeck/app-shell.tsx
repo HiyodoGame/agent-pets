@@ -14,6 +14,7 @@ import { DataSourceProvider, usePetData } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { fmtCount } from '../shared/ui-logic'
 import { listenForPanelNavigation } from '../../desktop/window'
+import { useGrowth } from '../shared/pet/use-growth.ts'
 import { t, useLocale } from '../../i18n/index.ts'
 
 // 代码分包：五个懒加载单元（四个 flow 在 themed-routes 内 + 本路由模块），
@@ -35,9 +36,9 @@ const SHELL_TAG_COLORS = {
   error: 'border-transparent border-error-border bg-error-bg text-error',
 } as const
 
-function ShellTag({ color, className, children }: { color: keyof typeof SHELL_TAG_COLORS; className?: string; children: React.ReactNode }) {
+function ShellTag({ color, className, title, children }: { color: keyof typeof SHELL_TAG_COLORS; className?: string; title?: string; children: React.ReactNode }) {
   return (
-    <span className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-0.5 text-xs font-medium ${SHELL_TAG_COLORS[color]} ${className ?? ''}`}>
+    <span title={title} className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-0.5 text-xs font-medium ${SHELL_TAG_COLORS[color]} ${className ?? ''}`}>
       {children}
     </span>
   )
@@ -46,6 +47,7 @@ function ShellTag({ color, className, children }: { color: keyof typeof SHELL_TA
 function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appearance: 'light' | 'dark'; onToggleAppearance: () => void; demo: boolean; onToggleDemo: () => void }) {
   const navigate = useNavigate()
   const { locale } = useLocale()
+  const { progress: growth } = useGrowth()
   const { sessions, mode, connState, savedAt, reconnect } = usePetData()
   // mount-only：useRef 初始值即挂载时 mode，effect 内读取（不在 render 期写 ref）
   const modeRef = useRef(mode)
@@ -78,6 +80,7 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: { appeara
     <div data-theme={appearance} data-style="soft" className="flex min-h-screen flex-col bg-bg-base text-text">
       <header className="flex items-center gap-3 border-b border-border-secondary bg-bg-layout p-3">
         <span className="font-semibold">PetDeck</span>
+        <ShellTag color="slate" title={t(growth.titleKey)}>{t('growth.level', { level: growth.level })}</ShellTag>
         <ShellTag color={badge.color}>{badge.label}</ShellTag>
         <nav className="flex gap-2" aria-label={t('shell.mainNav')}>
           {NAV.map((n) => (
