@@ -1,13 +1,13 @@
 # PetDeck 宠物素材完整规格（供 Codex 生成使用）
 
+> **历史设计简报（2026-11-16）。** 本文记录蓝噗重做时的要求及对旧绿色 `default` 的替换前审计；蓝噗现已成为 `default`。当前运行时规范以[皮肤模板](pet-skin-template.md)和实现代码为准，不与本简报并行维护。
+
 版本：2.0　日期：2026-11-16
-依据：`petdeck/docs/pet-skin-template.md`（1.0）、`src/flows/shared/pet/skin-loader.ts`、`src/flows/shared/pet/skin-types.ts`、`src/flows/flow-1-pet-surface/pet-behavior.ts`，以及对现有 `default` 皮肤的逐帧审计。
+依据：[皮肤模板](pet-skin-template.md)（1.0）、`src/flows/shared/pet/skin-loader.ts`、`src/flows/shared/pet/skin-types.ts`、`src/flows/flow-1-pet-surface/pet-behavior.ts`，以及对当时 `default` 皮肤的逐帧审计。
 
-本文档以代码为准。若与 1.0 模板冲突，以本文为准；代码已经校验的硬约束不能违反，否则应用会拒绝加载该皮肤并回退到 `default`。
+## 0. 替换前素材的问题（为什么要重做）
 
-## 0. 现有素材的问题（为什么要重做）
-
-对 `default` 皮肤的 12 个代表帧做了审计，主要问题如下：
+对当时的 `default` 皮肤的 12 个代表帧做了审计，主要问题如下：
 
 - 耳朵是独立浮在头顶的两个三角，与身体之间没有连接，看起来像贴纸而不是角色的一部分。
 - 身体是圆球加小短腿，轮廓简单，缩到 96 px 后几乎只剩一个绿色圆点，与其他同类皮肤没有辨识度。

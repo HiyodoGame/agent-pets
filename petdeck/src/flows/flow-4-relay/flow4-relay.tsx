@@ -1,6 +1,6 @@
 // =============================================
 // FLOW: Relay Handoff (4 screens + edge states) — 核心
-// Edge 补全：error-validation / 截断 / loading-submit / error-rate-limit / offline暂存 / loading-stop / error-server
+// Edge 补全：error-validation / 截断 / loading-submit / error-rate-limit / 离线手动交接 / loading-stop / error-server
 // =============================================
 import { useEffect, useState, Suspense } from 'react'
 import {
@@ -38,7 +38,7 @@ import { track, EVENT } from '../../telemetry'
 import { mockSessions, mockRelayDrafts } from '../shared/mock-data'
 import { EdgeAlert, Stepper } from '../shared/edge-kit'
 import { LazyResponse } from '../shared/lazy-response'
-import { fieldErrorState } from '../shared/ui-logic'
+import { fieldErrorState, nextRateLimit, rateLimitPhase } from '../shared/ui-logic'
 import { buildRelayDraft, resolveTarget, canSend, sendStateFromDecision, type RelaySendState } from './relay-draft'
 import { t } from '../../i18n/index.ts'
 import type { MessageKey } from '../../i18n/messages.ts'
@@ -247,6 +247,7 @@ function Screen3_Tracking({
 }) {
   const [rateLimit, setRateLimit] = useState<number | null>(null)
   const [offline, setOffline] = useState(false)
+  const limitPhase = rateLimitPhase(rateLimit)
   // Derived (not state): an injected live attempt whose completion can't be correlated —
   // either tracking already proved it, or the CLI never returned a sessionID (unconfirmable
   // from the start, never presented as auto-completable).
@@ -267,7 +268,7 @@ function Screen3_Tracking({
 
   useEffect(() => {
     if (rateLimit === null || rateLimit <= 0) return
-    const t = setTimeout(() => setRateLimit((r) => (r === null ? null : r - 1)), 1000)
+    const t = setTimeout(() => setRateLimit(nextRateLimit), 1000)
     return () => clearTimeout(t)
   }, [rateLimit])
 
@@ -317,8 +318,14 @@ function Screen3_Tracking({
           retryLabel={t('relay.retrySend')}
           extra={<Button variant="secondary" onClick={onCopy}><Copy className="mr-1 h-4 w-4" /> {t('relay.copyPackage')}</Button>}
         />
-      ) : rateLimit !== null && rateLimit > 0 ? (
-        <EdgeAlert variant="warning" title={t('relay.rateLimitTitle')} desc={t('relay.rateLimitDesc', { seconds: rateLimit })} />
+      ) : limitPhase !== null ? (
+        <EdgeAlert
+          variant="warning"
+          title={t(limitPhase === 'ready' ? 'relay.rateLimitReadyTitle' : 'relay.rateLimitTitle')}
+          desc={limitPhase === 'ready' ? t('relay.rateLimitReadyDesc') : t('relay.rateLimitDesc', { seconds: rateLimit ?? 0 })}
+          onRetry={limitPhase === 'ready' ? () => { setRateLimit(null); onRetry() } : undefined}
+          retryLabel={t('relay.retrySend')}
+        />
       ) : offline ? (
         <EdgeAlert variant="warning" title={t('relay.offlineTitle')} desc={t('relay.offlineDesc')} onRetry={() => setOffline(false)} retryLabel={t('relay.recoverRetry')} />
       ) : streaming ? (

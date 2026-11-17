@@ -1,5 +1,7 @@
 # Project Review Remediation Implementation Plan
 
+> **状态：已归档，10 项任务已完成。** 本文是 Phase 3 实施记录，不再接收新待办；后续变化见 [CHANGELOG](../../../CHANGELOG.md)，当前计划见[统一路线图](../../ROADMAP.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 按优先级修复 2026-11-14 项目审查确认的问题，使真实模式不再伪报成功，接力内容完整，状态与通知可信，并补齐可靠性、质量门、性能和文档缺口。

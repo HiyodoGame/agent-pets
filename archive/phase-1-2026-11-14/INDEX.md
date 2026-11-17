@@ -1,5 +1,7 @@
 # Archive — Agent Pets · Phase 1（2026-11-14）
 
+> **历史归档。** 本页的记录、仓库可见性和后续待办均保留当时语境；当前状态见[文档索引](../../docs/README.md)与[统一路线图](../../docs/ROADMAP.md)。
+
 方向 B「接力秘书」。设计链 11/27 闭环；原型+adapter+SSE+埋点已实现并验证；未上线。
 
 ## 归档包
@@ -35,7 +37,7 @@
 - 能力分级 full/observe-only/manual + 剪贴板降级；spike 实证 CLI 全链路、网页仅观察
 - 隐私红线：会话内容本地优先，埋点只报行为
 
-## Phase 2 待办
+## 当时的 Phase 2 待办（历史）
 
 - ~~offline-partial-sync~~ ✅ 完成（2026-11-14，commits d0b1ce3..5acb767）：bridge pollOnce 新鲜度权威（stale 保留 + sources 健康）+ 前端连接状态机/快照缓存/事件去重 + demo 显式化 + UI 四态/stale 标记；68 测试、E2E 5 条实证 + 埋点隐私核查通过；spec/plan 见 docs/superpowers/。
 - sitemap 逻辑路由映射真实 route；网页 Agent 注入侧；macOS/鸿蒙；团队

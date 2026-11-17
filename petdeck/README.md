@@ -9,8 +9,8 @@ Windows 优先的 Agent 桌面宠物：透明、无边框、置顶的小窗常�
 - 开发构建还需要 Rust 1.90+、Cargo 和 Visual Studio MSVC 工具链
 - 本地 Agent CLI 均为可选；缺失只影响对应卡片：
   - **Codex**：读取 `~/.codex/sessions` rollout jsonl；`codex exec` 注入为实验能力，失败降级剪贴板。
-  - **Claude**：读取 `~/.claude/projects/*.jsonl`，使用 headless `claude -p --output-format stream-json`。
-  - **opencode**：观察依赖本地 `opencode serve`，默认 `http://127.0.0.1:4096`；v2 由 `opencode api session.list` 自动发现后台服务。
+  - **Claude**：读取 `~/.claude/projects/*.jsonl`，使用 headless `claude -p --verbose --output-format stream-json`。
+  - **opencode**：v2 由 `opencode api session.list` 自动发现后台服务，无需手动启动 `serve`；仅 v1 回退观察依赖本地 `opencode serve`，默认 `http://127.0.0.1:4096`。
   - **kimi work**：hosted web Agent，仅观察层，注入恒为剪贴板交接。
   - **Kimi Code**：读取 `~/.kimi/sessions/*/*/context.jsonl`，仅观察层（注入恒剪贴板）。
   - **zcode**：读取 `~/.zcode/cli/db/db.sqlite` 的只读副本，仅观察层（注入恒剪贴板）。
@@ -46,7 +46,7 @@ npm run tauri:build
 
 NSIS 安装包输出到 `src-tauri/target/release/bundle/nsis/`。安装器包含前端、应用图标、WebView2 检查及 `server/` bridge resources。Node 24 暂不内嵌。
 
-本地打包含签名更新产物时，需要设置签名私钥（见 `docs/自动更新与签名.md`）：
+本地打包含签名更新产物时，需要设置签名私钥（见 [自动更新与签名](../docs/自动更新与签名.md)）：
 
 ```bash
 TAURI_SIGNING_PRIVATE_KEY="$(cat <私钥路径>)" \
@@ -56,7 +56,7 @@ npm run tauri:build
 
 ## 自动更新
 
-桌面版在「右键宠物 → 宠物设置 → 自动更新」检查 GitHub Releases；打开设置会自动检查一次，但下载与安装必须由用户确认。更新包使用 Tauri 签名校验，发布流程与密钥管理见 `docs/自动更新与签名.md`。
+桌面版在「右键宠物 → 宠物设置 → 自动更新」检查 GitHub Releases；打开设置会自动检查一次，但下载与安装必须由用户确认。更新包使用 Tauri 签名校验，发布流程与密钥管理见 [自动更新与签名](../docs/自动更新与签名.md)。
 
 > v0.1.0 未内置 updater，需要手动安装 v0.1.1 一次；从 v0.1.1 起可在应用内自动更新。
 
@@ -81,7 +81,7 @@ npm run tauri:build
 
 设置 `PETDECK_REMOTE_HOSTS=me@build-box,dev2` 后重启 PetDeck。远程主机的 Claude Code / Codex 会话会以只读形式出现在面板，带 `@host` 标记；远程会话不可接力/注入。需要远程主机有 `node`，且本机已配置 SSH 密钥与 `known_hosts`。
 
-安全细节、限制与验证方式见 `docs/远程会话.md`。
+安全细节、限制与验证方式见 [远程会话](../docs/远程会话.md)。
 
 ## Web 开发/演示预览
 
@@ -114,14 +114,14 @@ VITE_PETDECK_BRIDGE_TOKEN=<本地随机值> npm run dev
 
 ## 文档
 
-- 用户手册（安装/接入/日常使用/故障排查）：`docs/用户手册.md`
-- 真机实测矩阵与环境检查：`docs/真机实测矩阵.md`，运行 `node scripts/verify-local.mjs --md` 生成自动检查表（只读观察，不执行注入）
-- 变更历史：根目录 `CHANGELOG.md`
+- [用户手册](../docs/用户手册.md)：安装、接入、日常使用与故障排查。
+- [真机实测矩阵与环境检查](../docs/真机实测矩阵.md)：运行 `node scripts/verify-local.mjs --md` 生成自动检查表（只读观察，不执行注入）。
+- [变更历史](../CHANGELOG.md)。
 
 ## 质量门
 
 ```bash
-npm run typecheck && npm test && npm run lint && npm run build
+npm run docs:check && npm run typecheck && npm test && npm run lint && npm run build
 cargo fmt --check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml
 npm run tauri:build -- --no-bundle

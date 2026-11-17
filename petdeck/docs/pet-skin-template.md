@@ -71,7 +71,7 @@ public/pets/
 | `wake` | 4 | 12 | once | `idle` |
 | `notify` | 6 | 12 | once | `attention` |
 
-如果角色左右不对称，可以额外提供 `walk-left` 与 `walk-right`，但当前标准运行时使用 `walk` 加水平镜像；新增字段前应保持标准 `walk` 仍存在。
+左右朝向由应用对标准 `walk` 动作做水平镜像。当前运行时不支持 `walk-left` / `walk-right`，不要在 manifest 中添加这两个动作。
 
 ## 4. manifest.json
 
