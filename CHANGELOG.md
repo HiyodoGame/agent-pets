@@ -21,7 +21,7 @@
 - 桌宠尺寸与位置更新合并为一个 Rust 命令，避免展开/收起时两次前端 IPC 之间的跳帧；真实 Agent 授权成功后保存本机接入记录，连接首页直接展示已接入 Agent 与同步状态，不再误回“还没有连接任何 Agent”。
 - 真实会话使用清理 Markdown 后的可读短标题，正文明确标记“最新回复”；轮询观察快照按完成态渲染，不再伪装成流式输出。
 - Windows 后台 bridge 不再弹出控制台窗口，托盘语言更新移至主线程执行。
-- 撤回 v0.1.2 新增的手工依赖分组，消除生产包 `E is not a function` 的启动回归；保留 Seti 字体清理与 Lottie light player。
+- 撤回 v0.1.2 新增的手工依赖分组：该方案会导致生产包启动异常（`E is not a function`），但它与主窗口空白不是同一问题（空白根因见下条路由匹配）；生产包改回自动分包，保留 Seti 字体清理与 Lottie light player。
 - **修复生产安装包主窗口整块空白**：Tauri 以 `http://tauri.localhost/index.html` 载入主窗口，而 `src/App.jsx` 的无 basename `BrowserRouter` 只认 `/`、`/panel` 等路径，控制台反复 `No routes matched location "/index.html"`，内容区只剩 shell。新增 `src/desktop/entry-path.ts`（`entryRedirect` / `normalizeEntryLocation`），在 `src/main.jsx` 挂载 Router 前把 `/index.html` 归一化为 `/` 并保留 query/hash；`tauri:build` 产出的真实安装包经 WebView2 远程调试确认主窗口渲染出完整面板（`tauri.localhost/panel`）。
 - 修正上一行的验证口径：2026-11-19「本地真实生产窗口已验证恢复」很可能跑的是加载 `devUrl` 的开发态二进制——单独 `cargo build --release` 不嵌入 `dist`（产物约 14 MB，会连 `http://localhost:5183`），只有 `npm run tauri:build` 才是生产包（约 18 MB）。该命令在缺少 `TAURI_SIGNING_PRIVATE_KEY` 时会于签名步骤退出 1，但 exe 与 NSIS 安装包已经产出，不能据此判定构建失败。
 - 修复适配器对真实 CLI 数据的解析：Codex 的 cwd 只读首行 `session_meta`、标题改用 `item_completed/UserMessage`（`headLines` 改为按行读满，避免 100 KB 单行 AGENTS.md 占满 64 KB 窗口）；DeepSeek Harness 的 `session` 事件是扁平的；Kimi Code 改读 `~/.kimi-code` v2 库（`session_index.jsonl` + `state.json` + `agents/main/wire.jsonl`）并按 `archived` 过滤；Cursor 去掉 `<timestamp>` 前言并从有损 slug 还原可读项目名；Claude 优先用 `ai-title`；zcode 的沙箱工作目录不再被当成用户项目。
