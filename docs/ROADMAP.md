@@ -22,7 +22,7 @@
 ### P0：补齐真实发布链路的证据
 
 - [x] 自动更新传输链路：v0.1.1 → v0.1.2 的传输段曾实测，但 v0.1.2 生产窗口空白使该项长期无法验收；根因于 2026-11-20 定位为 `BrowserRouter` 匹配不到 `/index.html`，修复后 `tauri:build` 生产包复核正常。当天先以本地签名端点跑通 0.1.2 → 0.1.3 的发现、下载、验签、静默安装、重启与「已是最新」检查，并完成验签负向测试；随后发布 **v0.1.3**，用已安装的 0.1.2 经真实 GitHub Releases `latest.json` 完成同样的端到端更新，更新后主窗口面板正常、再次检查已是最新（见[审计报告 7.7](2026-11-20-功能可用性审计.md)）。
-- [ ] 使用至少一台真实 SSH 主机验证 Claude/Codex 远程只读观察、失败隔离与 stale 恢复。传输层与探针已于 2026-11-20 用本地 `ssh` shim（stdin 交给本机 `node -`）跑通，真实远端返回 9 条会话；真实 sshd 的认证、host key、断网/超时与 stale 恢复仍未验。
+- [x] 使用至少一台真实 SSH 主机验证 Claude/Codex 远程只读观察、失败隔离与 stale 恢复。2026-11-20 在本机 127.0.0.1:22 启动真实 SSH 服务端（ssh2 1.17.0，非 OpenSSH sshd），用真实 OpenSSH_for_Windows_9.5p1 客户端跑通 9/9 场景：ed25519 publickey、严格 host key、认证失败、单主机失败隔离、总失败后 stale 保留与恢复、ConnectTimeout 8s（实测 8.26s）、inject 降级且零远程执行；证据 `output/ssh-e2e/report.json`（未入库）。**边界**：服务端在本机回环而非独立物理远程机，未覆盖 OpenSSH sshd；远程行仍无 cwd/projectId，面板按主机聚合。详见[真机实测矩阵](真机实测矩阵.md#2026-11-20-ssh-端到端复核真实协议本机回环)。
 - [ ] 在没有预装 Node 24 的干净 Windows 环境验证 NSIS 首启提示；在具备 Gemini CLI 的环境补 observe 实测。2026-11-20 已做的部分：PATH 隔离启动真实安装包，面板正确显示「未检测到 Node.js，请安装 Node.js 24 后重启 PetDeck」；Gemini 用官方结构 fixture 经真实 bridge 读出会话。**仍待**：真正未装 Node 的机器，以及装有 Gemini CLI 的机器。结果统一回填[真机实测矩阵](真机实测矩阵.md)。
 
 完成标准：每项都有环境、版本、日期和结果；不能用 fake/spawn 测试代替真机结论。
