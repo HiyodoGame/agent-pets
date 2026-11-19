@@ -5,9 +5,14 @@ import { isTauri } from './window.ts'
 import { t } from '../i18n/index.ts'
 
 export function notificationBody(event: PetEvent): string {
-  if (event.type === 'decision') return t('notification.decision')
-  if (event.type === 'done' || event.type === 'relay-ready') return t('notification.done')
-  return t('notification.generic')
+  const key = event.type === 'decision'
+    ? 'notification.decision'
+    : event.type === 'started'
+      ? 'notification.started'
+      : event.type === 'stuck'
+        ? 'notification.stuck'
+        : 'notification.done'
+  return t(key, { agent: event.agentName, project: event.projectName, title: event.sessionTitle })
 }
 
 export function createNotificationDispatcher(notify: (event: PetEvent) => unknown | Promise<unknown>) {

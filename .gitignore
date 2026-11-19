@@ -5,6 +5,9 @@ dist/
 # derived archive bundles (regenerable; keep INDEX.md)
 *.tar.gz
 
+# local verification artifacts (probes, screenshots, installers)
+/output/
+
 # sandbox / inherited copies
 spike/tmp-relay/
 petdeck/spark-output/

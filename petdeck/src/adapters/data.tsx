@@ -2,24 +2,21 @@
 // Demo data only via explicit `demo` prop — never an automatic fallback.
 // Only exports the provider component; context/hook live in pet-data-context.ts.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Agent, PetEvent, Project, Session } from '../flows/shared/types'
+import type { Agent, PetEvent } from '../flows/shared/types'
 import { mockPetData } from './mock-adapter'
 import { fetchAgents, fetchHealth, fetchSessions, inject as bridgeInject, subscribeEvents } from './bridge-client'
 import { selectSource, injectOrClipboard } from './registry'
 import { PetDataCtx, type PetDataContextValue } from './pet-data-context'
-import { nextConnState, type ConnSnapshot } from './connection'
+import { nextConnState, visibleConnState, type ConnSnapshot } from './connection'
 import { skipWhileRunningTrailing } from './poll-gate'
 import { loadSnapshot, saveSnapshot, type SnapshotStorage } from './snapshot-cache'
 import { createDeduper } from './event-dedup'
 import { shouldCommitHttp, shouldLoadSnapshot, observedToSessions } from './data-sync'
+import { observedToProjects } from './session-identity'
+import { petEventFromBridge, shouldSurfacePetEvent } from './pet-events'
 import { track, EVENT } from '../telemetry'
 import type { ObservedSession, PetData, RawAgentEvent } from './types'
 import { initializeBridgeConfig } from '../desktop/bridge-config'
-import { t } from '../i18n/index.ts'
-
-function liveProjects(sessions: Session[]): Project[] {
-  return [{ id: 'live', name: t('data.liveProjectName'), description: t('data.liveProjectDesc'), sessionIds: sessions.map((s) => s.id), updatedAt: new Date().toISOString() }]
-}
 
 function emptyLive(): PetData {
   return { mode: 'live', agents: [], projects: [], sessions: [], events: [], artifacts: [] }
@@ -53,10 +50,11 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
     // Single commit path for real sessions: writes state + snapshot, bumps the revision
     // so an in-flight HTTP tick (whose response is now older) can detect and skip.
     const commit = (rows: ObservedSession[], agents?: Agent[]) => {
-      const sessions = observedToSessions(rows, new Date().toISOString())
+      const observedAt = new Date().toISOString()
+      const sessions = observedToSessions(rows, observedAt)
       hasMemoryRef.current = true
       if (agents) lastAgentsRef.current = agents
-      setData((prev) => ({ mode: 'live', agents: agents ?? prev.agents, projects: liveProjects(sessions), sessions, events: eventsRef.current, artifacts: prev.artifacts }))
+      setData((prev) => ({ mode: 'live', agents: agents ?? prev.agents, projects: observedToProjects(rows, observedAt), sessions, events: eventsRef.current, artifacts: prev.artifacts }))
       revRef.current++
       const key = JSON.stringify(rows)
       if (key !== savedKeyRef.current) {
@@ -90,6 +88,7 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
         commit(rows, agents)
         setSavedAt(null)
         if (!un) {
+          const subscribedAt = Date.now()
           un = subscribeEvents((e) => {
             if (e.type === 'sessions' || e.petType === 'sessions') {
               const sseRows = (e.payload as { sessions?: ObservedSession[] })?.sessions ?? []
@@ -105,17 +104,9 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
             }
             if (!dedupRef.current.seen(raw.id)) return
             setAgentEvents((prev) => [raw, ...prev].slice(0, 100))
-            const pt = e.petType as string
-            if (pt) {
-              eventsRef.current = [{
-                id: raw.id,
-                type: pt as PetEvent['type'],
-                projectId: 'live',
-                sessionId: String(e.sessionId ?? ''),
-                text: String((e.payload as { lastMessage?: string })?.lastMessage ?? ''),
-                timestamp: new Date().toISOString(),
-                handled: false,
-              }, ...eventsRef.current].slice(0, 50)
+            const petEvent = petEventFromBridge(e, lastAgentsRef.current)
+            if (petEvent && shouldSurfacePetEvent(raw.ts, subscribedAt)) {
+              eventsRef.current = [petEvent, ...eventsRef.current].slice(0, 50)
               setData((prev) => ({ ...prev, events: eventsRef.current }))
             }
           }, {
@@ -161,13 +152,13 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
     sessionsOfProject: (pid) => shown.sessions.filter((s) => s.projectId === pid),
     unhandledEvents: () => unhandled,
     agentEvents,
-    connState: conn.state,
+    connState: visibleConnState(demo, conn.state),
     savedAt,
     reconnect: () => {
       initializeBridgeConfig().catch(() => {}).then(() => tickRef.current())
     },
     inject: (p) => injectOrClipboard(p, shown.mode === 'live', bridgeInject),
-  })}, [shown, agentEvents, conn.state, savedAt])
+  })}, [shown, agentEvents, conn.state, savedAt, demo])
 
   return <PetDataCtx.Provider value={value}>{children}</PetDataCtx.Provider>
 }

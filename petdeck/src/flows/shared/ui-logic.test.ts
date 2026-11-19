@@ -159,6 +159,10 @@ const ev = (id: string, ts: number): PetEvent => ({
   type: 'done',
   projectId: 'live',
   sessionId: 's1',
+  agentId: 'codex',
+  agentName: 'Codex',
+  projectName: 'Project',
+  sessionTitle: 'Task',
   text: `text-${id}`,
   timestamp: new Date(ts).toISOString(),
   handled: false,
@@ -328,4 +332,9 @@ test('follow-up: live clipboard fallback keeps prior behavior (no local append, 
 test('follow-up: default options keep live semantics (inject claims sent, clipboard does not)', () => {
   assert.equal(planFollowUp({ mode: 'inject' }).appendLocal, true);
   assert.equal(planFollowUp({ mode: 'clipboard', package: 'p' }).appendLocal, false);
+});
+
+test('streaming: observed live snapshots render as completed Markdown instead of a fake stream', () => {
+  assert.equal(shouldStreamResponse(thread, 2, true, false), false);
+  assert.equal(shouldStreamResponse(thread, 2, true, true), true);
 });

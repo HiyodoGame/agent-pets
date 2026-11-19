@@ -1,23 +1,15 @@
 // =============================================
-// FLOW: Relay Handoff (4 screens + edge states) — 核心
+// FLOW: Relay Handoff (4 screens + edge states) : 核心
 // Edge 补全：error-validation / 截断 / loading-submit / error-rate-limit / 离线手动交接 / loading-stop / error-server
 // =============================================
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerClose,
   Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
   SelectItem,
   FileCard,
-  ChatInput,
   Textarea,
   Tag,
   Button,
@@ -31,7 +23,7 @@ import {
   Toaster,
   toast,
 } from 'sparkdesign'
-import { ArrowRightLeft, Copy, Check, Package, StopCircle, WifiOff } from 'lucide-react'
+import { ArrowLeft, ArrowRightLeft, Copy, Check, Package, WifiOff } from 'lucide-react'
 import type { Agent, RelayDraft, Session } from '../shared/types'
 import { usePetData, deriveTracking, handoffPackageText, type TrackingStatus } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
@@ -39,7 +31,8 @@ import { mockSessions, mockRelayDrafts } from '../shared/mock-data'
 import { EdgeAlert, Stepper } from '../shared/edge-kit'
 import { LazyResponse } from '../shared/lazy-response'
 import { fieldErrorState, nextRateLimit, rateLimitPhase } from '../shared/ui-logic'
-import { buildRelayDraft, resolveTarget, canSend, sendStateFromDecision, type RelaySendState } from './relay-draft'
+import { buildRelayDraft, resolveTarget, canSend, sendStateFromDecision, shouldCommitRelayResult, type RelaySendState } from './relay-draft'
+import { createSerialSender } from '../flow-3-panel/serial-sender.ts'
 import { t } from '../../i18n/index.ts'
 import type { MessageKey } from '../../i18n/messages.ts'
 
@@ -115,7 +108,6 @@ function Screen2_Preview({
   live: boolean
 }) {
   const { getArtifact, agents } = usePetData()
-  const [sending, setSending] = useState(false)
   // 交互后校验：错误仅在 blur 或 submit 尝试后出现，避免一开抽屉就报错。
   const [instructionTouched, setInstructionTouched] = useState(false)
   const [submitAttempted, setSubmitAttempted] = useState(false)
@@ -131,90 +123,82 @@ function Screen2_Preview({
       return
     }
     track('relay', EVENT.relayPreviewConfirmed, { to: draft.targetAgentId, live })
-    setSending(true)
-    setTimeout(() => {
-      setSending(false)
-      onSend()
-    }, 600)
+    onSend()
   }
+  if (!open) return null
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent side="right" className="w-full sm:max-w-md">
-        <DrawerHeader>
-          <DrawerTitle>{t('relay.previewTitle')}</DrawerTitle>
-          <DrawerDescription>{t('relay.previewDesc')}</DrawerDescription>
-        </DrawerHeader>
-        <div className="flex flex-1 flex-col gap-3 overflow-auto px-4">
-          <div className="flex flex-col gap-1">
-            <TypographyMuted>{t('relay.context')}</TypographyMuted>
-            <Textarea value={draft.contextSummary} onChange={(e) => setDraft({ ...draft, contextSummary: e.target.value })} rows={3} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <TypographyMuted>{t('relay.artifacts')}</TypographyMuted>
-            {draft.artifactIds.length === 0 ? (
-              <TypographyMuted>{t('common.noArtifacts')}</TypographyMuted>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {draft.artifactIds.map((aid) => (
-                  <FileCard
-                    key={aid}
-                    filename={getArtifact(aid)?.name ?? aid}
-                    size={getArtifact(aid)?.size}
-                    variant="attachment"
-                    onRemove={() => setDraft({ ...draft, artifactIds: draft.artifactIds.filter((x) => x !== aid) })}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="flex flex-col gap-1">
-            <TypographyMuted>{t('relay.instruction')}</TypographyMuted>
-            <ChatInput
-              value={draft.instruction}
-              onChange={(v) => setDraft({ ...draft, instruction: v })}
-              placeholder={t('relay.instructionPlaceholder')}
-              maxRows={4}
-              onBlur={() => setInstructionTouched(true)}
-              aria-invalid={instructionError.ariaInvalid}
-              aria-describedby={instructionError.describedBy ?? undefined}
-            />
-            {/* error-validation：inline 字段提示，仅在 blur/submit 后出现 */}
-            {instructionError.showError && (
-              <span id="relay-instruction-error" role="alert" className="text-error text-sm">{t('relay.instructionRequired')}</span>
-            )}
-          </div>
-          <div className="flex flex-col gap-1">
-            <TypographyMuted>{t('relay.target')}</TypographyMuted>
-            <Select value={draft.targetAgentId} onValueChange={(v) => setDraft({ ...draft, targetAgentId: v })}>
-              <SelectTrigger>
-                <SelectValue placeholder={t('relay.selectTarget')} />
-              </SelectTrigger>
-              <SelectContent>
-                {agents.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.name} · {t(CAP_LABEL[a.capability])}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {target && <Tag color={target.capability === 'full' ? 'success' : target.capability === 'observe-only' ? 'info' : 'slate'}>{t(CAP_LABEL[target.capability])}</Tag>}
-            {!target && draft.targetAgentId ? <span className="text-error text-sm">{t('relay.targetMissing')}</span> : null}
-          </div>
+    <section className="relay-preview" aria-labelledby="relay-preview-title">
+      <header className="relay-preview-header">
+        <h2 id="relay-preview-title">{t('relay.previewTitle')}</h2>
+        <p>{t('relay.previewDesc')}</p>
+      </header>
+      <div className="relay-preview-fields">
+        <label className="relay-preview-field">
+          <TypographyMuted>{t('relay.context')}</TypographyMuted>
+          <Textarea value={draft.contextSummary} onChange={(e) => setDraft({ ...draft, contextSummary: e.target.value })} rows={3} />
+        </label>
+        <div className="relay-preview-field">
+          <TypographyMuted>{t('relay.artifacts')}</TypographyMuted>
+          {draft.artifactIds.length === 0 ? (
+            <TypographyMuted>{t('common.noArtifacts')}</TypographyMuted>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {draft.artifactIds.map((aid) => (
+                <FileCard
+                  key={aid}
+                  filename={getArtifact(aid)?.name ?? aid}
+                  size={getArtifact(aid)?.size}
+                  variant="attachment"
+                  onRemove={() => setDraft({ ...draft, artifactIds: draft.artifactIds.filter((x) => x !== aid) })}
+                />
+              ))}
+            </div>
+          )}
         </div>
-        <DrawerFooter>
-          <Button variant="primary" disabled={!canSubmit} loading={sending} onClick={confirm}>
-            {t('relay.confirm')}
-          </Button>
-          <DrawerClose asChild>
-            <Button variant="ghost">{t('relay.cancelSave')}</Button>
-          </DrawerClose>
-        </DrawerFooter>
-      </DrawerContent>
-    </Drawer>
+        <div className="relay-preview-field">
+          <TypographyMuted>{t('relay.instruction')}</TypographyMuted>
+          <Textarea
+            value={draft.instruction}
+            onChange={(event) => setDraft({ ...draft, instruction: event.target.value })}
+            placeholder={t('relay.instructionPlaceholder')}
+            rows={4}
+            onBlur={() => setInstructionTouched(true)}
+            aria-invalid={instructionError.ariaInvalid}
+            aria-describedby={instructionError.describedBy ?? undefined}
+          />
+          {instructionError.showError && (
+            <span id="relay-instruction-error" role="alert" className="text-error text-sm">{t('relay.instructionRequired')}</span>
+          )}
+        </div>
+        <div className="relay-preview-field">
+          <TypographyMuted>{t('relay.target')}</TypographyMuted>
+          <Select value={draft.targetAgentId} onValueChange={(v) => setDraft({ ...draft, targetAgentId: v })}>
+            <SelectTrigger>
+              <SelectValue placeholder={t('relay.selectTarget')} />
+            </SelectTrigger>
+            <SelectContent>
+              {agents.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name} · {t(CAP_LABEL[a.capability])}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {target && <Tag color={target.capability === 'full' ? 'success' : target.capability === 'observe-only' ? 'info' : 'slate'}>{t(CAP_LABEL[target.capability])}</Tag>}
+          {!target && draft.targetAgentId ? <span className="text-error text-sm">{t('relay.targetMissing')}</span> : null}
+        </div>
+      </div>
+      <footer className="relay-preview-actions">
+        <Button variant="primary" onClick={confirm}>
+          {t('relay.confirm')}
+        </Button>
+        <Button variant="ghost" onClick={() => onOpenChange(false)}>{t('relay.cancelSave')}</Button>
+      </footer>
+    </section>
   )
 }
 
-/* SCREEN 3 of 4: Send & Track — 真实态：注入中 / 已注入追踪 / 手动交接 / 失败 / 待确认 */
+/* SCREEN 3 of 4: Send & Track : 真实态：注入中 / 已注入追踪 / 手动交接 / 失败 / 待确认 */
 function Screen3_Tracking({
   source,
   target,
@@ -248,7 +232,7 @@ function Screen3_Tracking({
   const [rateLimit, setRateLimit] = useState<number | null>(null)
   const [offline, setOffline] = useState(false)
   const limitPhase = rateLimitPhase(rateLimit)
-  // Derived (not state): an injected live attempt whose completion can't be correlated —
+  // Derived (not state): an injected live attempt whose completion can't be correlated :
   // either tracking already proved it, or the CLI never returned a sessionID (unconfirmable
   // from the start, never presented as auto-completable).
   const unconfirmed = isLive && sendState === 'injected' && (liveStatus === 'unconfirmed' || sessionId === '')
@@ -347,8 +331,9 @@ function Screen3_Tracking({
       ) : null}
 
       <Separator />
+      <TypographyMuted>{t('relay.backHint')}</TypographyMuted>
       <div className="flex flex-wrap gap-2">
-        <Button variant="ghost" onClick={onStop}><StopCircle className="mr-1 h-4 w-4" /> {t('relay.stop')}</Button>
+        <Button variant="ghost" onClick={onStop}><ArrowLeft className="mr-1 h-4 w-4" /> {t('relay.stop')}</Button>
         {/* 演示模拟控制仅用于非实时模式，避免在真实链路伪造状态 */}
         {!isLive && <Button variant="ghost" onClick={onSimFail}>{t('relay.simFail')}</Button>}
         {!isLive && <Button variant="ghost" onClick={() => setOffline(true)}><WifiOff className="mr-1 h-4 w-4" />{t('relay.simOffline')}</Button>}
@@ -358,7 +343,7 @@ function Screen3_Tracking({
   )
 }
 
-/* SCREEN 4 of 4: Complete + Loop — live 只展示真实回执/产物 */
+/* SCREEN 4 of 4: Complete + Loop : live 只展示真实回执/产物 */
 function Screen4_Complete({
   target,
   isLive,
@@ -419,14 +404,24 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
   )
   const [sendState, setSendState] = useState<SendState>('pending')
   const [attempt, setAttempt] = useState<Attempt | null>(null)
+  const relayRevision = useRef(0)
+  const relaySender = useRef(createSerialSender())
+  useEffect(() => () => { relayRevision.current++ }, [])
 
   // live 且未从面板带入真实源会话 => 无法接力，给出去面板的选择提示（不回退 mock）。
   if (isLive && !source) {
     return (
-      <div className="flex w-full max-w-md flex-col items-center gap-4 p-8">
-        <h1 className="text-text text-lg font-semibold">{t('relay.title')}</h1>
-        <EdgeAlert variant="info" title={t('relay.noSource')} desc={t('relay.noSourceDesc')} />
-        <Button variant="primary" onClick={() => onExit?.()}>{t('relay.goToPanel')}</Button>
+      <div className="flow-page">
+        <header className="flow-page-heading">
+          <h1>{t('relay.title')}</h1>
+          <p>{t('relay.subtitle')}</p>
+        </header>
+        <div className="flow-page-body">
+          <div className="flex w-full max-w-md flex-col items-center gap-4">
+            <EdgeAlert variant="info" title={t('relay.noSource')} desc={t('relay.noSourceDesc')} />
+            <Button variant="primary" onClick={() => onExit?.()}>{t('relay.goToPanel')}</Button>
+          </div>
+        </div>
       </div>
     )
   }
@@ -461,36 +456,40 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
   }
 
   const send = () => {
-    if (!draft || !source) return
-    setScreen(3)
-    setAttempt(null)
-    setSendState('pending')
-    const startedAt = Date.now()
-    if (!isLive) {
-      track('relay', EVENT.relayInjectResult, { mode: 'inject', ok: true, to: draft.targetAgentId, live: false })
-      setAttempt({ sessionId: 'demo', startedAt, response: '', mode: 'inject' })
-      setSendState('injected')
-      return
-    }
-    inject({ from: source.agentId, to: draft.targetAgentId, context: draft.contextSummary, instruction: draft.instruction, artifacts: artifactNames })
-      .then((d) => {
-        const state = sendStateFromDecision(d.mode)
-        track('relay', EVENT.relayInjectResult, {
-          mode: d.mode,
-          ok: state === 'injected',
-          to: draft.targetAgentId,
-          live: true,
-          ...(d.fallbackReason ? { fallbackReason: d.fallbackReason } : {}),
+    void relaySender.current.run(async () => {
+      if (!draft || !source) return
+      const revision = ++relayRevision.current
+      setScreen(3)
+      setAttempt(null)
+      setSendState('pending')
+      const startedAt = Date.now()
+      if (!isLive) {
+        track('relay', EVENT.relayInjectResult, { mode: 'inject', ok: true, to: draft.targetAgentId, live: false })
+        setAttempt({ sessionId: 'demo', startedAt, response: '', mode: 'inject' })
+        setSendState('injected')
+        return
+      }
+      await inject({ from: source.agentId, to: draft.targetAgentId, context: draft.contextSummary, instruction: draft.instruction, artifacts: artifactNames })
+        .then((d) => {
+          const state = sendStateFromDecision(d.mode)
+          track('relay', EVENT.relayInjectResult, {
+            mode: d.mode,
+            ok: state === 'injected',
+            to: draft.targetAgentId,
+            live: true,
+            ...(d.fallbackReason ? { fallbackReason: d.fallbackReason } : {}),
+          })
+          if (!shouldCommitRelayResult(revision, relayRevision.current)) return
+          if (state !== 'failed') {
+            setAttempt({ sessionId: d.sessionID ?? '', startedAt, response: d.response ?? '', mode: d.mode, package: d.package })
+          }
+          setSendState(state)
         })
-        if (state !== 'failed') {
-          setAttempt({ sessionId: d.sessionID ?? '', startedAt, response: d.response ?? '', mode: d.mode, package: d.package })
-        }
-        setSendState(state)
-      })
-      .catch(() => {
-        track('relay', EVENT.relayInjectResult, { ok: false, reason: 'bridge-error', to: draft.targetAgentId, live: true })
-        setSendState('failed')
-      })
+        .catch(() => {
+          track('relay', EVENT.relayInjectResult, { ok: false, reason: 'bridge-error', to: draft.targetAgentId, live: true })
+          if (shouldCommitRelayResult(revision, relayRevision.current)) setSendState('failed')
+        })
+    })
   }
 
   const nextHop = () => {
@@ -505,43 +504,50 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
   }
 
   return (
-    <div className="flex flex-col items-center gap-4 p-6">
+    <div className="flow-page">
       <Toaster />
-      <h1 className="text-text text-lg font-semibold">{t('relay.title')}</h1>
-      <Stepper steps={[t('relay.stepStart'), t('relay.stepPreview'), t('relay.stepTrack'), t('relay.stepDone')]} current={screen - 1} />
-      {screen === 1 && source && <Screen1_Trigger source={source} onOpen={() => { track('relay', EVENT.relayStarted, { from: source.agentId, live: isLive }); setScreen(2) }} />}
-      {draft && (
-        <Screen2_Preview
-          open={screen === 2}
-          onOpenChange={(o) => !o && setScreen(1)}
-          draft={draft}
-          setDraft={setDraft}
-          canSubmit={sendable}
-          target={target}
-          live={isLive}
-          onSend={send}
-        />
-      )}
-      {screen === 3 && source && target && (
-        <Screen3_Tracking
-          source={source}
-          target={target}
-          isLive={isLive}
-          sendState={sendState}
-          liveStatus={liveStatus}
-          stale={targetStale}
-          sessionId={attempt?.sessionId ?? ''}
-          packageText={packageText}
-          onRetry={send}
-          onCopy={copyPackage}
-          onDone={() => { track('relay', EVENT.relayDone, { to: draft?.targetAgentId, live: isLive }); setScreen(4) }}
-          onSimFail={() => setSendState('failed')}
-          onStop={() => { track('relay', EVENT.relayStopped, { live: isLive }); setScreen(2) }}
-        />
-      )}
-      {screen === 4 && target && (
-        <Screen4_Complete target={target} isLive={isLive} receipt={attempt?.response ?? ''} artifactNames={artifactNames} onNext={nextHop} onExit={() => onExit?.()} />
-      )}
+      <header className="flow-page-header">
+        <div className="flow-page-heading">
+          <h1>{t('relay.title')}</h1>
+          <p>{t('relay.subtitle')}</p>
+        </div>
+        <Stepper steps={[t('relay.stepStart'), t('relay.stepPreview'), t('relay.stepTrack'), t('relay.stepDone')]} current={screen - 1} />
+      </header>
+      <div className="flow-page-body">
+        {screen === 1 && source && <Screen1_Trigger source={source} onOpen={() => { track('relay', EVENT.relayStarted, { from: source.agentId, live: isLive }); setScreen(2) }} />}
+        {draft && (
+          <Screen2_Preview
+            open={screen === 2}
+            onOpenChange={(o) => !o && setScreen(1)}
+            draft={draft}
+            setDraft={setDraft}
+            canSubmit={sendable}
+            target={target}
+            live={isLive}
+            onSend={send}
+          />
+        )}
+        {screen === 3 && source && target && (
+          <Screen3_Tracking
+            source={source}
+            target={target}
+            isLive={isLive}
+            sendState={sendState}
+            liveStatus={liveStatus}
+            stale={targetStale}
+            sessionId={attempt?.sessionId ?? ''}
+            packageText={packageText}
+            onRetry={send}
+            onCopy={copyPackage}
+            onDone={() => { track('relay', EVENT.relayDone, { to: draft?.targetAgentId, live: isLive }); setScreen(4) }}
+            onSimFail={() => setSendState('failed')}
+            onStop={() => { relayRevision.current++; track('relay', EVENT.relayStopped, { live: isLive }); setScreen(2) }}
+          />
+        )}
+        {screen === 4 && target && (
+          <Screen4_Complete target={target} isLive={isLive} receipt={attempt?.response ?? ''} artifactNames={artifactNames} onNext={nextHop} onExit={() => onExit?.()} />
+        )}
+      </div>
     </div>
   )
 }

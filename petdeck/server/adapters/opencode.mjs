@@ -75,8 +75,17 @@ export function parseServePayload(payload) {
   return rows;
 }
 
+/** v2 rows nest the working directory under location.directory (real payload:
+ *  {"location":{"directory":"F:\\…\\Workflow"}}); older serve rows put it flat.
+ *  Reading only s.directory left every opencode session with an empty cwd. */
+export function directoryOf(s = {}) {
+  const d = s.location?.directory ?? s.directory ?? s.path ?? '';
+  return typeof d === 'string' ? d : '';
+}
+
 const toRow = (source, now) => (s) => ({
-  agent: id, source, session: s.id ?? '', status: mapServeStatus(s, now), lastMessage: (s.title ?? '').slice(0, 200),
+  agent: id, source, session: s.id ?? '', status: mapServeStatus(s, now),
+  title: (s.title ?? '').slice(0, 200), lastMessage: '', cwd: directoryOf(s) || undefined,
 });
 
 function delay(ms, signal) {

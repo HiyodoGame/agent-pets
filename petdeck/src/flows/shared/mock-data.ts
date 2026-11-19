@@ -188,9 +188,10 @@ export const mockSessions: Session[] = [
 ]
 
 export const mockEvents: PetEvent[] = [
-  { id: 'e1', type: 'relay-ready', projectId: 'p1', sessionId: 's1', text: 'Codex 素材生成完成，可接力给 Qoder 部署', timestamp: '2026-11-13T18:20:00+08:00', handled: false },
-  { id: 'e2', type: 'decision', projectId: 'p1', sessionId: 's3', text: 'kimi work 等你拍板：宣传主打方向', timestamp: '2026-11-13T18:32:00+08:00', handled: false },
-  { id: 'e3', type: 'done', projectId: 'p3', sessionId: 's5', text: '官网内容更新完成', timestamp: '2026-11-13T17:50:00+08:00', handled: true },
+  { id: 'e0', type: 'started', projectId: 'p1', sessionId: 's2', agentId: 'a2', agentName: 'Qoder', projectName: 'App 发版管线', sessionTitle: '上传素材并部署服务器', text: 'Qoder 正在上传素材并部署服务器', timestamp: '2026-11-13T18:25:00+08:00', handled: true },
+  { id: 'e1', type: 'relay-ready', projectId: 'p1', sessionId: 's1', agentId: 'a1', agentName: 'Codex', projectName: 'App 发版管线', sessionTitle: '生成 v2.1 应用内素材包', text: 'Codex 素材生成完成，可接力给 Qoder 部署', timestamp: '2026-11-13T18:20:00+08:00', handled: false },
+  { id: 'e2', type: 'decision', projectId: 'p1', sessionId: 's3', agentId: 'a3', agentName: 'kimi work', projectName: 'App 发版管线', sessionTitle: '撰写小红书/抖音宣传文案', text: 'kimi work 等你拍板：宣传主打方向', timestamp: '2026-11-13T18:32:00+08:00', handled: false },
+  { id: 'e3', type: 'done', projectId: 'p3', sessionId: 's5', agentId: 'a2', agentName: 'Qoder', projectName: '官网维护', sessionTitle: '更新官网展示内容', text: '官网内容更新完成', timestamp: '2026-11-13T17:50:00+08:00', handled: true },
 ]
 
 export const mockRelayDrafts: RelayDraft[] = [

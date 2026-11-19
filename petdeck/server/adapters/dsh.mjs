@@ -54,12 +54,14 @@ export function decodeDshEvents(buf) {
  * 无任何回合信号 => unknown（绝不编造）。
  */
 export function parseDshEvents(events, _now = Date.now()) {
-  let status = 'unknown', lastMessage = '', title = '', turn = '', session = '';
+  let status = 'unknown', lastMessage = '', title = '', turn = '', session = '', cwd = '';
   let pendingApproval = false;
   for (const e of events) {
     const t = e?.type;
     if (t === 'session/title') title = e.data?.title ?? title;
-    else if (t === 'session') session = e.data?.id || session;
+    // session 头事件是扁平的 {"type":"session","version":4,"id","cwd"}（不是 data 包裹）；
+    // 曾按 e.data 取值，线上 5/5 会话 cwd 全空。仍兼容旧的 data 结构。
+    else if (t === 'session') { session = e.id ?? e.data?.id ?? session; cwd = e.cwd ?? e.data?.cwd ?? cwd; }
     else if (t === 'turn/start') { turn = e.data?.turn ?? turn; status = 'running'; }
     else if (t === 'turn/end') {
       const kind = e.data?.reason?.kind;
@@ -73,7 +75,7 @@ export function parseDshEvents(events, _now = Date.now()) {
     }
   }
   if (pendingApproval) status = 'waiting';
-  return { status, lastMessage, title, turn, session };
+  return { status, lastMessage, title, turn, session, cwd };
 }
 
 /** Observe newest sessions (cap 5). Injectable home for tests. Throws on real faults. */
@@ -89,7 +91,7 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
     catch { continue; } // 单文件损坏只跳过该会话，不让整个适配器故障（freshness 契约保留）
     const r = parseDshEvents(events, now);
     if (r.status === 'unknown' && !r.lastMessage && !r.title) continue;
-    out.push({ agent: id, source: 'dsh-zstd', session: r.session || path.basename(path.dirname(f)), title: r.title, status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: r.turn });
+    out.push({ agent: id, source: 'dsh-zstd', session: r.session || path.basename(path.dirname(f)), title: r.title, status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: r.turn, cwd: r.cwd });
   }
   return out;
 }

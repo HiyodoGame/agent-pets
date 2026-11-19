@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 
 const PET_TYPE = {
+  task_started: 'started',
   task_complete: 'done',
   turn_aborted: 'stuck',
   decision: 'decision',
@@ -9,7 +10,7 @@ const PET_TYPE = {
 };
 
 export function toPetEventType(t) {
-  return PET_TYPE[t] ?? 'done';
+  return PET_TYPE[t] ?? null;
 }
 
 export function createBus(cap = 50) {

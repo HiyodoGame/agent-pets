@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { BRIDGE_URL, configureBridgeClient, inject, subscribeEvents } from '../adapters/bridge-client.ts'
+import { BRIDGE_URL, bridgeConfigError, configureBridgeClient, inject, subscribeEvents } from '../adapters/bridge-client.ts'
 import type { InjectPayload } from '../adapters/types.ts'
 import { initializeBridgeConfig } from './bridge-config.ts'
 
@@ -21,6 +21,14 @@ test('web bridge bootstrap: non-Tauri environments keep the default endpoint', a
   const config = await initializeBridgeConfig()
   assert.equal(config.url, BRIDGE_URL)
   assert.equal(config.token, '')
+})
+
+test('desktop bridge: a Rust-side startup error is kept and exposed to the shell', (t) => {
+  reset(t)
+  configureBridgeClient({ url: 'http://127.0.0.1:6331', token: 'x', error: '未检测到 Node.js，请安装 Node.js 24 后重启 PetDeck。' })
+  assert.equal(bridgeConfigError(), '未检测到 Node.js，请安装 Node.js 24 后重启 PetDeck。')
+  configureBridgeClient({ url: 'http://127.0.0.1:6331', token: 'x' })
+  assert.equal(bridgeConfigError(), undefined)
 })
 
 test('desktop bridge: runtime URL and token are used for HTTP inject', async (t) => {

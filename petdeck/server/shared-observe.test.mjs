@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { tailLines, latestFiles } from './adapters/shared.mjs';
+import { tailLines, headLines, latestFiles } from './adapters/shared.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'petdeck-observe-'));
 const aFile = path.join(tmp, 'rollout-a.jsonl');
@@ -114,4 +114,28 @@ test('latestFiles: cached directory deleted afterwards => [] (ENOENT semantics k
   latestFiles(dir, pred, 5); // warm the cache
   fs.rmSync(dir, { recursive: true, force: true });
   assert.deepEqual(latestFiles(dir, pred, 5), []);
+});
+
+// --- headLines: the codex cwd/title source lives in the FIRST lines of a rollout ---
+test('headLines: missing file => [] (ENOENT tolerated)', () => {
+  assert.deepEqual(headLines(path.join(tmp, 'gone-rollout.jsonl'), 5), []);
+});
+
+test('headLines: n complete lines even when one early line is huge', () => {
+  // 真实 rollout 第 3 行是整份 AGENTS.md 系统提示（~100 KB 单行）。按字节窗口切会把
+  // 窗口截断成 2 行，标题来源（第 13 行）就再也读不到。
+  const file = path.join(tmp, 'rollout-huge.jsonl');
+  const huge = JSON.stringify({ type: 'response_item', payload: { type: 'message', text: 'x'.repeat(200 * 1024) } });
+  const rest = Array.from({ length: 12 }, (_, i) => JSON.stringify({ seq: i + 3 }));
+  fs.writeFileSync(file, [JSON.stringify({ seq: 1 }), JSON.stringify({ seq: 2 }), huge, ...rest].join('\n'));
+  const lines = headLines(file, 8);
+  assert.equal(lines.length, 8);
+  assert.ok(lines[2].length > 100 * 1024, 'huge line kept whole');
+});
+
+test('headLines: byte cap never returns a partial line', () => {
+  const file = path.join(tmp, 'rollout-cap.jsonl');
+  fs.writeFileSync(file, ['aaaa', 'bbbb', 'cccc'].join('\n'));
+  const lines = headLines(file, 10, 7); // 7 bytes: "aaaa\nb" -> only "aaaa" is complete
+  assert.deepEqual(lines, ['aaaa']);
 });

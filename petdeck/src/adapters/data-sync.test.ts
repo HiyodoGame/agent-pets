@@ -49,11 +49,11 @@ test('data-sync: cache is shown at most once per offline episode', () => {
 
 // ---- observedToSessions：行 → Session 投影（含修正后的 unknown 状态映射） ----
 
-test('data-sync: observed rows project to sessions with derived id and live project binding', () => {
+test('data-sync: observed rows project to sessions with derived ids and honest project binding', () => {
   const sessions = observedToSessions([row(), row({ agent: 'codex', session: 's-2' })], NOW);
   assert.deepEqual(
     sessions.map((s) => [s.id, s.projectId, s.agentId]),
-    [['kimi:s-1', 'live', 'kimi'], ['codex:s-2', 'live', 'codex']],
+    [['kimi:s-1', 'local:kimi:unidentified', 'kimi'], ['codex:s-2', 'local:codex:unidentified', 'codex']],
   );
 });
 
@@ -114,4 +114,14 @@ test('data-sync: usageWindow from observed rows passes through for reset countdo
   assert.deepEqual(s.usageWindow, w);
   const [bare] = observedToSessions([row({ usageWindow: undefined })], NOW);
   assert.equal(bare.usageWindow, undefined, '无窗口数据保持缺席，不零伪造');
+});
+
+test('data-sync: observed titles stay short and human-readable instead of exposing raw Markdown', () => {
+  const [named] = observedToSessions([row({ title: '  修复登录状态  ', lastMessage: 'unused' })], NOW);
+  assert.equal(named.title, '修复登录状态');
+  const [derived] = observedToSessions([row({ title: '', lastMessage: '可以把**抠好背景的猫照片**放进箱子。' })], NOW);
+  assert.equal(derived.title, '可以把抠好背景的猫照片放进箱子。');
+  const [long] = observedToSessions([row({ title: '', lastMessage: '很长的标题'.repeat(30) })], NOW);
+  assert.equal(Array.from(long.title).length, 73);
+  assert.equal(long.title.endsWith('…'), true);
 });

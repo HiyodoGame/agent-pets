@@ -12,16 +12,32 @@ import { createApp } from './bridge.mjs';
 
 const J = (o) => JSON.stringify(o);
 
+// 真实 rollout 形状（2026-11-20 本机实测）：用户提问不是 {type:'user_message'}，
+// 而是 event_msg/item_completed/item.type==='UserMessage'；旧的 fixture 按想象写，
+// 于是测试全绿而线上标题全空。这里按真实形状断言。
 test('codex parseRollout: task_complete wins status + lastMessage', () => {
   const lines = [
-    J({ payload: { type: 'task_started', turn_id: 't1' } }),
-    J({ payload: { type: 'agent_message', message: 'working' } }),
-    J({ payload: { type: 'task_complete', last_agent_message: 'done pack', turn_id: 't1' } }),
+    J({ type: 'session_meta', payload: { id: 's1', cwd: 'F:/proj' } }),
+    J({ type: 'event_msg', payload: { type: 'task_started', turn_id: 't1' } }),
+    J({ type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text: 'Fix login' }] } } }),
+    J({ type: 'event_msg', payload: { type: 'agent_message', message: 'working' } }),
+    J({ type: 'event_msg', payload: { type: 'item_completed', item: { type: 'AgentMessage', content: [{ type: 'text', text: 'done pack' }] } } }),
+    J({ type: 'event_msg', payload: { type: 'task_complete', last_agent_message: 'done pack', turn_id: 't1' } }),
   ];
   const r = parseRollout(lines);
   assert.equal(r.status, 'done');
   assert.equal(r.lastMessage, 'done pack');
+  assert.equal(r.cwd, 'F:/proj');
+  assert.equal(r.title, 'Fix login');
   assert.equal(r.turn, 't1');
+});
+
+test('codex parseRollout: AGENTS.md injection is never the title', () => {
+  const r = parseRollout([
+    J({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '# AGENTS.md instructions for F:/proj' }] } }),
+    J({ type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text: '帮我看下登录' }] } } }),
+  ]);
+  assert.equal(r.title, '帮我看下登录');
 });
 
 test('codex parseRollout: turn_aborted => stuck', () => {
@@ -44,6 +60,27 @@ test('claude parseClaude: assistant text + cwd', () => {
   assert.equal(r.status, 'running');
   assert.equal(r.lastMessage, 'reply');
   assert.equal(r.cwd, 'F:/proj');
+  assert.equal(r.title, 'hi');
+});
+
+// 真实 CLI 2.1.312 会写 {type:'ai-title',aiTitle}；而 user 行里混着图片占位与
+// stop-hook 反馈（实测 2/4 条标题曾被这些噪声占据）。
+test('claude parseClaude: ai-title wins over noisy user lines', () => {
+  const lines = [
+    J({ type: 'user', message: { content: '[Image: original 1260x2720, displayed at 926x2000]' } }),
+    J({ type: 'user', message: { content: 'Stop hook feedback:\n[node "C:\\x"]' } }),
+    J({ type: 'user', message: { content: '真实提问' } }),
+    J({ type: 'ai-title', aiTitle: '小爪邮局素材接入' }),
+  ];
+  assert.equal(parseClaude(lines).title, '小爪邮局素材接入');
+});
+
+test('claude parseClaude: noise-only user lines never become the title', () => {
+  const r = parseClaude([
+    J({ type: 'user', message: { content: '[Image: original 1x1]' } }),
+    J({ type: 'user', message: { content: 'Caveat: system text' } }),
+  ]);
+  assert.equal(r.title, '');
 });
 
 test('claude parseClaude: trailing user => waiting', () => {
@@ -126,19 +163,22 @@ test('claude parseClaude: lastMessage takes assistant text only, never user stri
 // ---- Task 5: bridge —— waiting 状态变化产生 decision 事件（petType=decision 直达前端收件箱） ----
 
 test('bridge: waiting status transition emits a decision event', async () => {
+  let status = 'running';
   const adapters = [{
     id: 'claude', name: 'Claude', tier: 'full',
-    observe: () => [{ agent: 'claude', session: 's1.jsonl', status: 'waiting', lastMessage: 'which one?', cwd: '' }],
+    observe: () => [{ agent: 'claude', session: 's1.jsonl', status, lastMessage: 'which one?', cwd: '' }],
     inject: () => Promise.resolve({ ok: true, response: '' }),
   }];
   const bus = createBus();
   const app = createApp({ adapters, security: {}, bus });
   await app.poll();
-  const ev = bus.snapshot().find((e) => e.agentId === 'claude');
+  status = 'waiting';
+  await app.poll();
+  const ev = bus.snapshot().filter((e) => e.agentId === 'claude').at(-1);
   assert.ok(ev, 'a status-change event must be emitted');
   assert.equal(ev.type, 'decision');
   assert.equal(ev.petType, 'decision');
-  assert.equal(ev.payload.lastMessage, 'which one?');
+  assert.equal(ev.payload.session.lastMessage, 'which one?');
 });
 
 test('opencode mapServeStatus: only real signals, else unknown', () => {
@@ -184,7 +224,7 @@ test('opencode v2 observe: unwraps {data}, maps outcome, uses CLI discovery', as
   const run = async (cmd, args) => {
     calls.push([cmd, ...args]);
     return { status: 0, stdout: JSON.stringify({ data: [
-      { id: 'ses_1', outcome: 'succeeded', title: 'done one' },
+      { id: 'ses_1', outcome: 'succeeded', title: 'done one', directory: '/work/one' },
       { id: 'ses_2', outcome: null, title: 'old one' },
     ] }), stderr: '', error: false, summary: '' };
   };
@@ -194,6 +234,9 @@ test('opencode v2 observe: unwraps {data}, maps outcome, uses CLI discovery', as
   assert.equal(rows[0].session, 'ses_1');
   assert.equal(rows[0].status, 'done');
   assert.equal(rows[0].source, 'serve-api');
+  assert.equal(rows[0].title, 'done one');
+  assert.equal(rows[0].lastMessage, '');
+  assert.equal(rows[0].cwd, '/work/one');
   assert.equal(rows[1].status, 'unknown');
 });
 
@@ -316,10 +359,13 @@ test('bus: normalize + replay + unsubscribe', () => {
 });
 
 test('bus: toPetEventType mapping', () => {
+  assert.equal(toPetEventType('task_started'), 'started');
   assert.equal(toPetEventType('task_complete'), 'done');
   assert.equal(toPetEventType('turn_aborted'), 'stuck');
   assert.equal(toPetEventType('decision'), 'decision');
   assert.equal(toPetEventType('relay-ready'), 'relay-ready');
+  assert.equal(toPetEventType('status_unknown'), null);
+  assert.equal(toPetEventType('unrecognised'), null);
 });
 // --- Task 7: 降级原因 —— tier（能力分级）/ cli（目标 CLI 拒绝）；bridge-error 在 bridge 层 ---
 test('tiers: clipboard fallback carries fallbackReason tier when the tier cannot inject', () => {

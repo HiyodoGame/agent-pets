@@ -16,7 +16,18 @@ let bridgeConfig: BridgeClientConfig = {
 }
 
 export function configureBridgeClient(config: BridgeClientConfig): void {
-  bridgeConfig = { url: config.url.replace(/\/$/, ''), token: config.token }
+  bridgeConfig = {
+    url: config.url.replace(/\/$/, ''),
+    token: config.token,
+    // Rust 侧在 Node 缺失/版本过低/bridge 启不起来时会在配置里带回可读原因；
+    // 丢掉它，用户只会看到「当前离线」，无从知道要装 Node 24。
+    ...(config.error ? { error: config.error } : {}),
+  }
+}
+
+/** 最近一次 bridge 启动失败的原因（Tauri 侧返回）；Web 环境恒为 undefined。 */
+export function bridgeConfigError(): string | undefined {
+  return bridgeConfig.error
 }
 
 export async function fetchHealth(): Promise<boolean> {

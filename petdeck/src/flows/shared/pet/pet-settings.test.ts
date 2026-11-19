@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { getPetSettings, updatePetSettings, type SettingsStorage } from './pet-settings.ts'
+import { getPetSettings, subscribePetSettings, updatePetSettings, type SettingsStorage } from './pet-settings.ts'
 
 function memoryStorage(initial: Record<string, string> = {}): SettingsStorage {
   const values = new Map(Object.entries(initial))
@@ -40,4 +40,33 @@ test('pet settings: unsupported scale and unsafe skin id are ignored', () => {
   assert.equal(settings.skinId, 'default')
   assert.equal(settings.scale, 1)
   assert.equal(settings.motion, 'reduced')
+})
+
+test('pet settings: storage events synchronize another window and unsubscribe cleanly', (t) => {
+  const storage = memoryStorage()
+  const listeners = new Map<string, EventListener[]>()
+  const previousWindow = globalThis.window
+  globalThis.window = {
+    localStorage: storage,
+    addEventListener: (type: string, listener: EventListener) => {
+      listeners.set(type, [...listeners.get(type) ?? [], listener])
+    },
+    removeEventListener: (type: string, listener: EventListener) => {
+      listeners.set(type, (listeners.get(type) ?? []).filter((item) => item !== listener))
+    },
+  } as unknown as Window & typeof globalThis
+  t.after(() => {
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window
+    else globalThis.window = previousWindow
+  })
+
+  let latestScale = 1
+  const stop = subscribePetSettings((settings) => { latestScale = settings.scale })
+  storage.setItem('petdeck.settings', JSON.stringify({ scale: 1.25 }))
+  const event = new Event('storage')
+  Object.defineProperty(event, 'key', { value: 'petdeck.settings' })
+  for (const listener of listeners.get('storage') ?? []) listener(event)
+  assert.equal(latestScale, 1.25)
+  stop()
+  assert.equal(listeners.get('storage')?.length, 0)
 })

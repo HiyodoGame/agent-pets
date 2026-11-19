@@ -1,4 +1,4 @@
-import type { AgentStatus } from '../shared/types'
+import type { AgentStatus, EventType } from '../shared/types'
 import type { MotionPref } from '../shared/ui-logic'
 
 export type PetBehaviorState = 'idle' | 'walk' | 'sleep' | 'drag' | 'drop' | 'pet' | 'work' | 'think' | 'done' | 'attention' | 'offline' | 'greet' | 'wake' | 'notify'
@@ -14,7 +14,7 @@ export type PetBehaviorEvent =
   | { type: 'DRAG_START' }
   | { type: 'DRAG_END' }
   | { type: 'STATUS_CHANGED'; status: AgentStatus }
-  | { type: 'EVENT_ARRIVED'; decision: boolean }
+  | { type: 'EVENT_ARRIVED'; eventType: EventType }
   | { type: 'CLIP_FINISHED'; action: PetBehaviorState }
   | { type: 'IDLE_TIMEOUT' }
   | { type: 'WAKE' }
@@ -59,13 +59,15 @@ export function reducePetBehavior(state: PetBehaviorSnapshot, event: PetBehavior
       if (state.current === 'sleep') return { ...state, current: 'wake' }
       return { ...state, current: 'pet' }
     case 'EVENT_ARRIVED': {
-      if (!event.decision) {
-        if (state.current === 'drag' || state.current === 'notify' || state.status === 'offline') return state
-        if (state.current === 'pet' || state.current === 'drop' || state.current === 'done' || state.current === 'attention') return state
-        return { ...state, current: 'notify' }
+      const decision = event.eventType === 'decision'
+      if (decision) {
+        if (state.current === 'drag' || state.status === 'offline') return { ...state, pendingDecision: true }
+        return { ...state, current: 'notify', pendingDecision: true }
       }
-      if (state.current === 'drag' || state.status === 'offline') return { ...state, pendingDecision: true }
-      return { ...state, current: 'notify', pendingDecision: true }
+      if (state.current === 'drag' || state.current === 'notify' || state.status === 'offline') return state
+      if (event.eventType === 'started') return { ...state, current: 'work' }
+      if (event.eventType === 'stuck') return { ...state, current: 'attention' }
+      return { ...state, current: 'done' }
     }
     case 'CLIP_FINISHED':
       if (event.action !== state.current) return state

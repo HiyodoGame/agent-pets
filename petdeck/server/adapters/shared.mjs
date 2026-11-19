@@ -30,6 +30,50 @@ export function tailLines(file, n = 400, maxBytes = 512 * 1024) {
   }
 }
 
+
+/**
+ * Read the FIRST n lines of a file with BOUNDED memory.
+ * Rollout-style jsonl files carry a header record on line 1 (codex session_meta
+ * with the session cwd) and the record is never repeated later, so a tail-only
+ * window loses it on long sessions.
+ *
+ * Reads in chunks and stops as soon as n complete lines (newlines) were seen, so a
+ * single huge line (codex writes the whole AGENTS.md system prompt as one ~100 KB
+ * jsonl record) no longer eats the whole budget and truncates the window to 2 lines.
+ * maxBytes is a hard ceiling; a line cut by it is dropped, never returned partial.
+ * ENOENT (file vanished) => []; other errors throw (freshness marks the source stale).
+ */
+export function headLines(file, n = 8, maxBytes = 1024 * 1024) {
+  let fd = null;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const cap = Math.max(1, Math.min(size, maxBytes));
+    const CHUNK = 64 * 1024;
+    const chunks = [];
+    let offset = 0;
+    let newlines = 0;
+    while (offset < cap && newlines < n) {
+      const want = Math.min(CHUNK, cap - offset);
+      const buf = Buffer.alloc(want);
+      const got = fs.readSync(fd, buf, 0, want, offset);
+      if (got <= 0) break;
+      chunks.push(buf.subarray(0, got));
+      for (let i = 0; i < got; i += 1) if (buf[i] === 10) newlines += 1;
+      offset += got;
+    }
+    let lines = Buffer.concat(chunks).toString('utf8').split('\n');
+    if (offset < size) lines = lines.slice(0, -1); // trailing line cut by the byte cap
+    while (lines.length && lines[lines.length - 1] === '') lines.pop();
+    return lines.slice(0, n);
+  } catch (e) {
+    if (e.code === 'ENOENT') return [];
+    throw e;
+  } finally {
+    if (fd !== null) { try { fs.closeSync(fd); } catch { /* ignore */ } }
+  }
+}
+
 /**
  * Directory-entry cache: dir path -> { mtimeMs, files, subdirs }.
  * A directory whose mtime is unchanged skips readdirSync; its cached subdir list

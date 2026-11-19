@@ -31,6 +31,7 @@ import { PetAvatar } from '../shared/pet-avatar'
 import { EdgeAlert, Stepper } from '../shared/edge-kit'
 import { decideLiveConnect, fmtRateLimitWait, type LiveConnectResult } from '../shared/ui-logic'
 import { usePetData } from '../../adapters'
+import { loadConnectedAgentIds, recordConnectedAgent, resolveConnectedAgentIds, shouldPersistConnection } from '../../adapters/connected-agents.ts'
 import { track, EVENT } from '../../telemetry'
 import { t } from '../../i18n/index.ts'
 import type { MessageKey } from '../../i18n/messages.ts'
@@ -74,6 +75,31 @@ function Screen1_ColdHome({ mock, quickItems, onStart, onQuick }: { mock: boolea
         </Button>
       )}
     </div>
+  )
+}
+
+function Screen1_ConnectedHome({ connected, healthy, onAdd }: { connected: Agent[]; healthy: boolean; onAdd: () => void }) {
+  return (
+    <section className="connect-home" aria-label={t('connect.connectedTitle')}>
+      <div className="connect-home-summary">
+        <span className="connect-home-check"><Check className="h-5 w-5" /></span>
+        <div>
+          <h2>{t('connect.connectedTitle')}</h2>
+          <p>{healthy ? t('connect.connectedDesc') : t('connect.connectedOffline')}</p>
+        </div>
+      </div>
+      <ul className="connect-agent-list">
+        {connected.map((agent) => (
+          <li key={agent.id}>
+            <span>{agent.name}</span>
+            <Tag color={CAP_META[agent.capability].color}>{t(CAP_META[agent.capability].labelKey)}</Tag>
+          </li>
+        ))}
+      </ul>
+      <Button variant="secondary" onClick={onAdd}>
+        <Plug className="mr-1 h-4 w-4" /> {t('connect.addAnother')}
+      </Button>
+    </section>
   )
 }
 
@@ -349,7 +375,7 @@ function Screen4_Success({ entry, mock, onDone, onMore }: { entry: AgentCatalogE
 }
 
 export function Flow2_ConnectAgent({ onConnected }: { onConnected?: () => void }) {
-  const { mode, connState, agents, reconnect } = usePetData()
+  const { mode, connState, agents, sessions, reconnect } = usePetData()
   const mock = mode === 'mock'
   const healthy = connState === 'live'
   // live 目录 = bridge 真实发现的 Agent；mock 保留设计期完整目录（含未适配项）。
@@ -371,6 +397,8 @@ export function Flow2_ConnectAgent({ onConnected }: { onConnected?: () => void }
       ]
     : catalog.slice(0, 3).map((c) => ({ text: t('connect.connectTo', { name: c.name }), prompt: c.id }))
   ).filter((q) => catalog.some((c) => c.id === q.prompt))
+  const connectedIds = resolveConnectedAgentIds(loadConnectedAgentIds(), sessions.map((session) => session.agentId))
+  const connected = agents.filter((agent) => connectedIds.includes(agent.id))
   const [screen, setScreen] = useState<1 | 2 | 3 | 4>(1)
   const [entry, setEntry] = useState<AgentCatalogEntry | null>(null)
   const pick = (e: AgentCatalogEntry) => {
@@ -378,23 +406,37 @@ export function Flow2_ConnectAgent({ onConnected }: { onConnected?: () => void }
     setScreen(3)
   }
   return (
-    <div className="flex flex-col items-center gap-4 p-6">
-      <h1 className="text-text text-lg font-semibold">{t('connect.title')}</h1>
-      <Stepper steps={[t('connect.stepSelect'), t('connect.stepDetect'), t('connect.stepAuthorize'), t('connect.stepDone')]} current={screen - 1} />
-      {screen === 1 && <Screen1_ColdHome mock={mock} quickItems={quickItems} onStart={() => setScreen(2)} onQuick={(id) => { const c = catalog.find((x) => x.id === id); if (c) pick(c) }} />}
-      {screen === 2 && <Screen2_SelectAgent catalog={catalog} onPick={pick} onBack={() => setScreen(1)} />}
-      {screen === 3 && entry && (
-        <Screen3_Detect
-          entry={entry}
-          mock={mock}
-          healthy={healthy}
-          agentIds={agentIds}
-          onReconnect={reconnect}
-          onBack={() => setScreen(2)}
-          onSuccess={() => setScreen(4)}
-        />
-      )}
-      {screen === 4 && entry && <Screen4_Success entry={entry} mock={mock} onDone={() => onConnected?.()} onMore={() => setScreen(2)} />}
+    <div className="flow-page">
+      <header className="flow-page-header">
+        <div className="flow-page-heading">
+          <h1>{t('connect.title')}</h1>
+          <p>{t('connect.subtitle')}</p>
+        </div>
+        <Stepper steps={[t('connect.stepSelect'), t('connect.stepDetect'), t('connect.stepAuthorize'), t('connect.stepDone')]} current={screen - 1} />
+      </header>
+      <div className="flow-page-body">
+        {screen === 1 && (connected.length > 0 ? (
+          <Screen1_ConnectedHome connected={connected} healthy={healthy} onAdd={() => setScreen(2)} />
+        ) : (
+          <Screen1_ColdHome mock={mock} quickItems={quickItems} onStart={() => setScreen(2)} onQuick={(id) => { const c = catalog.find((x) => x.id === id); if (c) pick(c) }} />
+        ))}
+        {screen === 2 && <Screen2_SelectAgent catalog={catalog} onPick={pick} onBack={() => setScreen(1)} />}
+        {screen === 3 && entry && (
+          <Screen3_Detect
+            entry={entry}
+            mock={mock}
+            healthy={healthy}
+            agentIds={agentIds}
+            onReconnect={reconnect}
+            onBack={() => setScreen(2)}
+            onSuccess={() => {
+              if (shouldPersistConnection(mock, entry.capability)) recordConnectedAgent(undefined, entry.id)
+              setScreen(4)
+            }}
+          />
+        )}
+        {screen === 4 && entry && <Screen4_Success entry={entry} mock={mock} onDone={() => onConnected?.()} onMore={() => setScreen(2)} />}
+      </div>
     </div>
   )
 }

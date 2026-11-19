@@ -183,10 +183,10 @@ export function newEventsAfter(events: PetEvent[], watermark: EventWatermark | n
 
 // ---- 流式响应归属：仅最后一条 assistant（非 user）消息在会话活跃时可显示 streaming ----
 
-/** 渲染 Response 时是否使用 streaming phase：仅当目标消息是整个线程的最后一条且非 user（assistant 回复）、
- *  且会话仍活跃时才允许 streaming；历史消息一律 done，避免已完成内容继续闪烁光标。 */
-export function shouldStreamResponse(messages: { role: string }[], index: number, sessionActive: boolean): boolean {
-  if (!sessionActive || index < 0 || index !== messages.length - 1) return false
+/** 仅真实流式来源允许 streaming：调用方以 allowStreaming 区分演示与轮询观察。
+ *  目标消息还必须是线程最后一条非 user 消息且会话活跃；历史消息一律 done。 */
+export function shouldStreamResponse(messages: { role: string }[], index: number, sessionActive: boolean, allowStreaming = true): boolean {
+  if (!allowStreaming || !sessionActive || index < 0 || index !== messages.length - 1) return false
   return messages[index].role !== 'user'
 }
 

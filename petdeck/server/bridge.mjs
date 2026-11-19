@@ -18,8 +18,9 @@ import cursor from './adapters/cursor.mjs';
 import gemini from './adapters/gemini.mjs';
 import remote from './adapters/remote.mjs';
 import { TIER, injectDecision } from './tiers.mjs';
-import { createBus } from './bus.mjs';
+import { createBus, toPetEventType } from './bus.mjs';
 import { pollOnce } from './freshness.mjs';
+import { canonicalizeRows, createRootResolver } from './project-root.mjs';
 
 const REAL_ADAPTERS = [codex, claude, opencode, kimi, kimiCode, zcode, dsh, cursor, gemini, remote];
 const DEFAULT_ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '::1'];
@@ -93,9 +94,12 @@ export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = creat
   const sec = withDefaults(security);
   let sessions = [];
   let sessionsKey = '';
+  // One cache for the whole process: cwd -> git work tree root rarely changes.
+  const resolveProjectRoot = createRootResolver();
   let lastGood = new Map();
   let sources = {};
   const lastStatus = new Map();
+  let statusBaselineReady = false;
   let inflight = 0;
   let pollInFlight = false;
 
@@ -108,24 +112,32 @@ export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = creat
       const res = await pollOnce(adapters, lastGood, Date.now());
       lastGood = res.lastGood;
       sources = res.sources;
+      // Group by repository root and flush relay scratch dirs before anything is
+      // published: the UI, the event bus and /api/sessions must see the same rows.
+      const rows = canonicalizeRows(res.sessions, { resolveRoot: resolveProjectRoot });
+      const groupingKey = rows.map((r) => `${r.agent}:${r.session}:${r.cwd ?? ''}:${r.temp ? 1 : 0}`).join('|');
       const seenKeys = new Set();
-      for (const r of res.sessions) {
+      for (const r of rows) {
         const key = `${r.agent}:${r.session}`;
         seenKeys.add(key);
         if (lastStatus.get(key) !== r.status) {
           lastStatus.set(key, r.status);
-          const type = r.status === 'done' ? 'task_complete' : r.status === 'stuck' ? 'turn_aborted' : r.status === 'waiting' ? 'decision' : 'task_started';
-          bus.emit({ agentId: r.agent, sessionId: r.session, type, petType: r.status === 'done' ? 'done' : r.status === 'stuck' ? 'stuck' : r.status === 'waiting' ? 'decision' : '', payload: { lastMessage: r.lastMessage } });
+          if (statusBaselineReady) {
+            const type = r.status === 'done' ? 'task_complete' : r.status === 'stuck' ? 'turn_aborted' : r.status === 'waiting' ? 'decision' : r.status === 'running' ? 'task_started' : 'status_unknown';
+            bus.emit({ agentId: r.agent, sessionId: r.session, type, petType: toPetEventType(type), payload: { session: { ...r } } });
+          }
         }
       }
+      statusBaselineReady = true;
       // Prune status memory to sessions still present this round; a session that
       // vanishes and later returns re-emits its status event instead of being silent.
       for (const key of lastStatus.keys()) if (!seenKeys.has(key)) lastStatus.delete(key);
-      if (res.key !== sessionsKey) {
-        sessionsKey = res.key;
-        bus.emit({ type: 'sessions', petType: 'sessions', payload: { sessions: res.sessions } });
+      const key = `${res.key}|${groupingKey}`;
+      if (key !== sessionsKey) {
+        sessionsKey = key;
+        bus.emit({ type: 'sessions', petType: 'sessions', payload: { sessions: rows } });
       }
-      sessions = res.sessions;
+      sessions = rows;
     } finally {
       pollInFlight = false;
     }

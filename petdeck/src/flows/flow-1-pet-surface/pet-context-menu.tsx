@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
+import { Bell, BellOff, EyeOff, LogOut, PanelTop, Settings2 } from 'lucide-react'
 import { t } from '../../i18n/index.ts'
 export interface PetMenuPoint { x: number; y: number }
 
-export function PetContextMenu({ point, dnd, onClose, onOpenPanel, onToggleDnd, onSettings, onHide, onQuit }: {
+export function PetContextMenu({ dnd, onClose, onOpenPanel, onToggleDnd, onSettings, onHide, onQuit }: {
   point: PetMenuPoint
   dnd: boolean
   onClose: () => void
@@ -39,27 +40,24 @@ export function PetContextMenu({ point, dnd, onClose, onOpenPanel, onToggleDnd, 
   }
 
   const run = (action: () => void) => { action(); onClose() }
-  const left = Math.max(8, Math.min(point.x, window.innerWidth - 220))
-  const top = Math.max(8, Math.min(point.y, window.innerHeight - 220))
-
   return (
     <div
       ref={ref}
       className="pet-popover pet-context-menu"
-      style={{ left, top }}
       role="menu"
       aria-label={t('menu.aria')}
       onKeyDown={onKeyDown}
       onContextMenu={(event) => event.preventDefault()}
     >
-      <button type="button" role="menuitem" onClick={() => run(onOpenPanel)}>{t('menu.openPanel')}</button>
+      <button type="button" role="menuitem" onClick={() => run(onOpenPanel)}><PanelTop aria-hidden="true" />{t('menu.openPanel')}</button>
       <button type="button" role="menuitemcheckbox" aria-checked={dnd} onClick={() => run(onToggleDnd)}>
+        {dnd ? <Bell aria-hidden="true" /> : <BellOff aria-hidden="true" />}
         {dnd ? t('menu.dndOff') : t('menu.dndOn')}
       </button>
-      <button type="button" role="menuitem" onClick={() => run(onSettings)}>{t('menu.settings')}</button>
+      <button type="button" role="menuitem" onClick={() => run(onSettings)}><Settings2 aria-hidden="true" />{t('menu.settings')}</button>
       <hr />
-      <button type="button" role="menuitem" onClick={() => run(onHide)}>{t('menu.hide')}</button>
-      <button type="button" role="menuitem" onClick={() => run(onQuit)}>{t('menu.quit')}</button>
+      <button type="button" role="menuitem" onClick={() => run(onHide)}><EyeOff aria-hidden="true" />{t('menu.hide')}</button>
+      <button type="button" role="menuitem" className="pet-menu-destructive" onClick={() => run(onQuit)}><LogOut aria-hidden="true" />{t('menu.quit')}</button>
     </div>
   )
 }

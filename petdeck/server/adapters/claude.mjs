@@ -15,8 +15,16 @@ export const tier = 'full';
  *  Status is derived from an explicit terminal signal; absence never claims 'done'.
  *  tokens = 观察窗口内 assistant usage 的聚合（input/output/cacheRead），非会话全历史。
  *  usageMarks = 带时间戳的逐条 usage（供账户级 5h 窗口计算）；缺 timestamp 的 usage 不产生 mark。 */
+/** 非用户提问的 user 行（实测出现的噪声来源）：图片占位、hook 反馈、命令回显。 */
+const NON_PROMPT_PREFIXES = ['[Image:', 'Stop hook feedback:', '<command-', '<local-command', '<system-reminder', 'Caveat:', 'API Error'];
+
+function looksLikePrompt(text) {
+  const t = String(text ?? '').trimStart();
+  return t.length > 0 && !NON_PROMPT_PREFIXES.some((p) => t.startsWith(p));
+}
+
 export function parseClaude(lines) {
-  let status = 'unknown', lastMessage = '', cwd = '';
+  let status = 'unknown', lastMessage = '', cwd = '', title = '';
   const tokens = { input: 0, output: 0, cacheRead: 0 };
   const usageMarks = [];
   for (const ln of lines) {
@@ -37,14 +45,21 @@ export function parseClaude(lines) {
           usageMarks.push({ ts: j.timestamp, tokens: { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0 } });
         }
       }
+    } else if (j.type === 'ai-title') {
+      // CLI 自己生成的会话标题（真机 2.1.312 存在，实测每会话数条、后者更准）。
+      if (typeof j.aiTitle === 'string' && j.aiTitle.trim()) title = j.aiTitle.trim();
     } else if (j.type === 'user') {
       // 只有 string content 才是真实用户输入；tool_result 等数组内容不改变状态。
-      if (typeof j.message?.content === 'string') status = 'waiting';
+      if (typeof j.message?.content === 'string') {
+        status = 'waiting';
+        // 首个像样的用户提问才是兜底标题（图片占位/hook 反馈不是提问）。
+        if (!title && looksLikePrompt(j.message.content)) title = j.message.content;
+      }
     } else if (j.type === 'result') {
       status = j.is_error ? 'stuck' : 'done';
     }
   }
-  return { status, lastMessage, cwd, tokens, usageMarks };
+  return { status, lastMessage, cwd, title, tokens, usageMarks };
 }
 
 export function observe(now = Date.now()) {
@@ -58,7 +73,7 @@ export function observe(now = Date.now()) {
     const r = parseClaude(tailLines(f, 400));
     marks.push(...r.usageMarks);
     if (r.status === 'unknown' && !r.lastMessage) continue;
-    out.push({ agent: id, source: 'projects-jsonl', session: path.basename(f), status: r.status, lastMessage: r.lastMessage.slice(0, 200), cwd: r.cwd, tokens: r.tokens });
+    out.push({ agent: id, source: 'projects-jsonl', session: path.basename(f), status: r.status, title: r.title.slice(0, 200), lastMessage: r.lastMessage.slice(0, 200), cwd: r.cwd, tokens: r.tokens });
   }
   // 5h 窗口是账户级的（订阅限额不分会话）：跨全部扫描文件聚合，同一份结果挂到每行 claude 会话。
   const usageWindow = computeUsageWindow(marks, now);

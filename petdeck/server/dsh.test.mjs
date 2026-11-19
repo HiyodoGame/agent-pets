@@ -118,6 +118,18 @@ test('observe: walks real directory layout, newest-first cap 5, uses workspace s
   assert.equal(rows[1].session, 'session-aaa');
   assert.equal(rows[1].status, 'done');
   assert.equal(rows[0].agent, 'dsh');
+  assert.equal(rows[0].cwd, 'F:\\ws2');
+  assert.equal(rows[1].cwd, 'F:\\ws1');
+});
+
+// 真实 v4 事件是扁平的：{"type":"session","id":"session-…","cwd":"F:\\…"}。
+// 旧解析只认 e.data.cwd，于是 5/5 条 dsh 会话 cwd 全空、全部掉进「未识别项目」。
+test('parseDshEvents: flat session event supplies id + cwd', () => {
+  const r = parseDshEvents([
+    { type: 'session', version: 4, id: 'session-xyz', cwd: 'F:\\WorkSpace\\AIProjects\\Agent_Pets', createdAt: 1 },
+  ], NOW);
+  assert.equal(r.session, 'session-xyz');
+  assert.equal(r.cwd, 'F:\\WorkSpace\\AIProjects\\Agent_Pets');
 });
 
 test('observe: corrupt zstd frame is skipped, session without events yields nothing', async () => {

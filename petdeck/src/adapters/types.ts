@@ -9,12 +9,16 @@ export interface ObservedSession {
   status: string
   lastMessage: string
   cwd?: string
+  projectId?: string
+  projectName?: string
   turn?: string
   title?: string
   tokens?: TokenUsage
   usageWindow?: UsageWindow
   /** SSH 远程主机的别名（本地会话为空）。远程会话只读，不可接力/注入。 */
   host?: string
+  /** bridge 判定为临时目录（接力注入沙箱等），此类会话不归属任何项目。 */
+  temp?: boolean
   stale?: boolean
   lastSeen?: number
 }

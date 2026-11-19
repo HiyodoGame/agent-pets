@@ -1,7 +1,7 @@
 // =============================================
 // ThemedRoutes — 路由表 + Spark ThemeStyleProvider
 // 独立成懒加载 chunk：sparkdesign barrel（含 Mermaid/KaTeX/Response）只随本 chunk 下载，
-// 轻量原生 shell（app-shell.tsx）不依赖它，header/悬浮球随入口立即渲染。
+// 轻量原生 shell（app-shell.tsx）不依赖它，header/导航随入口立即渲染。
 // ThemeStyleProvider 需要 React context，Spark 路由组件必须包在它内部；
 // 其渲染的 data-theme/data-style div 与 shell 根节点上的同名属性取值一致（light/dark · soft）。
 // =============================================

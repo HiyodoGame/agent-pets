@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent, Wry};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent, WindowEvent, Wry,
+};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_window_state::StateFlags;
@@ -83,9 +85,12 @@ fn bridge_config(app: &AppHandle) -> BridgeConfig {
 }
 
 fn update_dnd(app: &AppHandle, enabled: bool) {
-    let state = app.state::<DndState>();
-    *state.0.lock().unwrap_or_else(|error| error.into_inner()) = enabled;
-    let _ = app.state::<DndMenuItem>().0.set_checked(enabled);
+    if let Some(state) = app.try_state::<DndState>() {
+        *state.0.lock().unwrap_or_else(|error| error.into_inner()) = enabled;
+    }
+    if let Some(item) = app.try_state::<DndMenuItem>() {
+        let _ = item.0.set_checked(enabled);
+    }
     let _ = app.emit("petdeck:dnd-changed", enabled);
     save_dnd(app, enabled); // DND 持久化（P2-11）：尽力写盘，失败不阻断 UI 状态
 }
@@ -143,25 +148,37 @@ fn save_locale(app: &AppHandle, locale: UiLocale) {
 /// Frontend language switch: persist, re-label the native tray, and notify every
 /// window so the pet and the main panel stay in sync.
 #[tauri::command]
-fn set_locale(app: AppHandle, locale: String) {
+fn set_locale(app: AppHandle, locale: String) -> Result<(), String> {
     let next = UiLocale::parse(&locale);
-    *app.state::<LocaleState>()
-        .0
-        .lock()
-        .unwrap_or_else(|error| error.into_inner()) = next;
+    let Some(state) = app.try_state::<LocaleState>() else {
+        // The tray already loaded the persisted locale during setup. A frontend
+        // command arriving before setup has nothing new to synchronize.
+        return Ok(());
+    };
+    let mut current = state.0.lock().unwrap_or_else(|error| error.into_inner());
+    if *current == next {
+        return Ok(());
+    }
+    *current = next;
     save_locale(&app, next);
-    if let Some(labels) = app.try_state::<TrayLabels>() {
-        let _ = labels.show_pet.set_text(tr(next, "show_pet"));
-        let _ = labels.open_panel.set_text(tr(next, "open_panel"));
-        let _ = labels.quit.set_text(tr(next, "quit"));
-    }
-    if let Some(item) = app.try_state::<DndMenuItem>() {
-        let _ = item.0.set_text(tr(next, "dnd"));
-    }
-    if let Some(item) = app.try_state::<AutostartMenuItem>() {
-        let _ = item.0.set_text(tr(next, "autostart"));
-    }
-    let _ = app.emit("petdeck:locale-changed", next.code());
+    let app_for_update = app.clone();
+    app.run_on_main_thread(move || {
+        let app = &app_for_update;
+        if let Some(labels) = app.try_state::<TrayLabels>() {
+            let _ = labels.show_pet.set_text(tr(next, "show_pet"));
+            let _ = labels.open_panel.set_text(tr(next, "open_panel"));
+            let _ = labels.quit.set_text(tr(next, "quit"));
+        }
+        if let Some(item) = app.try_state::<DndMenuItem>() {
+            let _ = item.0.set_text(tr(next, "dnd"));
+        }
+        if let Some(item) = app.try_state::<AutostartMenuItem>() {
+            let _ = item.0.set_text(tr(next, "autostart"));
+        }
+        let _ = app.emit("petdeck:locale-changed", next.code());
+    })
+    .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -173,10 +190,76 @@ fn set_dnd(app: AppHandle, enabled: bool) {
 /// 启动时 emit 的事件可能早于前端监听器就绪，所以读值必须走命令而非事件。
 #[tauri::command]
 fn get_dnd(app: AppHandle) -> bool {
-    *app.state::<DndState>()
-        .0
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    match app.try_state::<DndState>() {
+        Some(state) => *state.0.lock().unwrap_or_else(|error| error.into_inner()),
+        None => load_dnd(&app).unwrap_or(false),
+    }
+}
+
+#[derive(Clone, Copy)]
+struct WindowRect {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+fn clamp_position(value: i32, min: i32, max: i32) -> i32 {
+    value.clamp(min, max.max(min))
+}
+
+fn intersection_area(a: WindowRect, b: WindowRect) -> i64 {
+    let width = (a.x + a.width).min(b.x + b.width) - a.x.max(b.x);
+    let height = (a.y + a.height).min(b.y + b.height) - a.y.max(b.y);
+    i64::from(width.max(0)) * i64::from(height.max(0))
+}
+
+fn main_panel_position(
+    pet: WindowRect,
+    panel: WindowRect,
+    work: WindowRect,
+    gap: i32,
+) -> PhysicalPosition<i32> {
+    let center_x = pet.x + pet.width / 2 - panel.width / 2;
+    let center_y = pet.y + pet.height / 2 - panel.height / 2;
+    let candidates = [
+        PhysicalPosition::new(pet.x + pet.width + gap, center_y),
+        PhysicalPosition::new(pet.x - panel.width - gap, center_y),
+        PhysicalPosition::new(center_x, pet.y - panel.height - gap),
+        PhysicalPosition::new(center_x, pet.y + pet.height + gap),
+    ];
+    candidates
+        .into_iter()
+        .map(|candidate| {
+            let positioned = PhysicalPosition::new(
+                clamp_position(candidate.x, work.x, work.x + work.width - panel.width),
+                clamp_position(candidate.y, work.y, work.y + work.height - panel.height),
+            );
+            let placed = WindowRect {
+                x: positioned.x,
+                y: positioned.y,
+                ..panel
+            };
+            let overlap = intersection_area(pet, placed);
+            let distance =
+                i64::from((positioned.x - candidate.x).abs() + (positioned.y - candidate.y).abs());
+            (positioned, overlap, distance)
+        })
+        .min_by_key(|(_, overlap, distance)| (*overlap, *distance))
+        .map(|(position, _, _)| position)
+        .unwrap_or(PhysicalPosition::new(work.x, work.y))
+}
+
+#[tauri::command]
+fn set_pet_layout(app: AppHandle, width: u32, height: u32, x: i32, y: i32) -> Result<(), String> {
+    let pet = app
+        .get_webview_window("pet")
+        .ok_or_else(|| "pet window is unavailable".to_string())?;
+    pet.set_size(PhysicalSize::new(width, height))
+        .map_err(|error| error.to_string())?;
+    pet.set_position(PhysicalPosition::new(x, y))
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -184,6 +267,37 @@ fn open_panel(app: AppHandle, target: PanelTarget) -> Result<(), String> {
     let main = app
         .get_webview_window("main")
         .ok_or_else(|| "main window is unavailable".to_string())?;
+    if let Some(pet) = app.get_webview_window("pet") {
+        let pet_position = pet.outer_position().map_err(|error| error.to_string())?;
+        let pet_size = pet.outer_size().map_err(|error| error.to_string())?;
+        let panel_size = main.outer_size().map_err(|error| error.to_string())?;
+        if let Some(monitor) = pet.current_monitor().map_err(|error| error.to_string())? {
+            let area = monitor.work_area();
+            let position = main_panel_position(
+                WindowRect {
+                    x: pet_position.x,
+                    y: pet_position.y,
+                    width: pet_size.width as i32,
+                    height: pet_size.height as i32,
+                },
+                WindowRect {
+                    x: 0,
+                    y: 0,
+                    width: panel_size.width as i32,
+                    height: panel_size.height as i32,
+                },
+                WindowRect {
+                    x: area.position.x,
+                    y: area.position.y,
+                    width: area.size.width as i32,
+                    height: area.size.height as i32,
+                },
+                (16.0 * monitor.scale_factor()).round() as i32,
+            );
+            main.set_position(position)
+                .map_err(|error| error.to_string())?;
+        }
+    }
     main.show().map_err(|error| error.to_string())?;
     main.set_focus().map_err(|error| error.to_string())?;
     app.emit("petdeck:navigate", target)
@@ -345,6 +459,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             open_panel,
+            set_pet_layout,
             get_bridge_config,
             set_dnd,
             get_dnd,
@@ -368,4 +483,98 @@ pub fn run() {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn main_panel_avoids_pet_at_the_right_edge() {
+        let pet = WindowRect {
+            x: 1740,
+            y: 900,
+            width: 180,
+            height: 180,
+        };
+        let panel = WindowRect {
+            x: 0,
+            y: 0,
+            width: 1100,
+            height: 760,
+        };
+        let work = WindowRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        let position = main_panel_position(pet, panel, work, 16);
+        let placed = WindowRect {
+            x: position.x,
+            y: position.y,
+            ..panel
+        };
+        assert_eq!(intersection_area(pet, placed), 0);
+        assert_eq!(position, PhysicalPosition::new(624, 320));
+    }
+
+    #[test]
+    fn main_panel_supports_negative_monitor_coordinates() {
+        let pet = WindowRect {
+            x: -200,
+            y: 700,
+            width: 180,
+            height: 180,
+        };
+        let panel = WindowRect {
+            x: 0,
+            y: 0,
+            width: 720,
+            height: 540,
+        };
+        let work = WindowRect {
+            x: -1280,
+            y: 0,
+            width: 1280,
+            height: 1024,
+        };
+        let position = main_panel_position(pet, panel, work, 16);
+        let placed = WindowRect {
+            x: position.x,
+            y: position.y,
+            ..panel
+        };
+        assert_eq!(intersection_area(pet, placed), 0);
+        assert!(position.x >= work.x && position.y >= work.y);
+    }
+
+    #[test]
+    fn main_panel_uses_the_smallest_overlap_when_space_is_insufficient() {
+        let pet = WindowRect {
+            x: 20,
+            y: 20,
+            width: 180,
+            height: 180,
+        };
+        let panel = WindowRect {
+            x: 0,
+            y: 0,
+            width: 300,
+            height: 300,
+        };
+        let work = WindowRect {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 320,
+        };
+        let position = main_panel_position(pet, panel, work, 16);
+        let placed = WindowRect {
+            x: position.x,
+            y: position.y,
+            ..panel
+        };
+        assert_eq!(intersection_area(pet, placed), 32_400);
+    }
 }

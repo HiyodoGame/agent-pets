@@ -49,3 +49,8 @@ export function sendStateFromDecision(mode: unknown): RelaySendState {
   if (mode === 'clipboard') return 'manual'
   return 'failed'
 }
+
+/** Only the latest request may update the visible relay state after navigation or a retry. */
+export function shouldCommitRelayResult(requestRevision: number, currentRevision: number): boolean {
+  return requestRevision === currentRevision
+}

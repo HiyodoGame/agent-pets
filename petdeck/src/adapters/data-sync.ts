@@ -3,6 +3,7 @@
 // provider's data-sync behavior is unit-testable without React.
 import type { Session } from '../flows/shared/types.ts'
 import { mapSessionStatus } from '../flows/shared/ui-logic.ts'
+import { observedSessionId, projectForObservation } from './session-identity.ts'
 import type { ObservedSession } from './types.ts'
 
 /** HTTP 轮询提交门：响应在途期间若无更新提交（rev 未变）才允许落盘，否则视为旧数据丢弃。 */
@@ -15,13 +16,25 @@ export function shouldLoadSnapshot(hasMemory: boolean, cacheShown: boolean): boo
   return !hasMemory && !cacheShown
 }
 
+function readableObservedTitle(value: string): string {
+  const plain = value
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^\s*(?:#{1,6}|[-*+])\s+/gm, '')
+    .replace(/[`*_~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const chars = Array.from(plain)
+  return chars.length > 72 ? `${chars.slice(0, 72).join('').trimEnd()}…` : plain
+}
+
 /** 观察行 → Session 投影；时间戳统一来自 `now`，便于测试与复现。 */
 export function observedToSessions(rows: ObservedSession[], now: string): Session[] {
   return rows.map((r) => ({
-    id: `${r.host ? `${r.host}@` : ''}${r.agent}:${r.session}`,
-    projectId: 'live',
+    id: observedSessionId(r),
+    projectId: projectForObservation(r).id,
     agentId: r.agent,
-    title: r.lastMessage || r.session,
+    title: readableObservedTitle(r.title || r.lastMessage) || r.session,
     status: mapSessionStatus(r.status),
     messages: r.lastMessage
       ? [{ id: `${r.session}-m`, role: 'agent' as const, content: r.lastMessage, timestamp: now, artifactIds: [] }]

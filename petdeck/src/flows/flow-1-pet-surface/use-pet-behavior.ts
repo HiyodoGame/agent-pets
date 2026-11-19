@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import type { AgentStatus } from '../shared/types'
+import type { AgentStatus, EventType } from '../shared/types'
 import type { PetDirection } from '../shared/pet/skin-types'
 import { getPetSettings, subscribePetSettings } from '../shared/pet/pet-settings'
 import { canPetRoam, canPetSleep, createPetBehavior, reducePetBehavior } from './pet-behavior'
@@ -87,9 +87,9 @@ export function usePetBehavior({ status, dnd, overlayOpen, onWalk }: {
   const wake = useCallback(() => { interact(); dispatch({ type: 'WAKE' }) }, [interact])
   const dragStart = useCallback(() => { interact(); dispatch({ type: 'DRAG_START' }) }, [interact])
   const dragEnd = useCallback(() => { interact(); dispatch({ type: 'DRAG_END' }) }, [interact])
-  const eventArrived = useCallback((decision: boolean) => {
+  const eventArrived = useCallback((eventType: EventType) => {
     interact()
-    dispatch({ type: 'EVENT_ARRIVED', decision })
+    dispatch({ type: 'EVENT_ARRIVED', eventType })
   }, [interact])
   const clipFinished = useCallback(() => {
     dispatch({ type: 'CLIP_FINISHED', action: state.current })

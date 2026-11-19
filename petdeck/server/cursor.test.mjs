@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseCursorTranscript, observe } from './adapters/cursor.mjs';
+import { parseCursorTranscript, observe, cleanUserText, humanizeProject } from './adapters/cursor.mjs';
 
 const msg = (role, text) => JSON.stringify({ role, message: { content: [{ type: 'text', text }] } });
 const end = (status) => JSON.stringify({ type: 'turn_ended', status });
@@ -50,9 +50,24 @@ test('observe: top-level transcripts only, newest first, project as title', asyn
   const rows = await observe({ home, now: 5000 });
   assert.equal(rows.length, 2);
   assert.equal(rows[0].session, 's-b', 'newest first');
-  assert.equal(rows[0].title, 'proj-b');
+  assert.equal(rows[0].title, 'u2');
+  // 分组键保持原始目录 slug（稳定），显示名是可读的项目路径尾部。
+  assert.equal(rows[0].projectId, 'proj-b');
+  assert.equal(rows[0].projectName, 'proj/b');
   assert.equal(rows[0].status, 'stuck');
   assert.equal(rows[1].status, 'done');
+});
+
+// 真实首条 user 文本带 <timestamp>/<user_query> 包装，直接当标题会显示时间戳前言。
+test('cleanUserText: strips the timestamp preamble, keeps the question', () => {
+  const raw = '<timestamp>Friday, Oct 2, 2026, 9:07 PM (UTC+8)</timestamp>\n<user_query>\n修一下登录\n</user_query>';
+  assert.equal(cleanUserText(raw), '修一下登录');
+});
+
+test('humanizeProject: lossy cursor slug becomes readable, keeps stability', () => {
+  assert.equal(humanizeProject('f-WorkSpace-AIProjects-AIAPPPlan-TalkProject'), 'AIAPPPlan/TalkProject');
+  assert.equal(humanizeProject('f-WorkSpace-KimiProjects-Harmony-App-Develop'), 'App/Develop');
+  assert.equal(humanizeProject(''), '');
 });
 
 test('observe: missing Cursor root => []', async () => {

@@ -280,7 +280,7 @@ export function Flow1_PetSurface({
   const [refreshing, setRefreshing] = useState(false)
   const [settings, setSettings] = useState(getPetSettings)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const { projects, unhandledEvents, connState } = usePetData()
+  const { projects, unhandledEvents, connState, sessions, mode } = usePetData()
   const events = unhandledEvents()
   const [eventIdx, setEventIdx] = useState(0)
   const event = events[eventIdx % Math.max(events.length, 1)]
@@ -323,25 +323,38 @@ export function Flow1_PetSurface({
   }, [events, dnd, screen])
 
   // 真实离线覆盖预览状态：断连时宠物灰化 + 重连 CTA（edge offline-no-network 态）
-  const effectiveStatus: AgentStatus = connState === 'offline' ? 'offline' : status
+  const liveStatus: AgentStatus = sessions.some((session) => session.status === 'stuck' || session.status === 'waiting')
+    ? 'stuck'
+    : sessions.some((session) => session.status === 'active')
+      ? 'running'
+      : sessions.some((session) => session.status === 'done') ? 'done' : 'idle'
+  const effectiveStatus: AgentStatus = connState === 'offline' ? 'offline' : mode === 'mock' ? status : liveStatus
 
   const openPanel = (projectId: string, sessionId?: string) => onOpenPanel?.(projectId, sessionId)
 
   return (
-    <div className="flex flex-col items-center gap-4 p-6">
-      <div className="flex flex-wrap items-center gap-3 rounded-md border border-border-tertiary bg-bg-layout p-2">
-        <TypographyMuted>{t('petSurface.preview')}</TypographyMuted>
-        <div className="flex flex-wrap gap-1" role="group" aria-label={t('petSurface.statusPreview')}>
-          {STATUS_ORDER.map((s) => (
-            <Button key={s} variant={status === s ? 'secondary' : 'ghost'} aria-pressed={status === s} onClick={() => setStatus(s)}>
-              {statusLabel(s)}
-            </Button>
-          ))}
-        </div>
-        <Button variant="secondary" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>
-          {t('petSurface.skinSettings')}
-        </Button>
-      </div>
+    <div className="flow-page companion-page">
+      <header className="flow-page-heading">
+        <h1>{t('petSurface.title')}</h1>
+        <p>{t('petSurface.subtitle')}</p>
+      </header>
+      <div className="flow-page-body">
+        <div className="companion-stage">
+          {mode === 'mock' && (
+            <div className="companion-preview-controls">
+              <TypographyMuted>{t('petSurface.preview')}</TypographyMuted>
+              <div className="flex flex-wrap gap-1" role="group" aria-label={t('petSurface.statusPreview')}>
+                {STATUS_ORDER.map((s) => (
+                  <Button key={s} variant={status === s ? 'secondary' : 'ghost'} aria-pressed={status === s} onClick={() => setStatus(s)}>
+                    {statusLabel(s)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+          <Button variant="secondary" onClick={() => setSettingsOpen((value) => !value)} aria-expanded={settingsOpen}>
+            {t('petSurface.skinSettings')}
+          </Button>
 
       {settingsOpen && (
         <div className="pet-preview-settings">
@@ -453,6 +466,8 @@ export function Flow1_PetSurface({
           )}
         </div>
       )}
+        </div>
+      </div>
     </div>
   )
 }

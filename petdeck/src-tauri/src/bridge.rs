@@ -1,10 +1,15 @@
 use serde::Serialize;
 use std::net::TcpListener;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,7 +124,10 @@ fn node_version_supported(version: &str) -> bool {
 }
 
 fn node_version_error() -> Option<String> {
-    match Command::new("node").arg("--version").output() {
+    let mut command = Command::new("node");
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    match command.arg("--version").output() {
         Ok(output)
             if output.status.success()
                 && node_version_supported(&String::from_utf8_lossy(&output.stdout)) =>
@@ -155,6 +163,8 @@ pub fn start_bridge(app: &AppHandle) -> BridgeState {
                 if let Some(dir) = working_dir {
                     command.current_dir(dir);
                 }
+                #[cfg(windows)]
+                command.creation_flags(CREATE_NO_WINDOW);
                 match command.spawn() {
                     Ok(child) => Some(child),
                     Err(_) => {

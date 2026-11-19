@@ -55,6 +55,13 @@ export function updatePetSettings(patch: Partial<PetSettings>, storage = browser
 export function subscribePetSettings(handler: (settings: PetSettings) => void): () => void {
   if (typeof window === 'undefined') return () => {}
   const listener = (event: Event) => handler((event as CustomEvent<PetSettings>).detail ?? getPetSettings())
+  const storageListener = (event: StorageEvent) => {
+    if (event.key === SETTINGS_KEY || event.key === MOTION_KEY) handler(getPetSettings())
+  }
   window.addEventListener(PET_SETTINGS_CHANGED, listener)
-  return () => window.removeEventListener(PET_SETTINGS_CHANGED, listener)
+  window.addEventListener('storage', storageListener)
+  return () => {
+    window.removeEventListener(PET_SETTINGS_CHANGED, listener)
+    window.removeEventListener('storage', storageListener)
+  }
 }

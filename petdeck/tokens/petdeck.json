@@ -1,0 +1,129 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "PetDeck companion design system. Primitive values feed semantic intent, which feeds CSS components.",
+  "primitive": {
+    "$description": "Raw palette and scales. Components never consume this tier directly.",
+    "neutral": {
+      "0": { "$type": "color", "$value": "#FCFAF7", "$description": "Warm porcelain" },
+      "50": { "$type": "color", "$value": "#F7F4F0", "$description": "Warm page surface" },
+      "100": { "$type": "color", "$value": "#EEE9E4", "$description": "Recessed light surface" },
+      "200": { "$type": "color", "$value": "#DCD4D0", "$description": "Light decorative border" },
+      "400": { "$type": "color", "$value": "#8C8188", "$description": "Muted mid tone" },
+      "500": { "$type": "color", "$value": "#756B75", "$description": "Incidental light text" },
+      "600": { "$type": "color", "$value": "#625A64", "$description": "Secondary light text" },
+      "800": { "$type": "color", "$value": "#373039", "$description": "Strong light text" },
+      "900": { "$type": "color", "$value": "#29242E", "$description": "Primary light text" },
+      "950": { "$type": "color", "$value": "#1D1A21", "$description": "Dark page surface" }
+    },
+    "lilac": {
+      "50": { "$type": "color", "$value": "#F2EDF5", "$description": "Quiet lilac wash" },
+      "100": { "$type": "color", "$value": "#E6DDEB", "$description": "Selected light surface" },
+      "200": { "$type": "color", "$value": "#D3C3DC", "$description": "Lilac border" },
+      "300": { "$type": "color", "$value": "#BBA5C9", "$description": "Dark primary action" },
+      "400": { "$type": "color", "$value": "#9A80AC", "$description": "Lilac emphasis" },
+      "500": { "$type": "color", "$value": "#82688F", "$description": "Lilac mid tone" },
+      "600": { "$type": "color", "$value": "#70577D", "$description": "Light primary action" },
+      "700": { "$type": "color", "$value": "#5E486A", "$description": "Light primary hover" },
+      "800": { "$type": "color", "$value": "#4B3955", "$description": "Light primary active" },
+      "900": { "$type": "color", "$value": "#392D40", "$description": "Deep lilac text" },
+      "950": { "$type": "color", "$value": "#29202F", "$description": "Deep lilac surface" }
+    },
+    "apricot": {
+      "400": { "$type": "color", "$value": "#D99461", "$description": "Brand-only warm accent" }
+    },
+    "green": {
+      "100": { "$type": "color", "$value": "#E4EFE7", "$description": "Success surface" },
+      "700": { "$type": "color", "$value": "#39644A", "$description": "Success foreground" }
+    },
+    "amber": {
+      "100": { "$type": "color", "$value": "#F6EBD9", "$description": "Warning surface" },
+      "700": { "$type": "color", "$value": "#805522", "$description": "Warning foreground" }
+    },
+    "red": {
+      "100": { "$type": "color", "$value": "#F5E3E1", "$description": "Error surface" },
+      "600": { "$type": "color", "$value": "#A24F4A", "$description": "Error and destructive action" },
+      "700": { "$type": "color", "$value": "#853F3B", "$description": "Destructive hover" }
+    },
+    "blue": {
+      "100": { "$type": "color", "$value": "#E2EBF0", "$description": "Information surface" },
+      "700": { "$type": "color", "$value": "#456171", "$description": "Information foreground" }
+    }
+  },
+  "semantic": {
+    "$description": "Purpose-based aliases used by all surfaces.",
+    "text": {
+      "primary": { "$type": "color", "$value": "{primitive.neutral.900}", "$description": "Primary content" },
+      "secondary": { "$type": "color", "$value": "{primitive.neutral.600}", "$description": "Supporting content" },
+      "tertiary": { "$type": "color", "$value": "{primitive.neutral.500}", "$description": "Incidental content" },
+      "on-action": { "$type": "color", "$value": "{primitive.neutral.0}", "$description": "Text on primary actions" },
+      "link": { "$type": "color", "$value": "{primitive.lilac.700}", "$description": "Interactive text link" }
+    },
+    "surface": {
+      "page": { "$type": "color", "$value": "{primitive.neutral.50}", "$description": "Application background" },
+      "card": { "$type": "color", "$value": "{primitive.neutral.0}", "$description": "Cards and popovers" },
+      "raised": { "$type": "color", "$value": "{primitive.neutral.0}", "$description": "Raised surface" },
+      "recessed": { "$type": "color", "$value": "{primitive.neutral.100}", "$description": "Sunken groups" }
+    },
+    "action": {
+      "primary": { "$type": "color", "$value": "{primitive.lilac.600}", "$description": "Main affirmative action" },
+      "primary-hover": { "$type": "color", "$value": "{primitive.lilac.700}", "$description": "Main action hover" },
+      "selected": { "$type": "color", "$value": "{primitive.lilac.100}", "$description": "Selected navigation" },
+      "destructive": { "$type": "color", "$value": "{primitive.red.600}", "$description": "Delete and quit intent" }
+    },
+    "border": {
+      "default": { "$type": "color", "$value": "{primitive.neutral.200}", "$description": "Decorative border" },
+      "subtle": { "$type": "color", "$value": "{primitive.neutral.200}", "$description": "Full hairline borders" },
+      "strong": { "$type": "color", "$value": "{primitive.neutral.400}", "$description": "Essential control border" }
+    },
+    "brand-accent": { "$type": "color", "$value": "{primitive.apricot.400}", "$description": "Small brand details only" }
+  },
+  "dark": {
+    "$description": "Semantic overrides for dark surfaces.",
+    "text": {
+      "primary": { "$type": "color", "$value": "#F2EDF2", "$description": "Primary dark-theme content" },
+      "secondary": { "$type": "color", "$value": "#B9AFB9", "$description": "Secondary dark-theme content" },
+      "tertiary": { "$type": "color", "$value": "#A398A5", "$description": "Incidental dark-theme content" },
+      "on-action": { "$type": "color", "$value": "{primitive.lilac.950}", "$description": "Text on light lilac action" },
+      "link": { "$type": "color", "$value": "{primitive.lilac.200}", "$description": "Dark-theme link" }
+    },
+    "surface": {
+      "page": { "$type": "color", "$value": "{primitive.neutral.950}", "$description": "Dark application background" },
+      "card": { "$type": "color", "$value": "#242027", "$description": "Dark cards and popovers" },
+      "raised": { "$type": "color", "$value": "#302A34", "$description": "Dark raised surface" },
+      "recessed": { "$type": "color", "$value": "{primitive.neutral.900}", "$description": "Dark sunken groups" }
+    },
+    "action": {
+      "primary": { "$type": "color", "$value": "{primitive.lilac.300}", "$description": "Dark-theme primary action" },
+      "primary-hover": { "$type": "color", "$value": "{primitive.lilac.200}", "$description": "Dark-theme primary hover" },
+      "selected": { "$type": "color", "$value": "{primitive.lilac.950}", "$description": "Dark selected navigation" },
+      "destructive": { "$type": "color", "$value": "#E0A39E", "$description": "Dark destructive intent" }
+    },
+    "border": {
+      "default": { "$type": "color", "$value": "#48404B", "$description": "Dark decorative border" },
+      "subtle": { "$type": "color", "$value": "#48404B", "$description": "Dark hairline border" },
+      "strong": { "$type": "color", "$value": "{primitive.neutral.400}", "$description": "Dark essential control border" }
+    }
+  },
+  "typography": {
+    "family-ui": { "$type": "fontFamily", "$value": ["Aptos", "Segoe UI Variable Text", "PingFang SC", "Microsoft YaHei UI", "sans-serif"], "$description": "Local-first interface family" },
+    "family-display": { "$type": "fontFamily", "$value": ["Aptos Display", "Segoe UI Variable Display", "PingFang SC", "Microsoft YaHei UI", "sans-serif"], "$description": "Short display headings" },
+    "size-body": { "$type": "dimension", "$value": "16px", "$description": "Base body size" },
+    "size-display": { "$type": "dimension", "$value": "40px", "$description": "Primary page heading" }
+  },
+  "spacing": {
+    "unit": { "$type": "dimension", "$value": "4px", "$description": "Base spacing unit" },
+    "gutter": { "$type": "dimension", "$value": "24px", "$description": "Mobile content gutter" },
+    "gutter-wide": { "$type": "dimension", "$value": "40px", "$description": "Desktop content gutter" },
+    "section": { "$type": "dimension", "$value": "32px", "$description": "Major section separation" }
+  },
+  "radius": {
+    "control": { "$type": "dimension", "$value": "10px", "$description": "Buttons and inputs" },
+    "card": { "$type": "dimension", "$value": "16px", "$description": "Cards and task surfaces" },
+    "overlay": { "$type": "dimension", "$value": "20px", "$description": "Pet popovers" }
+  },
+  "motion": {
+    "fast": { "$type": "duration", "$value": "120ms", "$description": "Hover and pressed feedback" },
+    "base": { "$type": "duration", "$value": "200ms", "$description": "Panel and selection transitions" },
+    "easing": { "$type": "cubicBezier", "$value": [0, 0, 0.2, 1], "$description": "Decelerating entrance" }
+  }
+}

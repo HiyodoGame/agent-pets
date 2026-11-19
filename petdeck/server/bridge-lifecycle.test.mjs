@@ -55,6 +55,26 @@ test('poll: after the in-flight tick finishes, the next tick runs again', async 
   app.closeAllConnections?.(); app.close();
 });
 
+test('poll: cold start seeds existing statuses without emitting notification events', async () => {
+  const bus = createBus(100);
+  const rows = [
+    row('claude', 'running.jsonl', 'running'),
+    row('claude', 'done.jsonl', 'done'),
+    row('claude', 'waiting.jsonl', 'waiting'),
+  ];
+  const adapters = [{ id: 'claude', name: 'Claude', observe: () => Promise.resolve(rows), inject: () => Promise.resolve({ ok: true }) }];
+  const app = createApp({ adapters, bus });
+  await app.poll();
+  assert.deepEqual(bus.snapshot().filter((e) => e.agentId === 'claude'), [], 'initial observations are baselines, not transitions');
+  rows[0].status = 'done';
+  await app.poll();
+  const transitions = bus.snapshot().filter((e) => e.agentId === 'claude');
+  assert.equal(transitions.length, 1, 'only the real post-start transition is emitted');
+  assert.equal(transitions[0].sessionId, 'running.jsonl');
+  assert.equal(transitions[0].petType, 'done');
+  app.closeAllConnections?.(); app.close();
+});
+
 // --- lastStatus pruning: a session that vanished and reappears re-emits its status event ---
 
 test('poll: lastStatus drops vanished sessions, so a returning session re-emits its event', async () => {
@@ -65,7 +85,7 @@ test('poll: lastStatus drops vanished sessions, so a returning session re-emits 
   const adapters = [{ id: 'codex', name: 'Codex', observe: () => Promise.resolve(rows), inject: () => Promise.resolve({ ok: true }) }];
   const app = createApp({ adapters, bus });
   await app.poll();
-  assert.ok(events.some((e) => e.type === 'task_started' && e.sessionId === 's1'), 'first sighting emits task_started');
+  assert.equal(events.some((e) => e.agentId === 'codex'), false, 'cold start only seeds lastStatus');
   events.length = 0;
   rows = []; // session vanishes (live empty, no last-good)
   await app.poll();
@@ -75,6 +95,63 @@ test('poll: lastStatus drops vanished sessions, so a returning session re-emits 
   await app.poll();
   assert.ok(events.some((e) => e.type === 'task_started' && e.sessionId === 's1'),
     'returning session must re-emit task_started (lastStatus was pruned)');
+  app.closeAllConnections?.(); app.close();
+});
+
+// --- lifecycle pet events: running starts once, unknown stays silent, payload retains identity ---
+
+test('poll: running emits one attributed started event and unknown never poses as started', async () => {
+  const bus = createBus(100);
+  let rows = [];
+  const adapters = [{ id: 'codex', name: 'Codex', observe: () => Promise.resolve(rows), inject: () => Promise.resolve({ ok: true }) }];
+  const app = createApp({ adapters, bus });
+  await app.poll();
+  rows = [{
+    ...row('codex', 's1', 'running', 'working'),
+    title: 'Fix login', cwd: 'F:/project', projectId: 'F:/project', projectName: 'project', host: 'build-box',
+  }];
+  await app.poll();
+  const started = bus.snapshot().find((e) => e.agentId === 'codex');
+  assert.equal(started.type, 'task_started');
+  assert.equal(started.petType, 'started');
+  assert.equal(started.payload.session.agent, 'codex');
+  assert.equal(started.payload.session.session, 's1');
+  assert.equal(started.payload.session.title, 'Fix login');
+  assert.equal(started.payload.session.cwd, 'F:/project');
+  assert.equal(started.payload.session.projectId, 'F:/project');
+  assert.equal(started.payload.session.projectName, 'project');
+  assert.equal(started.payload.session.host, 'build-box');
+  assert.equal(started.payload.session.lastMessage, 'working');
+  assert.equal(started.payload.session.stale, false);
+  assert.equal(typeof started.payload.session.lastSeen, 'number');
+  const count = bus.snapshot().length;
+  await app.poll();
+  assert.equal(bus.snapshot().length, count, 'steady running must not notify again');
+  rows = [row('codex', 's1', 'unknown', '')];
+  await app.poll();
+  const unknown = bus.snapshot().filter((e) => e.agentId === 'codex').at(-1);
+  assert.equal(unknown.type, 'status_unknown');
+  assert.equal(unknown.petType, null);
+  app.closeAllConnections?.(); app.close();
+});
+
+test('poll: each lifecycle transition emits exactly one pet event', async () => {
+  const bus = createBus(100);
+  let status = 'unknown';
+  const adapters = [{
+    id: 'claude', name: 'Claude',
+    observe: () => Promise.resolve([row('claude', 's1', status)]),
+    inject: () => Promise.resolve({ ok: true }),
+  }];
+  const app = createApp({ adapters, bus });
+  await app.poll();
+  const seen = [];
+  for (const next of ['running', 'waiting', 'running', 'done', 'stuck']) {
+    status = next;
+    await app.poll();
+    seen.push(bus.snapshot().filter((e) => e.agentId === 'claude').at(-1)?.petType ?? null);
+  }
+  assert.deepEqual(seen, ['started', 'decision', 'started', 'done', 'stuck']);
   app.closeAllConnections?.(); app.close();
 });
 

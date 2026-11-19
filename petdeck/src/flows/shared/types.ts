@@ -20,7 +20,7 @@ export type MessageRole = 'user' | 'agent' | 'system'
 export type ArtifactKind = 'image' | 'file' | 'text' | 'code'
 
 /** 宠物轻拍事件类型 */
-export type EventType = 'done' | 'stuck' | 'decision' | 'relay-ready'
+export type EventType = 'started' | 'done' | 'stuck' | 'decision' | 'relay-ready'
 
 export type RelayStatus = 'draft' | 'sending' | 'sent' | 'failed'
 
@@ -98,6 +98,10 @@ export interface PetEvent {
   type: EventType
   projectId: string
   sessionId: string
+  agentId: string
+  agentName: string
+  projectName: string
+  sessionTitle: string
   text: string
   timestamp: string
   handled: boolean

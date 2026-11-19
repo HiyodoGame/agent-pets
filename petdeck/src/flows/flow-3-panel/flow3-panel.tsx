@@ -2,7 +2,7 @@
 // FLOW: Project & Session Panel (4 screens + edge states)
 // Edge 补全：loading-initial / 999+ / empty-filter / truncate / error-not-found / permission-read-only / error-network / loading-submit
 // =============================================
-import { useEffect, useMemo, useState, Suspense } from 'react'
+import { useEffect, useMemo, useRef, useState, Suspense } from 'react'
 import {
   SidebarProvider,
   Sidebar,
@@ -19,7 +19,6 @@ import {
   SidebarInset,
   UserMessage,
   FileCard,
-  ChatInput,
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
@@ -39,10 +38,6 @@ import {
   Tag,
   ScrollArea,
   Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
   Empty,
   EmptyHeader,
   EmptyMedia,
@@ -55,9 +50,11 @@ import {
   Skeleton,
   Tooltip,
 } from 'sparkdesign'
-import { MoreHorizontal, FolderOpen, MessageSquare, Archive, Trash2, Pencil, ArrowLeft, ArrowRightLeft, Copy, RefreshCw, List, LayoutGrid } from 'lucide-react'
+import { MoreHorizontal, FolderOpen, MessageSquare, Archive, Trash2, Pencil, ArrowLeft, ArrowRightLeft, ArrowUpRight, Copy, RefreshCw, List, LayoutGrid, Clock3, Send } from 'lucide-react'
 import type { Session, SessionStatus } from '../shared/types'
 import { kanbanColumns } from './kanban'
+import { createSerialSender } from './serial-sender.ts'
+import { firstProjectSessionId, summarizeProjectSessions } from './project-summary.ts'
 import { usePetData, mergeSessions, type SessionOverlay } from '../../adapters'
 import { track, EVENT } from '../../telemetry'
 import { EdgeAlert } from '../shared/edge-kit'
@@ -65,6 +62,7 @@ import { LazyResponse } from '../shared/lazy-response'
 import { fmtCount, fmtAgo, fmtTokens, fmtResetCountdown, planFollowUp, shouldStreamResponse } from '../shared/ui-logic'
 import { t } from '../../i18n/index.ts'
 import type { MessageKey } from '../../i18n/messages.ts'
+import { presentSession, prioritizeSessions } from '../shared/session-presentation.ts'
 
 const STATUS_TAG: Record<SessionStatus, { labelKey: MessageKey; color: 'info' | 'warning' | 'success' | 'error' | 'slate' }> = {
   active: { labelKey: 'status.active', color: 'info' },
@@ -83,30 +81,38 @@ const STATUS_DOT: Record<SessionStatus, string> = {
 }
 
 /* SCREEN 1 of 4: Project Home（+ loading-initial + 999+ + empty） */
-function Screen1_ProjectHome({ onOpen, onConnect }: { onOpen: (pid: string) => void; onConnect: () => void }) {
-  const { projects: mockProjects, sessionsOfProject } = usePetData()
+function Screen1_ProjectHome({ sessions, onOpen, onConnect }: { sessions: Session[]; onOpen: (pid: string, sessionId?: string) => void; onConnect: () => void }) {
+  const { projects: availableProjects, agents, mode } = usePetData()
   const [emptyDemo, setEmptyDemo] = useState(false)
   const [loading, setLoading] = useState(true)
   useEffect(() => {
     const t = setTimeout(() => setLoading(false), 500)
     return () => clearTimeout(t)
   }, [])
-  const projects = emptyDemo ? [] : mockProjects
+  const projects = emptyDemo ? [] : availableProjects
+  const prioritySessions = prioritizeSessions(sessions)
+    .filter((session) => session.status === 'waiting' || session.status === 'stuck' || session.status === 'active')
+    .slice(0, 4)
 
   if (loading) {
     return (
-      <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-3 p-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="project-page project-index" aria-label={t('common.loading')}>
         {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-24 w-full rounded-lg" />
+          <Skeleton key={i} className="mb-3 h-24 w-full rounded-lg" />
         ))}
       </div>
     )
   }
   if (projects.length === 0) {
     return (
-      <div className="p-6">
-        <h1 className="mb-4 text-text text-lg font-semibold">{t('panel.overview')}</h1>
-        <Empty>
+      <div className="project-page">
+        <div className="project-page-header">
+          <div className="project-page-heading">
+            <h1>{t('panel.overview')}</h1>
+            <p>{t('panel.overviewDesc')}</p>
+          </div>
+        </div>
+        <Empty className="project-empty-state">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <FolderOpen className="h-6 w-6" />
@@ -118,50 +124,86 @@ function Screen1_ProjectHome({ onOpen, onConnect }: { onOpen: (pid: string) => v
             <Button variant="primary" onClick={onConnect}>
               {t('panel.connectAgent')}
             </Button>
-            <Button variant="ghost" onClick={() => setEmptyDemo(false)}>
-              {t('panel.restoreDemo')}
-            </Button>
+            {mode === 'mock' && (
+              <Button variant="ghost" onClick={() => setEmptyDemo(false)}>
+                {t('panel.restoreDemo')}
+              </Button>
+            )}
           </EmptyContent>
         </Empty>
       </div>
     )
   }
+  const totalRunning = projects.reduce((count, project) => count + summarizeProjectSessions(sessions, project.id).running, 0)
+  const totalWaiting = projects.reduce((count, project) => count + summarizeProjectSessions(sessions, project.id).waiting, 0)
   return (
-    <>
-      <h1 className="px-6 pt-4 text-text text-lg font-semibold">{t('panel.overview')}</h1>
-      <div className="flex justify-end p-2">
-        <Button variant="ghost" onClick={() => setEmptyDemo(true)}>
-          {t('panel.simEmpty')}
-        </Button>
-      </div>
-      <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-3 p-6 sm:grid-cols-2 lg:grid-cols-3">
-        {projects.map((p) => {
-          const ss = sessionsOfProject(p.id)
-          const running = ss.filter((s) => s.status === 'active').length
-          const waiting = ss.filter((s) => s.status === 'waiting' || s.status === 'stuck').length
+    <div className="project-page">
+      <header className="project-page-header">
+        <div className="project-page-heading">
+          <h1>{t('panel.overview')}</h1>
+          <p>{t('panel.overviewDesc')}</p>
+        </div>
+        <div className="project-page-summary tabular-nums" aria-label={t('panel.overview')}>
+          <span><strong>{projects.length}</strong> {t('petSurface.projects')}</span>
+          <span><strong>{totalRunning}</strong> {t('status.running')}</span>
+          {totalWaiting > 0 && <span><strong>{totalWaiting}</strong> {t('status.stuck')}</span>}
+        </div>
+      </header>
+      {prioritySessions.length > 0 && (
+        <section className="session-priority" aria-labelledby="session-priority-title">
+          <div className="session-priority-heading">
+            <h2 id="session-priority-title">{t('panel.priorityTitle')}</h2>
+            <span>{t('panel.priorityDesc')}</span>
+          </div>
+          <ul>
+            {prioritySessions.map((session) => {
+              const view = presentSession(session, agents, availableProjects)
+              return (
+                <li key={session.id}>
+                  <button type="button" onClick={() => onOpen(session.projectId, session.id)}>
+                    <span className="session-priority-status" data-status={session.status}>{view.statusLabel}</span>
+                    <span className="session-priority-main">
+                      <strong>{view.title}</strong>
+                      <span>{view.agentName} · {view.projectName}{view.host ? ` · @${view.host}` : ''}</span>
+                    </span>
+                    <ArrowUpRight aria-hidden="true" />
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
+      <div className="project-index">
+        {projects.map((p, index) => {
+          const summary = summarizeProjectSessions(sessions, p.id)
+          const running = summary.running
+          const waiting = summary.waiting
           return (
-            <button key={p.id} type="button" className="text-left" onClick={() => onOpen(p.id)}>
-              <Card className="transition-colors hover:bg-bg-elevated">
-                <CardHeader>
-                  <CardTitle>
-                    <FolderOpen className="mr-1 inline h-4 w-4" />
-                    {p.name}
-                  </CardTitle>
-                  <CardDescription>{p.description}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex gap-2 tabular-nums">
-                    <Tag color="info">{t('common.running', { n: fmtCount(running) })}</Tag>
-                    {waiting > 0 && <Tag color="warning">{t('common.pending', { n: fmtCount(waiting) })}</Tag>}
-                    <Tag color="slate">{t('common.sessions', { n: fmtCount(ss.length) })}</Tag>
-                  </div>
-                </CardContent>
-              </Card>
+            <button key={p.id} type="button" className={`project-row${index === 0 ? ' is-lead' : ''}`} onClick={() => onOpen(p.id)}>
+              <span className="project-row-main">
+                <span className="project-row-icon"><FolderOpen className="h-4 w-4" aria-hidden="true" /></span>
+                <span className="project-row-copy">
+                  <strong>{p.name}</strong>
+                  <span title={p.description}>{p.description}</span>
+                </span>
+              </span>
+              <span className="project-row-meta tabular-nums">
+                <Tag color={running > 0 ? 'info' : 'slate'}>{t('common.running', { n: fmtCount(running) })}</Tag>
+                {waiting > 0 && <Tag color="warning">{t('common.pending', { n: fmtCount(waiting) })}</Tag>}
+                <Tag color="slate">{t('common.sessions', { n: fmtCount(summary.total) })}</Tag>
+              </span>
+              <ArrowUpRight className="project-row-arrow h-4 w-4" aria-hidden="true" />
             </button>
           )
         })}
       </div>
-    </>
+      {mode === 'mock' && (
+        <Button variant="ghost" className="project-demo-action" onClick={() => setEmptyDemo(true)}>
+          {t('panel.simEmpty')}
+        </Button>
+      )}
+    </div>
   )
 }
 
@@ -182,13 +224,14 @@ function Screen3_SessionThread({
   onCopyHandoff: () => void
   onDismissHandoff: () => void
   onRelay: (s: Session) => void
-  onFollowUp: (s: Session, text: string) => void
+  onFollowUp: (s: Session, text: string) => Promise<void>
   onClearSession: () => void
 }) {
   const [draft, setDraft] = useState('')
   const [loadedId, setLoadedId] = useState<string | null | undefined>(undefined)
   const [loadError, setLoadError] = useState(false)
   const [sending, setSending] = useState(false)
+  const senderRef = useRef(createSerialSender())
   // stale 新鲜度基准：挂载取一次 + 每 30s 推进（组件不按会话重挂载，冻结基准会把陈旧数据误报「刚刚」；
   // Date.now 只在 interval 回调里读，render 期调用违反 react/purity）
   const [now, setNow] = useState(() => Date.now())
@@ -202,7 +245,7 @@ function Screen3_SessionThread({
     return () => clearTimeout(t)
   }, [session?.id])
   const loading = loadedId !== (session?.id ?? null)
-  const { getAgent, getArtifact } = usePetData()
+  const { getAgent, getProject, getArtifact, mode } = usePetData()
 
   if (notFound) {
     return (
@@ -231,6 +274,7 @@ function Screen3_SessionThread({
     )
   }
   const agent = getAgent(session.agentId)
+  const project = getProject(session.projectId)
   // Remote SSH sessions are read-only: never offer relay/inject against the wrong machine.
   const readOnly = agent?.capability !== 'full' || Boolean(session.host)
 
@@ -251,30 +295,34 @@ function Screen3_SessionThread({
     )
   }
 
-  const send = (v: string) => {
+  const send = async (v: string) => {
+    const sender = senderRef.current
+    if (sender.isBusy()) return
     setSending(true)
-    setTimeout(() => {
+    try {
+      const sent = await sender.run(() => onFollowUp(session, v))
+      if (sent) setDraft('')
+    } finally {
       setSending(false)
-      onFollowUp(session, v)
-      setDraft('')
-    }, 500)
+    }
   }
 
   return (
     <div className="flex h-full flex-col gap-3 p-4">
-      <div className="flex items-center gap-2">
+      <div className="session-header">
         <MessageSquare className="h-4 w-4 text-text-secondary" />
-        <h1 className="text-text truncate font-semibold">{session.title}</h1>
+        <h1 className="text-text truncate font-semibold" title={session.title}>{session.title}</h1>
         <Tag color={STATUS_TAG[session.status].color}>{statusText(session.status)}</Tag>
         {session.stale && <Tag color="slate">{t('panel.staleAgo', { ago: fmtAgo(session.lastSeen ?? now, now) })}</Tag>}
-        <TypographyMuted>{agent?.name}</TypographyMuted>
+        <TypographyMuted>{agent?.name ?? session.agentId} · {project?.name ?? t('data.unidentifiedProject')}</TypographyMuted>
         {session.host && <Tag color="slate" title={t('panel.remoteHost')}>@{session.host}</Tag>}
         {/* 成本 MVP：观察窗口内的用量徽标（claude/zcode 分项、kimi 累计），无数据不显示 */}
         {fmtTokens(session.tokens) && <Tag color="slate" title={t('panel.tokensTitle')}>{fmtTokens(session.tokens)}</Tag>}
         {/* 5h 用量窗口倒计时（P1-7）：按最后活动推算，均为估算值，以官方 /usage 为准 */}
         {session.usageWindow?.active && (
           <Tag color="slate" title={t('panel.usageWindowTitle')}>
-            ⏳ {fmtResetCountdown(session.usageWindow) || t('panel.windowResetSoon')}
+            <Clock3 className="mr-1 inline h-3 w-3" aria-hidden="true" />
+            {fmtResetCountdown(session.usageWindow) || t('panel.windowResetSoon')}
           </Tag>
         )}
         {readOnly && <Tag color="info">{t('panel.readOnly')}</Tag>}
@@ -316,16 +364,19 @@ function Screen3_SessionThread({
         </>
       )}
       <ScrollArea className="flex-1">
-        <div className="flex flex-col gap-3 pr-3">
+        <div className="session-thread-content flex flex-col gap-3 pr-3">
+          {mode === 'live' && session.messages.length > 0 && (
+            <div className="session-latest-label"><MessageSquare className="h-4 w-4" />{t('panel.latestReply')}</div>
+          )}
           {session.messages.map((m, idx) =>
             m.role === 'user' ? (
               <UserMessage key={m.id}>{m.content}</UserMessage>
             ) : (
               <div key={m.id} className="flex flex-col gap-2 break-words">
-                {/* 仅最后一条 assistant 消息在会话活跃时 streaming；历史消息一律 done（光标不再闪） */}
+                {/* 仅演示保留 streaming；真实轮询观察一律按完成态渲染 Markdown。 */}
                 <Suspense fallback={<span className="text-text-secondary text-sm">{t('panel.renderingReply')}</span>}>
                   <LazyResponse
-                    phase={shouldStreamResponse(session.messages, idx, session.status === 'active') ? 'streaming' : 'done'}
+                    phase={shouldStreamResponse(session.messages, idx, session.status === 'active', mode === 'mock') ? 'streaming' : 'done'}
                     finalMarkdown={m.content}
                     thinkingIndicator={<span className="text-text-secondary text-sm">{t('common.thinking')}</span>}
                   />
@@ -358,18 +409,45 @@ function Screen3_SessionThread({
         </div>
       </ScrollArea>
       <Separator />
-      <ChatInput
-        value={draft}
-        onChange={setDraft}
-        onSend={send}
-        placeholder={readOnly ? t('panel.readOnlyPlaceholder') : t('panel.followUpPlaceholder')}
-        maxRows={4}
-        disabled={readOnly || sending}
-        sendButtonStatus={sending ? 'generating' : 'normal'}
-      />
-      <Button variant="ghost" onClick={() => setLoadError(true)}>
-        {t('panel.simLoadFail')}
-      </Button>
+      <form
+        className="session-composer"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (!readOnly && !sending && draft.trim()) send(draft.trim())
+        }}
+      >
+        <Textarea
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={readOnly ? t('panel.readOnlyPlaceholder') : t('panel.followUpPlaceholder')}
+          rows={2}
+          disabled={readOnly || sending}
+          aria-label={readOnly ? t('panel.readOnlyPlaceholder') : t('panel.followUpPlaceholder')}
+          onKeyDown={(event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+              event.preventDefault()
+              if (!readOnly && !sending && draft.trim()) send(draft.trim())
+            }
+          }}
+        />
+        <div className="session-composer-footer">
+          <span>{readOnly ? t('panel.readOnly') : t('panel.followUpHint')}</span>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={readOnly || (!draft.trim() && !sending)}
+            loading={sending}
+            aria-label={t('panel.sendFollowUp')}
+          >
+            <Send className="mr-1 h-4 w-4" aria-hidden="true" /> {t('panel.sendFollowUp')}
+          </Button>
+        </div>
+      </form>
+      {mode === 'mock' && (
+        <Button variant="ghost" onClick={() => setLoadError(true)}>
+          {t('panel.simLoadFail')}
+        </Button>
+      )}
     </div>
   )
 }
@@ -402,15 +480,15 @@ function Screen2_PanelShell({
   onArchive: (id: string) => void
   onDelete: (id: string) => void
   onRelay: (s: Session) => void
-  onFollowUp: (s: Session, text: string) => void
+  onFollowUp: (s: Session, text: string) => Promise<void>
 }) {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   // P2-11 看板：列表（线程）与看板两视图，点卡片直达线程
   const [mode, setMode] = useState<'thread' | 'board'>('thread')
-  const { projects: mockProjects } = usePetData()
-  const projects = projectId ? mockProjects.filter((p) => p.id === projectId) : mockProjects
+  const { projects: availableProjects, agents } = usePetData()
+  const projects = projectId ? availableProjects.filter((p) => p.id === projectId) : availableProjects
   const current = sessions.find((s) => s.id === sessionId) ?? null
   const notFound = sessionId !== null && !current
 
@@ -420,7 +498,7 @@ function Screen2_PanelShell({
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="session-workspace">
       <Sidebar collapsible="icon">
         <SidebarContent>
           <SidebarGroup>
@@ -465,10 +543,15 @@ function Screen2_PanelShell({
                                       role="img"
                                       aria-label={statusText(s.status)}
                                     />
-                                    <Tooltip content={s.title} side="right">
-                                      <span className="truncate">{s.title}</span>
-                                    </Tooltip>
-                                    {s.stale && <span className="ml-1 shrink-0 text-xs text-text-secondary">stale</span>}
+                                    <span className="session-sidebar-copy">
+                                      <Tooltip content={s.title} side="right">
+                                        <span className="session-sidebar-title">{s.title}</span>
+                                      </Tooltip>
+                                      <span className="session-sidebar-meta">
+                                        {presentSession(s, agents, availableProjects).agentName} · {statusText(s.status)}
+                                        {s.host ? ` · @${s.host}` : ''}{s.stale ? ' · stale' : ''}
+                                      </span>
+                                    </span>
                                   </button>
                                 </SidebarMenuSubButton>
                               )}
@@ -526,7 +609,7 @@ function Screen2_PanelShell({
         </div>
         {mode === 'board' ? (
           <div className="flex flex-1 gap-3 overflow-x-auto p-3">
-            {kanbanColumns(sessions).map((col) => (
+            {kanbanColumns(sessions, projectId).map((col) => (
               <section key={col.status} className="flex min-w-[220px] flex-1 flex-col gap-2" aria-label={statusText(col.status)}>
                 <div className="flex items-center gap-2">
                   <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: STATUS_DOT[col.status] }} role="img" aria-label={statusText(col.status)} />
@@ -536,27 +619,30 @@ function Screen2_PanelShell({
                 {col.sessions.length === 0 ? (
                   <TypographyMuted className="text-xs">{t('panel.noSessionsShort')}</TypographyMuted>
                 ) : (
-                  col.sessions.map((s) => (
-                    <Card key={s.id} className="p-2">
-                      <button
-                        type="button"
-                        className="w-full text-left"
-                        aria-label={t('panel.openSession', { title: s.title })}
-                        onClick={() => {
-                          onSelectSession(s.id)
-                          setMode('thread')
-                        }}
-                      >
-                        <p className="text-text truncate text-sm font-medium">{s.title}</p>
-                        <p className="text-text-secondary mt-1 truncate text-xs">
-                          {s.agentId}
-                          {s.host ? ` · @${s.host}` : ''}
-                          {s.stale ? ' · stale' : ''}
-                          {fmtTokens(s.tokens) ? ` · ${fmtTokens(s.tokens)}` : ''}
-                        </p>
-                      </button>
-                    </Card>
-                  ))
+                  col.sessions.map((s) => {
+                    const view = presentSession(s, agents, availableProjects)
+                    return (
+                      <Card key={s.id} className="session-board-card">
+                        <button
+                          type="button"
+                          aria-label={t('panel.openSession', { title: view.title })}
+                          onClick={() => {
+                            onSelectSession(s.id)
+                            setMode('thread')
+                          }}
+                        >
+                          <p className="session-board-title">{view.title}</p>
+                          <p className="session-board-meta">
+                            {view.agentName}
+                            {view.host ? ` · @${view.host}` : ''}
+                            {view.stale ? ' · stale' : ''}
+                            {fmtTokens(s.tokens) ? ` · ${fmtTokens(s.tokens)}` : ''}
+                          </p>
+                          {!projectId && <p className="session-board-project">{view.projectName}</p>}
+                        </button>
+                      </Card>
+                    )
+                  })
                 )}
               </section>
             ))}
@@ -600,7 +686,7 @@ function Screen2_PanelShell({
 }
 
 export function Flow3_Panel({ onRelay, onConnect, focusTarget }: { onRelay?: (s: Session) => void; onConnect: () => void; focusTarget?: { projectId?: string; sessionId?: string } | null }) {
-  const { sessions: baseSessions, sessionsOfProject, inject, mode } = usePetData()
+  const { sessions: baseSessions, inject, mode } = usePetData()
   const [view, setView] = useState<'home' | 'panel'>(focusTarget ? 'panel' : 'home')
   const [projectId, setProjectId] = useState<string | null>(focusTarget?.projectId ?? null)
   const [sessionId, setSessionId] = useState<string | null>(focusTarget?.sessionId ?? null)
@@ -654,15 +740,16 @@ export function Flow3_Panel({ onRelay, onConnect, focusTarget }: { onRelay?: (s:
   }
 
   return (
-    <div className="h-screen">
+    <div className="h-full min-h-0">
       <Toaster />
       {view === 'home' ? (
         <Screen1_ProjectHome
+          sessions={sessions}
           onConnect={onConnect}
-          onOpen={(pid) => {
+          onOpen={(pid, focusedSessionId) => {
             track('panel', EVENT.panelDrilldown, { projectId: pid })
             setProjectId(pid)
-            setSessionId(sessionsOfProject(pid)[0]?.id ?? null)
+            setSessionId(focusedSessionId ?? firstProjectSessionId(sessions, pid))
             setView('panel')
           }}
         />

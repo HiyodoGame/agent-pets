@@ -82,3 +82,60 @@
 3. 成本 MVP 数据源：claude（jsonl usage 字段）、zcode（turn_usage 完整）、kimi-code（token_count 累计）、gemini（tokens 分项）。
 4. Antigravity 列入 blocked，理由如上。
 5. opencode v2 的后台服务端口/密码由 CLI 管理，观察走 `opencode api session.list`；运行中状态由桥接进程订阅 SSE `session.execution.*` 得到，watcher 离线时才退回 mtime 新鲜度兜底；旧 `/session` HTTP 仅作 v1 回退。
+
+
+## 2026-11-20 复核修正（真实数据回填）
+
+> 2026-11-16 的结论在「当时」是成立的，但下面这些点在 2026-11-20 用真实文件复测时发现**与代码实现不一致或已随 CLI 版本迁移而失效**。以本节为准；上一节保留历史原貌。
+
+### 总览修正
+
+| Agent | 2026-11-16 记载 | 2026-11-20 实测 | 影响 |
+| --- | --- | --- | --- |
+| Kimi Code | `~/.kimi/sessions/<hash>/<uuid>/context.jsonl` | **已迁移**：`~/.kimi-code/sessions/wd_<slug>_<hash>/session_<uuid>/{state.json, agents/main/wire.jsonl}`；`~/.kimi/.migrated-to-kimi-code` 为迁移标记 | 旧路径只剩几个月前的旧会话，界面读到的是"考古数据" |
+| opencode | v2.0.27，`opencode api session.list` | v2.0.30；**在 Windows 上只存在 `%APPDATA%\\npm\\opencode.cmd`**，`shell:false` 直接 spawn 必失败 | 适配器整源不可用（已修，见 `server/adapters/exec.mjs`） |
+| Codex | rollout jsonl，尾部窗口读状态 | cwd 只在**第 1 行** `session_meta`；标题来自 `event_msg/item_completed/item.type=UserMessage`；第 3 行常是整份 AGENTS.md（单行约 100 KB） | 长会话 cwd 丢失、标题永远为空 |
+| Claude | user 行推断标题 | 真正的标题是 `{"type":"ai-title","aiTitle":"…"}`；`user` 行里混有 `<system-reminder>`、图片占位、hook 反馈 | 标题出现图片/Hook 噪声 |
+| Cursor | `<sessionId>.jsonl`，标题用项目 slug | 首条 user 文本被包成 `<timestamp>…</timestamp>\n<user_query>…</user_query>`；工程目录名是**有损转义**（`:`/`\\`/`_` 全变 `-`） | 标题带时间戳前言、项目名不可读 |
+| zcode | session.directory 即项目目录 | 存在 zcode 自己的沙箱工作目录 `<盘符>:\\ZCodeData\\.zcode\\workspace\\<ts>-<uuid>` | 沙箱会话被当成独立项目 |
+| DeepSeek Harness | 事件 data 包裹 | `session` 事件是**扁平**的：`{"type":"session","version":4,"id","cwd"}`（`session/title`、`turn/start`、`assistant/message` 才在 `data` 下） | cwd 全空、会话落"未识别项目" |
+
+### 关键格式（2026-11-20 实测，可直接用于 fixture）
+
+- **Codex 标题行**
+  ```json
+  {"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"text","text":"真实提问"}]}}}
+  ```
+  首个 UserMessage 实测固定在第 9–13 行；读文件头必须按"读到够行数"而不是"读够字节"。
+- **Claude 标题行**
+  ```json
+  {"type":"ai-title","aiTitle":"小爪邮局素材接入","sessionId":"…"}
+  ```
+- **Cursor 首条用户文本**
+  ```
+  <timestamp>Friday, Oct 2, 2026, 9:07 PM (UTC+8)</timestamp>
+  <user_query>
+  …真实提问…
+  </user_query>
+  ```
+- **Kimi Code v2**
+  - `session_index.jsonl`：`{"sessionId":"session_<uuid>","sessionDir":"C:/…/sessions/wd_<slug>_<hash>/session_<uuid>","workDir":"F:\\…"}`
+  - `state.json`：`id / version / cwd / archived / title / titleKind / lastPrompt / createdAt / updatedAt / isCustomTitle`（本机 571 个，绝大多数 `archived:true`）
+  - `agents/main/wire.jsonl`（协议 1.5）：`turn.prompt`（`input[].text`）、`context.append_message`（`message.role`）、`usage.record`（`inputOther/output/inputCacheRead`）、`turn.ended`/`prompt.completed`（`reason`）
+- **DeepSeek Harness**
+  ```json
+  {"type":"session","version":4,"id":"session-<uuid>","cwd":"F:\\WorkSpace\\…"}
+  ```
+- **opencode v2 列表项（截取）**
+  ```json
+  {"id":"ses_…","title":"License batch review r3","location":{"directory":"F:\\WorkSpace\\HarmonyProjects\\Workflow"},"outcome":"succeeded","time":{…},"tokens":{"input":108993,"output":7660,"cache":{"read":2265600}}}
+  ```
+
+### Windows 上调用 CLI 的唯一正确姿势
+
+```text
+spawn('opencode')      -> ENOENT   （Node 不按 PATHEXT 解析）
+spawn('opencode.cmd')  -> EINVAL   （Node >= 20.12 禁止 shell:false 直接 spawn .cmd）
+cmd.exe /d /s /c "…"   -> OK       （server/adapters/exec.mjs 现走这条，参数按 cmd 规则加引号）
+```
+`runCli` 现在会先按 `PATHEXT` 解析出真实可执行文件：`.exe`/`.com` 直连 spawn，`.cmd`/`.bat` 走 `cmd.exe /d /s /c`，无扩展名的 sh shim 跳过。

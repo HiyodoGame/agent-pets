@@ -4,19 +4,32 @@ import type { PetEvent } from '../flows/shared/types.ts'
 import { createNotificationDispatcher, notificationBody, sendPetSystemNotification } from './notifications.ts'
 
 function event(type: PetEvent['type'], id = 'e1'): PetEvent {
-  return { id, type, projectId: 'live', sessionId: 's1', text: 'private conversation body', timestamp: new Date().toISOString(), handled: false }
+  return { id, type, projectId: 'local:F:/Project', sessionId: 'codex:s1', agentId: 'codex', agentName: 'Codex', projectName: 'Project', sessionTitle: 'Task', text: 'private conversation body', timestamp: new Date().toISOString(), handled: false }
 }
 
 test('notifications: non-Tauri environments report system notification as unavailable', async () => {
   assert.equal(await sendPetSystemNotification(event('done')), false)
 })
 
-test('notifications: completion taps once with a generic summary', async () => {
+test('notifications: every lifecycle body identifies agent, project and task without conversation text', () => {
+  const expected: Array<[PetEvent['type'], string]> = [
+    ['started', 'Codex 开始工作\nProject · Task'],
+    ['done', 'Codex 完成任务\nProject · Task'],
+    ['relay-ready', 'Codex 完成任务\nProject · Task'],
+    ['stuck', 'Codex 遇到困难\nProject · Task'],
+    ['decision', 'Codex 需要你拍板\nProject · Task'],
+  ]
+  for (const [type, body] of expected) {
+    assert.equal(notificationBody(event(type)), body)
+    assert.equal(notificationBody(event(type)).includes('private conversation body'), false)
+  }
+})
+
+test('notifications: completion taps once with an attributed summary', async () => {
   const sent: string[] = []
   const dispatch = createNotificationDispatcher((item) => { sent.push(notificationBody(item)) })
   assert.equal(await dispatch(event('done'), false), 'tap')
-  assert.deepEqual(sent, ['有 Agent 完成任务'])
-  assert.equal(sent[0].includes('private conversation body'), false)
+  assert.deepEqual(sent, ['Codex 完成任务\nProject · Task'])
 })
 
 test('notifications: DND routes ordinary events to inbox without system notification', async () => {
@@ -24,6 +37,7 @@ test('notifications: DND routes ordinary events to inbox without system notifica
   const dispatch = createNotificationDispatcher(() => { calls++ })
   assert.equal(await dispatch(event('done'), true), 'inbox')
   assert.equal(await dispatch(event('stuck', 'e2'), true), 'inbox')
+  assert.equal(await dispatch(event('started', 'e3'), true), 'inbox')
   assert.equal(calls, 0)
 })
 

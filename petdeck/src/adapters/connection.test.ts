@@ -2,7 +2,7 @@
 // Run: node --test src/adapters/connection.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nextConnState, FAILS_TO_OFFLINE, type ConnSnapshot } from './connection.ts';
+import { nextConnState, visibleConnState, FAILS_TO_OFFLINE, type ConnSnapshot } from './connection.ts';
 
 const init: ConnSnapshot = { state: 'reconnecting', fails: 0 };
 
@@ -43,4 +43,9 @@ test('conn: offline + sse error stays offline', () => {
 test('conn: reconnecting + sse open -> live', () => {
   const r: ConnSnapshot = { state: 'reconnecting', fails: 1 };
   assert.deepEqual(nextConnState(r, { type: 'sse', open: true }), { state: 'live', fails: 0 });
+});
+
+test('conn: demo presentation never inherits an unrelated offline bridge state', () => {
+  assert.equal(visibleConnState(true, 'offline'), 'live');
+  assert.equal(visibleConnState(false, 'offline'), 'offline');
 });

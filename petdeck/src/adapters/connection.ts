@@ -16,3 +16,8 @@ export function nextConnState(prev: ConnSnapshot, ev: ConnEvent): ConnSnapshot {
   if (ev.open) return { state: 'live', fails: 0 }
   return prev.state === 'offline' ? prev : { state: 'reconnecting', fails: prev.fails }
 }
+
+/** Demo data is self-contained and must not inherit an unrelated offline bridge state. */
+export function visibleConnState(demo: boolean, state: ConnState): ConnState {
+  return demo ? 'live' : state
+}

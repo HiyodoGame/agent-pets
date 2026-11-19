@@ -16,6 +16,25 @@ export const tier = 'observe-only';
  *  older incomplete files stay unknown (a crashed session must not look active). */
 const RUNNING_FRESH_MS = 120000;
 
+/** 真实首条 user 文本是 <timestamp>…</timestamp> + <user_query>…</user_query> 包装（实测 5/5），
+ *  直接当标题会变成「<timestamp>Friday, Oct 2, 2026, 9:07 PM …」。拆掉包装只留用户问题。 */
+export function cleanUserText(text) {
+  let t = String(text ?? '')
+  t = t.replace(/<timestamp>[\s\S]*?<\/timestamp>/g, '')
+  const m = t.match(/<user_query>([\s\S]*?)<\/user_query>/)
+  if (m) t = m[1]
+  return t.replace(/<[^>]+>/g, ' ').trim()
+}
+
+/** Cursor 把工程目录压成 <盘符小写>-a-b-c（'\\' ':' '_' 全变 '-'），无法无损还原；
+ *  显示名取尾部两段（AIAPPPlan/TalkProject），分组键仍用原始 slug 保持稳定。 */
+export function humanizeProject(slug) {
+  const raw = String(slug ?? '').trim()
+  if (!raw) return ''
+  const parts = raw.replace(/^[a-z]-/, '').split('-').filter(Boolean)
+  return parts.slice(-2).join('/') || raw
+}
+
 function extractText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -44,7 +63,7 @@ export function parseCursorTranscript(lines, { mtimeMs = Date.now(), now = Date.
       terminal = null; // a new turn is in progress
       lastRole = 'user';
       const text = extractText(j.message?.content ?? j.message);
-      if (text && !firstUser) firstUser = text;
+      if (text && !firstUser) firstUser = cleanUserText(text);
     } else if (j.role === 'assistant') {
       lastRole = 'assistant';
       const text = extractText(j.message?.content ?? j.message);
@@ -78,9 +97,11 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
     } catch { continue; }
     const r = parseCursorTranscript(lines, { mtimeMs: st.mtimeMs, now });
     if (r.status === 'unknown' && !r.lastMessage) continue;
+    const project = parts[at - 1] ?? '';
     out.push({
       agent: id, source: 'cursor-transcript-jsonl', session,
-      title: parts[at - 1] ?? '', status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: '',
+      title: r.firstUserMessage, projectId: project, projectName: humanizeProject(project),
+      status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: '',
     });
     if (out.length >= 5) break;
   }

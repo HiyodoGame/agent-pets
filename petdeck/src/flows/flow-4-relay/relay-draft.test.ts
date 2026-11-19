@@ -2,7 +2,7 @@
 // Run: node --test src/flows/flow-4-relay/relay-draft.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRelayDraft, resolveTarget, canSend, summarizeSource, sendStateFromDecision } from './relay-draft.ts';
+import { buildRelayDraft, resolveTarget, canSend, summarizeSource, sendStateFromDecision, shouldCommitRelayResult } from './relay-draft.ts';
 import type { Agent, Session } from '../shared/types.ts';
 
 const agent = (id: string): Agent => ({ id, name: id.toUpperCase(), form: 'cli', capability: 'full', status: 'idle', projectIds: [] });
@@ -58,4 +58,10 @@ test('sendStateFromDecision: undefined or unknown mode -> failed (no fake succes
   assert.equal(sendStateFromDecision(undefined), 'failed');
   assert.equal(sendStateFromDecision('error'), 'failed');
   assert.equal(sendStateFromDecision(null), 'failed');
+});
+
+test('relay result commit: only the latest request may update visible state', () => {
+  assert.equal(shouldCommitRelayResult(2, 2), true);
+  assert.equal(shouldCommitRelayResult(1, 2), false, 'returning to the editor invalidates the old request');
+  assert.equal(shouldCommitRelayResult(3, 2), false, 'future or malformed revisions are not committed');
 });

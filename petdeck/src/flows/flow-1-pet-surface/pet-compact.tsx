@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Inbox, PanelTop, RefreshCw, Settings2 } from 'lucide-react'
 import { usePetData } from '../../adapters'
 import type { PetEvent } from '../shared/types'
 import { PetAvatar } from '../shared/pet-avatar'
 import { statusLabel } from '../shared/status-tokens'
 import { eventWatermark, newEventsAfter, routeDndArrivals, fmtCount, type EventWatermark } from '../shared/ui-logic'
-import { compactPetStatus, summarizeSessions } from './pet-view'
+import { compactPetStatus, petOverlayMode, shouldResetEventWatermark, summarizeSessions } from './pet-view'
 import { hidePet, getDnd, listenForDndChange, movePetBy, openMainPanel, persistPetPositionOnMove, quitPetDeck, savePetPosition, setDesktopDnd, setPetAlwaysOnTop, startPetDragging, updatePetWindowLayout, type PanelTarget } from '../../desktop/window'
 import { t } from '../../i18n/index.ts'
+import { useI18n } from '../../i18n/context.ts'
 import type { PetWindowMode } from '../../desktop/pet-layout'
 import { updatePetSettings, type PetSettings } from '../shared/pet/pet-settings'
 import { awardPetGrowth, awardTaskGrowth } from '../shared/pet/growth.ts'
@@ -17,9 +18,12 @@ import { beginNativePetDrag, beginPetGesture, confirmPetDrag, endPetGesture, mov
 import { PetContextMenu, type PetMenuPoint } from './pet-context-menu'
 import { PetEventCard } from './pet-event-card'
 import { PetQuickSettings } from './pet-quick-settings'
+import { presentSession, prioritizeSessions } from '../shared/session-presentation.ts'
+import { createNotificationDispatcher, sendPetSystemNotification } from '../../desktop/notifications'
 
 export function CompactPet({ bridgeError = null }: { bridgeError?: string | null }) {
-  const { sessions, unhandledEvents, connState, reconnect } = usePetData()
+  useI18n()
+  const { sessions, unhandledEvents, connState, reconnect, mode, agents, projects } = usePetData()
   const [expanded, setExpanded] = useState(false)
   const [dnd, setDnd] = useState(false)
   const [suppressed, setSuppressed] = useState<PetEvent[]>([])
@@ -27,17 +31,23 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
   const [menu, setMenu] = useState<PetMenuPoint | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [desktopError, setDesktopError] = useState(false)
+  const dispatchNotification = useMemo(() => createNotificationDispatcher(sendPetSystemNotification), [])
   const watermarkRef = useRef<EventWatermark | null>(null)
   const initializedRef = useRef(false)
+  const eventModeRef = useRef(mode)
   const gestureRef = useRef<PetGesture | null>(null)
   const finishGestureRef = useRef<() => void>(() => {})
   const petButtonRef = useRef<HTMLButtonElement>(null)
   const events = unhandledEvents()
   const summary = summarizeSessions(sessions)
+  const quickSessions = prioritizeSessions(sessions)
+    .filter((session) => session.status === 'waiting' || session.status === 'stuck' || session.status === 'active')
+    .slice(0, 3)
   const status = compactPetStatus(connState, summary)
   const growth = useGrowth()
   const attention = summary.waiting + summary.stuck
-  const overlayOpen = expanded || settingsOpen || menu !== null || activeEvent !== null
+  const hasError = Boolean(bridgeError || desktopError)
+  const overlayOpen = expanded || settingsOpen || menu !== null || activeEvent !== null || hasError
   const onWalk = useCallback((direction: 'left' | 'right') => {
     movePetBy(direction).catch(() => setDesktopError(true))
   }, [])
@@ -45,13 +55,20 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
   const { eventArrived, dragEnd, poke } = behavior
   const settings = behavior.settings
   const petSize = Math.round(128 * settings.scale)
-  const windowMode: PetWindowMode = settingsOpen ? 'settings' : menu ? 'menu' : activeEvent ? 'event' : expanded ? 'quick' : 'compact'
+  const windowMode: PetWindowMode = petOverlayMode({ settingsOpen, menuOpen: menu !== null, activeEvent: activeEvent !== null, expanded, hasError })
   const previousScale = useRef(settings.scale)
 
   useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true
       watermarkRef.current = eventWatermark(events)
+      return
+    }
+    if (shouldResetEventWatermark(eventModeRef.current, mode)) {
+      eventModeRef.current = mode
+      watermarkRef.current = eventWatermark(events)
+      setActiveEvent(null)
+      setSuppressed([])
       return
     }
     const added = newEventsAfter(events, watermarkRef.current)
@@ -61,7 +78,14 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
     // persistent pet window awards, so an open main panel cannot double-count.
     const completed = added.filter((event) => event.type === 'done' || event.type === 'relay-ready').length
     if (completed > 0) awardTaskGrowth(completed)
-    eventArrived(added.some((event) => event.type === 'decision'))
+    const behaviorEvent = added.find((item) => item.type === 'decision')
+      ?? added.find((item) => item.type === 'stuck')
+      ?? added.find((item) => item.type === 'done' || item.type === 'relay-ready')
+      ?? added[0]
+    eventArrived(behaviorEvent.type)
+    for (const item of added) {
+      dispatchNotification(item, dnd).catch(() => setDesktopError(true))
+    }
     if (!dnd) {
       setActiveEvent(added[0])
       return
@@ -69,7 +93,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
     const { quiet, decision } = routeDndArrivals(added)
     if (quiet.length > 0) setSuppressed((current) => [...quiet, ...current])
     if (decision) setActiveEvent(decision)
-  }, [events, dnd, eventArrived])
+  }, [events, dnd, eventArrived, mode, dispatchNotification])
 
   useEffect(() => {
     const save = () => { void savePetPosition() }
@@ -119,12 +143,13 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
 
   const openPanel = async (target: PanelTarget = {}) => {
     try {
-      await openMainPanel(target)
-      setDesktopError(false)
       setActiveEvent(null)
       setExpanded(false)
       setMenu(null)
       setSettingsOpen(false)
+      await updatePetWindowLayout('compact', settings.scale, settings.scale)
+      await openMainPanel(target)
+      setDesktopError(false)
     } catch {
       setDesktopError(true)
     }
@@ -198,7 +223,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
           className="pet-character-button"
           style={{ width: petSize, height: petSize }}
           aria-label={expanded ? t('pet.ariaCollapse') : t('pet.ariaExpand')}
-          aria-expanded={expanded}
+          aria-expanded={windowMode === 'quick'}
           onPointerDown={(event) => {
             if (event.button !== 0) return
             gestureRef.current = beginPetGesture({ button: event.button, x: event.clientX, y: event.clientY })
@@ -244,15 +269,14 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
           {summary.running > 0 && <span className="tabular-nums">{t('common.running', { n: fmtCount(summary.running) })}</span>}
           {attention > 0 && <span className="pet-attention-count tabular-nums">{t('pet.pendingCount', { n: fmtCount(attention) })}</span>}
         </div>
+        {connState === 'offline' && !bridgeError && (
+          <button type="button" className="pet-reconnect" onClick={reconnect}>
+            <RefreshCw className="h-3 w-3" /> {t('pet.reconnect')}
+          </button>
+        )}
       </div>
 
-      {connState === 'offline' && !bridgeError && (
-        <button type="button" className="pet-reconnect" onClick={reconnect}>
-          <RefreshCw className="h-3 w-3" /> {t('pet.reconnect')}
-        </button>
-      )}
-
-      {expanded && (
+      {windowMode === 'quick' && expanded && (
         <section className="pet-popover pet-quick-panel" aria-label={t('pet.quickPanel')}>
           <div className="pet-panel-heading">
             <div>
@@ -263,6 +287,27 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
               <Settings2 className="h-4 w-4" />
             </button>
           </div>
+          {quickSessions.length > 0 && (
+            <div className="pet-task-shortlist">
+              <span className="pet-task-shortlist-label">{attention > 0 ? t('pet.priorityTitle') : t('pet.runningTitle')}</span>
+              <ul>
+                {quickSessions.map((session) => {
+                  const view = presentSession(session, agents, projects)
+                  return (
+                    <li key={session.id}>
+                      <button type="button" onClick={() => void openPanel({ projectId: session.projectId, sessionId: session.id })}>
+                        <span className="pet-task-status" data-status={session.status}>{view.statusLabel}</span>
+                        <span className="pet-task-copy">
+                          <strong>{view.title}</strong>
+                          <span>{view.agentName} · {view.projectName}{view.host ? ` · @${view.host}` : ''}</span>
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
           <div className="pet-growth">
             <div className="pet-growth-head">
               <strong key={growth.progress.level}>{t('growth.level', { level: growth.progress.level })} · {t(growth.progress.titleKey)}</strong>
@@ -305,15 +350,20 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
         </section>
       )}
 
-      {activeEvent && (
+      {windowMode === 'event' && activeEvent && (
         <PetEventCard
           event={activeEvent}
-          onDismiss={() => setActiveEvent(null)}
+          onDismiss={() => {
+            setExpanded(false)
+            setSettingsOpen(false)
+            setMenu(null)
+            setActiveEvent(null)
+          }}
           onOpen={() => void openPanel({ projectId: activeEvent.projectId, sessionId: activeEvent.sessionId })}
         />
       )}
 
-      {menu && (
+      {windowMode === 'menu' && menu && (
         <PetContextMenu
           point={menu}
           dnd={dnd}
@@ -326,9 +376,13 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
         />
       )}
 
-      {settingsOpen && <PetQuickSettings settings={settings} onChange={changeSettings} onClose={() => setSettingsOpen(false)} />}
-      {bridgeError && <p className="pet-error" role="alert">{bridgeError}</p>}
-      {desktopError && <p className="pet-error" role="alert">{t('pet.desktopError')}</p>}
+      {windowMode === 'settings' && settingsOpen && <PetQuickSettings settings={settings} onChange={changeSettings} onClose={() => { setSettingsOpen(false); petButtonRef.current?.focus() }} />}
+      {windowMode === 'event' && hasError && !activeEvent && (
+        <div className="pet-popover pet-error-panel" role="alert">
+          {bridgeError && <p className="pet-error">{bridgeError}</p>}
+          {desktopError && <p className="pet-error">{t('pet.desktopError')}</p>}
+        </div>
+      )}
     </main>
   )
 }

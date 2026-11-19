@@ -37,6 +37,15 @@ test('kanban: sessions grouped by status, within-column order preserved', () => 
   assert.deepEqual(byStatus.archived, []);
 });
 
+test('kanban: project scope never mixes sessions from another project', () => {
+  const owned = { ...s('owned', 'active'), projectId: 'p1' };
+  const other = { ...s('other', 'active'), projectId: 'p2' };
+  const cols = kanbanColumns([owned, other], 'p1');
+  assert.deepEqual(cols.find((col) => col.status === 'active')?.sessions.map((item) => item.id), ['owned']);
+  const all = kanbanColumns([owned, other], null);
+  assert.deepEqual(all.find((col) => col.status === 'active')?.sessions.map((item) => item.id), ['owned', 'other']);
+});
+
 test('kanban: no column ever duplicates a session (statuses are mutually exclusive)', () => {
   const sessions = ['active', 'waiting', 'done', 'stuck', 'archived'].map((st, i) => s(`s${i}`, st as Session['status']));
   const all = kanbanColumns(sessions).flatMap((c) => c.sessions);

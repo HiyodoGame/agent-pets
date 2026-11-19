@@ -11,9 +11,10 @@ export interface KanbanColumn {
 export const KANBAN_ORDER: readonly SessionStatus[] = ['active', 'waiting', 'done', 'stuck', 'archived']
 
 /** 会话按状态分列；列顺序固定、空列保留，列内保持原顺序（不再二次排序，尊重 lastSeen 流水）。 */
-export function kanbanColumns(sessions: Session[]): KanbanColumn[] {
+export function kanbanColumns(sessions: Session[], projectId: string | null = null): KanbanColumn[] {
+  const scoped = projectId ? sessions.filter((session) => session.projectId === projectId) : sessions
   return KANBAN_ORDER.map((status) => ({
     status,
-    sessions: sessions.filter((s) => s.status === status),
+    sessions: scoped.filter((s) => s.status === status),
   }))
 }

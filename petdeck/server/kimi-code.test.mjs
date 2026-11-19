@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseKimi, observe } from './adapters/kimi-code.mjs';
+import { parseKimi, parseKimiWire, observe } from './adapters/kimi-code.mjs';
 
 const NOW = Date.now();
 const u = (t) => JSON.stringify({ role: 'user', content: [{ type: 'text', text: t }] });
@@ -24,6 +24,7 @@ test('parseKimi: last assistant => done (reply finished, waiting for user input)
   const r = parseKimi([u('任务'), a('完成了')], NOW);
   assert.equal(r.status, 'done');
   assert.equal(r.lastMessage, '完成了');
+  assert.equal(r.title, '任务');
 });
 
 test('parseKimi: _system_prompt / _checkpoint / _usage are metadata, not conversation', () => {
@@ -61,4 +62,62 @@ test('observe: walks session dirs newest-first cap 5, skips system-only files', 
   assert.ok([rows[0].session, rows[1].session].includes('u1'));
   assert.ok([rows[0].status, rows[1].status].includes('running'));
   assert.ok([rows[0].status, rows[1].status].includes('done'));
+  assert.equal(rows.find((r) => r.session === 'u1').projectId, 'h1');
+  assert.equal(rows.find((r) => r.session === 'u2').projectName, 'h2');
+});
+
+// --- v2 store (post-migration, 2026-11-20 real layout) ---
+// 旧实现只读 ~/.kimi/sessions（迁移前的库），于是面板显示的是几个月前的旧会话。
+const wire = (events) => events.map((e) => JSON.stringify(e)).join('\n');
+
+test('parseKimiWire: real protocol-1.5 events drive status/lastMessage/tokens', () => {
+  const r = parseKimiWire([
+    JSON.stringify({ type: 'turn.prompt', agentId: 'main', input: [{ type: 'text', text: '修 bug' }], promptId: 'msg_1', turnId: 0 }),
+    JSON.stringify({ type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: '已修复' }] } }),
+    JSON.stringify({ type: 'usage.record', usage: { inputOther: 100, output: 20, inputCacheRead: 300, inputCacheCreation: 5 } }),
+    JSON.stringify({ type: 'turn.ended', turnId: 0, reason: 'completed', durationMs: 1000 }),
+  ]);
+  assert.equal(r.status, 'done');
+  assert.equal(r.lastMessage, '已修复');
+  assert.deepEqual(r.tokens, { input: 105, output: 20, cacheRead: 300 });
+});
+
+test('parseKimiWire: turn.ended interrupted => stuck', () => {
+  const r = parseKimiWire([JSON.stringify({ type: 'turn.ended', turnId: 0, reason: 'interrupted' })]);
+  assert.equal(r.status, 'stuck');
+});
+
+test('observe: v2 store wins over the legacy one, archived sessions are skipped', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'petdeck-kimi-v2-'));
+  const root = path.join(home, '.kimi-code');
+  const mkSession = (sid, state, events, mtimeSec) => {
+    const dir = path.join(root, 'sessions', 'wd_catwanted_067c8361cf15', sid);
+    fs.mkdirSync(path.join(dir, 'agents', 'main'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify(state));
+    fs.writeFileSync(path.join(dir, 'agents', 'main', 'wire.jsonl'), wire(events));
+    fs.utimesSync(path.join(dir, 'state.json'), mtimeSec, mtimeSec);
+    return dir;
+  };
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'session_index.jsonl'), JSON.stringify({ sessionId: 'session_live' }) + '\n');
+  // An older legacy store must be ignored while v2 exists.
+  const legacy = path.join(home, '.kimi', 'sessions', 'h1', 'u-legacy');
+  fs.mkdirSync(legacy, { recursive: true });
+  fs.writeFileSync(path.join(legacy, 'context.jsonl'), u('旧会话'));
+  mkSession('session_live', { id: 'session_live', cwd: 'F:\\WorkSpace\\HarmonyProjects\\CatWanted', archived: false, title: '检查项目进度' }, [
+    { type: 'turn.prompt', input: [{ type: 'text', text: '检查项目进度' }] },
+    { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: '进度如下' }] } },
+  ], new Date(2000));
+  mkSession('session_arch', { id: 'session_arch', cwd: 'F:\\tmp', archived: true, title: '旧的已归档' }, [
+    { type: 'turn.ended', turnId: 0, reason: 'completed' },
+  ], new Date(3000));
+
+  const rows = await observe({ home, now: NOW });
+  assert.equal(rows.length, 1, 'archived sessions are not live work');
+  assert.equal(rows[0].session, 'session_live');
+  assert.equal(rows[0].title, '检查项目进度');
+  assert.equal(rows[0].status, 'running');
+  assert.equal(rows[0].lastMessage, '进度如下');
+  assert.equal(rows[0].projectName, 'CatWanted');
+  assert.equal(rows[0].source, 'kimi-code-wire');
 });

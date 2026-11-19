@@ -4,6 +4,31 @@
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-11-20
+
+### 变更
+
+- 落地新的设计与交互规范：三层设计令牌、侧边任务导航、会话/接力/连接/伙伴页面与统一亮暗色外观；演示和外观偏好在主窗口与桌宠之间同步。
+- 桌宠快捷面板、事件卡、菜单和设置改为不遮挡宠物的侧挂布局，主窗口打开时主动避让；会话追问使用真实注入与串行发送，接力返回编辑后不会被旧请求结果覆盖，重复确认也不会发起第二次注入。
+- 真实会话按 cwd、来源项目标识和远程主机归组；会话首页与桌宠快捷面板优先展示等待处理和运行中的任务，列表、事件卡与看板统一显示 Agent、项目、任务和状态文字。
+
+### 修复
+
+- 恢复桌宠系统通知生产接线，新增进入 running 时的 started 提示；所有生命周期事件仅在状态转变时触发一次并携带 Agent、项目和任务，unknown 不误报，bridge 冷启动只播种存量状态且 SSE 历史回放不启动刷屏，通知点击使用正确的本地/远程复合会话 ID。
+- 修复历史完成会话持续控制宠物状态，以及项目看板混入其他项目会话、显示内部 Agent ID 的问题。
+- 真实回复显式禁用 Spark Response 的库内置照片整理演示轮次，不再把无关模拟内容拼入会话；事件到达时按统一 overlay 优先级替换快捷面板，不再互相重叠。
+- 自定义浅色令牌现在同时覆盖 Spark 的嵌套浅色容器，不再回退为薄荷绿；桌宠状态胶囊订阅语言上下文，切换语言时与设置面板同步刷新。
+- 桌宠尺寸与位置更新合并为一个 Rust 命令，避免展开/收起时两次前端 IPC 之间的跳帧；真实 Agent 授权成功后保存本机接入记录，连接首页直接展示已接入 Agent 与同步状态，不再误回“还没有连接任何 Agent”。
+- 真实会话使用清理 Markdown 后的可读短标题，正文明确标记“最新回复”；轮询观察快照按完成态渲染，不再伪装成流式输出。
+- Windows 后台 bridge 不再弹出控制台窗口，托盘语言更新移至主线程执行。
+- 撤回 v0.1.2 新增的手工依赖分组，消除生产包 `E is not a function` 的启动回归；保留 Seti 字体清理与 Lottie light player。
+- **修复生产安装包主窗口整块空白**：Tauri 以 `http://tauri.localhost/index.html` 载入主窗口，而 `src/App.jsx` 的无 basename `BrowserRouter` 只认 `/`、`/panel` 等路径，控制台反复 `No routes matched location "/index.html"`，内容区只剩 shell。新增 `src/desktop/entry-path.ts`（`entryRedirect` / `normalizeEntryLocation`），在 `src/main.jsx` 挂载 Router 前把 `/index.html` 归一化为 `/` 并保留 query/hash；`tauri:build` 产出的真实安装包经 WebView2 远程调试确认主窗口渲染出完整面板（`tauri.localhost/panel`）。
+- 修正上一行的验证口径：2026-11-19「本地真实生产窗口已验证恢复」很可能跑的是加载 `devUrl` 的开发态二进制——单独 `cargo build --release` 不嵌入 `dist`（产物约 14 MB，会连 `http://localhost:5183`），只有 `npm run tauri:build` 才是生产包（约 18 MB）。该命令在缺少 `TAURI_SIGNING_PRIVATE_KEY` 时会于签名步骤退出 1，但 exe 与 NSIS 安装包已经产出，不能据此判定构建失败。
+- 修复适配器对真实 CLI 数据的解析：Codex 的 cwd 只读首行 `session_meta`、标题改用 `item_completed/UserMessage`（`headLines` 改为按行读满，避免 100 KB 单行 AGENTS.md 占满 64 KB 窗口）；DeepSeek Harness 的 `session` 事件是扁平的；Kimi Code 改读 `~/.kimi-code` v2 库（`session_index.jsonl` + `state.json` + `agents/main/wire.jsonl`）并按 `archived` 过滤；Cursor 去掉 `<timestamp>` 前言并从有损 slug 还原可读项目名；Claude 优先用 `ai-title`；zcode 的沙箱工作目录不再被当成用户项目。
+- 修复 opencode 在 Windows 上整源不可用：`exec.mjs` 按 `PATHEXT` 解析可执行文件（`.exe`/`.com` 直连 spawn，`.cmd`/`.bat` 走 `cmd.exe /d /s /c`），并兼容 v2 payload 的 `location.directory`。
+- 修复项目分组噪声：新增 `server/project-root.mjs`，子目录会话归并到最近的 git 工作树根，系统临时目录单独成「临时目录」桶（临时目录内的真 git 检出仍按项目处理）；bridge 在发布前归一化，SSE 推送键包含分组变化。真实生产包面板从 13 个项目降为 12 个，`CatWanted` 的父子目录会话合并为 6 条。
+- 修复 bridge 启动失败时前端只显示「当前离线」的问题：`bridgeConfigError()` 保留 Rust 侧错误，离线横幅显示「本地会话服务未启动」与具体原因（如未检测到 Node.js），不再让用户自行猜测。
+
 ## [0.1.2] — 2026-11-17
 
 ### 文档与维护
@@ -79,7 +104,8 @@
 - Tauri 2 桌面壳：bridge 子进程托管（崩溃重启）、Node ≥24 检测、随机 token + 动态端口、NSIS 打包（含 WebView2 bootstrapper）。
 - 质量：约 290 单测、oxlint 0 告警、tsc --noEmit、GitHub Actions CI。
 
-[Unreleased]: https://github.com/HiyodoGame/agent-pets/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/HiyodoGame/agent-pets/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/HiyodoGame/agent-pets/releases/tag/v0.1.3
 [0.1.2]: https://github.com/HiyodoGame/agent-pets/releases/tag/v0.1.2
 [0.1.1]: https://github.com/HiyodoGame/agent-pets/releases/tag/v0.1.1
 [0.1.0]: https://github.com/HiyodoGame/agent-pets/releases/tag/v0.1.0

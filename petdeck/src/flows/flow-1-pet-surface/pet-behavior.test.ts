@@ -49,7 +49,7 @@ test('behavior: done and attention are one-shot entrances, not permanent loops',
 
 test('behavior: decisions preempt ordinary clips and stale completion cannot clear a newer action', () => {
   const petted = reducePetBehavior(snapshot('idle'), { type: 'POKE' })
-  const notified = reducePetBehavior(petted, { type: 'EVENT_ARRIVED', decision: true })
+  const notified = reducePetBehavior(petted, { type: 'EVENT_ARRIVED', eventType: 'decision' })
   assert.equal(notified.current, 'notify')
   assert.equal(notified.pendingDecision, true)
   const stale = reducePetBehavior(notified, { type: 'CLIP_FINISHED', action: 'pet' })
@@ -57,6 +57,18 @@ test('behavior: decisions preempt ordinary clips and stale completion cannot cle
   const finished = reducePetBehavior(notified, { type: 'CLIP_FINISHED', action: 'notify' })
   assert.equal(finished.current, 'idle')
   assert.equal(finished.pendingDecision, false)
+})
+
+test('behavior: lifecycle arrivals select work, done, attention or decision actions', () => {
+  assert.equal(reducePetBehavior(snapshot('idle'), { type: 'EVENT_ARRIVED', eventType: 'started' }).current, 'work')
+  assert.equal(reducePetBehavior(snapshot('idle'), { type: 'EVENT_ARRIVED', eventType: 'done' }).current, 'done')
+  assert.equal(reducePetBehavior(snapshot('idle'), { type: 'EVENT_ARRIVED', eventType: 'relay-ready' }).current, 'done')
+  const stuck = reducePetBehavior(snapshot('idle'), { type: 'EVENT_ARRIVED', eventType: 'stuck' })
+  assert.equal(stuck.current, 'attention')
+  assert.equal(stuck.pendingDecision, false)
+  const decision = reducePetBehavior(snapshot('idle'), { type: 'EVENT_ARRIVED', eventType: 'decision' })
+  assert.equal(decision.current, 'notify')
+  assert.equal(decision.pendingDecision, true)
 })
 
 test('behavior: offline wins and recovery restores the real status', () => {

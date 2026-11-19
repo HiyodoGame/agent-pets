@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import { X } from 'lucide-react'
 import { PetAvatar } from '../shared/pet-avatar'
 import { listSkinIds, loadSkin } from '../shared/pet/skin-loader'
@@ -15,6 +15,27 @@ import {
   type UpdatePhase,
 } from '../../desktop/updater'
 
+function ChoiceGroup<T extends string | number>({ label, value, options, onChange }: {
+  label: string
+  value: T
+  options: { value: T; label: string }[]
+  onChange: (value: T) => void
+}) {
+  const labelId = useId()
+  return (
+    <div className="pet-field">
+      <span id={labelId}>{label}</span>
+      <div className="pet-segmented" role="group" aria-labelledby={labelId}>
+        {options.map((option) => (
+          <button key={option.value} type="button" aria-pressed={value === option.value} onClick={() => onChange(option.value)}>
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function PetQuickSettings({ settings, onChange, onClose }: {
   settings: PetSettings
   onChange: (patch: Partial<PetSettings>) => void
@@ -28,7 +49,7 @@ export function PetQuickSettings({ settings, onChange, onClose }: {
   const [updateError, setUpdateError] = useState('')
 
   const runUpdateCheck = useCallback(async () => {
-    if (!desktop) return
+    if (!desktop || updatePhase === 'checking' || updatePhase === 'installing') return
     setUpdatePhase('checking')
     setUpdateError('')
     try {
@@ -39,7 +60,7 @@ export function PetQuickSettings({ settings, onChange, onClose }: {
       setUpdateError(error instanceof Error ? error.message : String(error))
       setUpdatePhase('error')
     }
-  }, [desktop])
+  }, [desktop, updatePhase])
 
   const installUpdate = useCallback(async () => {
     setUpdatePhase('installing')
@@ -82,7 +103,7 @@ export function PetQuickSettings({ settings, onChange, onClose }: {
     <section className="pet-popover pet-settings-panel" role="dialog" aria-label={t('settings.title')}>
       <div className="pet-panel-heading">
         <h2>{t('settings.title')}</h2>
-        <button type="button" className="pet-icon-button" aria-label={t('settings.close')} onClick={onClose}>
+        <button type="button" className="pet-icon-button" aria-label={t('settings.close')} onClick={onClose} autoFocus>
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -93,29 +114,32 @@ export function PetQuickSettings({ settings, onChange, onClose }: {
           <span>{t('settings.rightClickHint')}</span>
         </div>
       </div>
-      <label className="pet-field">
-        <span>{t('settings.skin')}</span>
-        <select value={settings.skinId} onChange={(event) => onChange({ skinId: event.target.value })}>
-          {skins.map((skin) => <option key={skin.id} value={skin.id}>{skin.name}</option>)}
-          {!skins.some((skin) => skin.id === settings.skinId) && <option value={settings.skinId}>{settings.skinId}</option>}
-        </select>
-      </label>
-      <label className="pet-field">
-        <span>{t('settings.motion')}</span>
-        <select value={settings.motion} onChange={(event) => onChange({ motion: event.target.value as PetSettings['motion'] })}>
-          <option value="auto">{t('settings.motionAuto')}</option>
-          <option value="on">{t('settings.motionOn')}</option>
-          <option value="reduced">{t('settings.motionReduced')}</option>
-          <option value="off">{t('settings.motionOff')}</option>
-        </select>
-      </label>
-      <label className="pet-field">
-        <span>{t('settings.language')}</span>
-        <select value={locale} onChange={(event) => setLocale(event.target.value as 'zh' | 'en')}>
-          <option value="zh">中文</option>
-          <option value="en">English</option>
-        </select>
-      </label>
+      <ChoiceGroup
+        label={t('settings.skin')}
+        value={settings.skinId}
+        options={[
+          ...skins.map((skin) => ({ value: skin.id, label: skin.name })),
+          ...(!skins.some((skin) => skin.id === settings.skinId) ? [{ value: settings.skinId, label: settings.skinId }] : []),
+        ]}
+        onChange={(skinId) => onChange({ skinId })}
+      />
+      <ChoiceGroup
+        label={t('settings.motion')}
+        value={settings.motion}
+        options={[
+          { value: 'auto' as const, label: t('settings.motionAuto') },
+          { value: 'on' as const, label: t('settings.motionOn') },
+          { value: 'reduced' as const, label: t('settings.motionReduced') },
+          { value: 'off' as const, label: t('settings.motionOff') },
+        ]}
+        onChange={(motion) => onChange({ motion })}
+      />
+      <ChoiceGroup
+        label={t('settings.language')}
+        value={locale}
+        options={[{ value: 'zh' as const, label: '中文' }, { value: 'en' as const, label: 'English' }]}
+        onChange={setLocale}
+      />
       <div className="pet-field">
         <span>{t('settings.size')}</span>
         <div className="pet-segmented" role="group" aria-label={t('settings.size')}>
@@ -144,7 +168,8 @@ export function PetQuickSettings({ settings, onChange, onClose }: {
             <button
               type="button"
               className="pet-update-button"
-              disabled={updatePhase === 'checking' || updatePhase === 'installing' || updatePhase === 'unsupported'}
+              disabled={updatePhase === 'unsupported'}
+              aria-busy={updatePhase === 'checking' || updatePhase === 'installing'}
               onClick={runUpdateCheck}
             >
               {updatePhase === 'checking' ? t('settings.checking') : t('settings.checkUpdate')}

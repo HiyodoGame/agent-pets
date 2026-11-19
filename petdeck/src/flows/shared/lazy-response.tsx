@@ -6,6 +6,7 @@
 // 轻量 shell 不 import sparkdesign，dist/index.html 不再 modulepreload 它。
 // =============================================
 import { lazy } from 'react'
+import { responseBehavior } from './response-behavior.ts'
 import type { ComponentProps } from 'react'
 
 type ResponseProps = ComponentProps<typeof import('sparkdesign').Response>
@@ -17,5 +18,7 @@ export interface LazyResponseProps {
 }
 
 export const LazyResponse = lazy(() =>
-  import('sparkdesign').then((m) => ({ default: m.Response })),
+  import('sparkdesign').then((m) => ({
+    default: (props: LazyResponseProps) => <m.Response {...responseBehavior(props.phase)} {...props} /> as ReturnType<typeof m.Response>,
+  })),
 )

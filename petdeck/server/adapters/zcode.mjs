@@ -13,6 +13,15 @@ export const tier = 'observe-only';
 
 const RUNNING_FRESH_MS = 120000;
 
+/** zcode 自己的工作区沙箱目录（实测 E:\ZCodeData\.zcode\workspace\<ts>-<uuid>）。
+ *  它是 zcode 复制/隔离开的私有目录，不是用户项目；当成 cwd 会把会话挂到
+ *  一个用户根本不认识的路径下（真机 5 条里 1 条如此）。 */
+const SANDBOX_DIR_RE = /[\\/]\.zcode[\\/]workspace[\\/]/;
+
+export function isSandboxDirectory(dir) {
+  return SANDBOX_DIR_RE.test(String(dir ?? ''));
+}
+
 /** Pure: map a session row (+optional extras) to an observed-session row.
  *  last_outcome completed => done；interrupted => stuck；null + 近期更新 => running；
  *  null + 陈旧 => unknown（绝不编造）。 */
@@ -59,8 +68,10 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
         const j = safeJson(typeof p === 'object' ? p.data : p);
         if (j?.type === 'text' && j.text) { lastMessage = j.text; break; }
       }
+      // 沙箱会话的目录不是用户项目 => 留空（前端归到「未识别项目」），不编造归属。
+      const cwd = isSandboxDirectory(s.directory) ? '' : (s.directory ?? '');
       rows.push({
-        agent: id, source: 'zcode-sqlite', session: s.id, title: s.title ?? '',
+        agent: id, source: 'zcode-sqlite', session: s.id, title: s.title ?? '', cwd,
         status: mapZcodeSession(s, now), lastMessage: String(lastMessage).slice(0, 200), turn: '',
         tokens: { input: usage.input, output: usage.output, cacheRead: usage.cacheRead },
       });

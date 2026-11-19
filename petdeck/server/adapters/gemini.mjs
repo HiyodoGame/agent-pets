@@ -89,10 +89,12 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
     const r = parseGeminiSession(text);
     if (r.kind === 'subagent') continue;
     if (r.status === 'unknown' && !r.lastMessage && !r.title) continue;
+    const project = path.basename(path.dirname(path.dirname(f)));
     const row = {
       agent: id, source: 'gemini-session-jsonl',
       session: r.session || path.basename(f).replace(/\.jsonl?$/, ''),
-      title: r.title.slice(0, 200), status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: '',
+      title: r.title.slice(0, 200), projectId: project, projectName: project,
+      status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: '',
     };
     if (r.tokens) row.tokens = r.tokens;
     out.push(row);

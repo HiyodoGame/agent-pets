@@ -2,7 +2,7 @@
 // PetDeck — 入口：ErrorBoundary 兜底 + 静态轻量 App Shell
 // Edge 补全：ErrorBoundary 提供重新加载出口
 // 首屏性能：AppShell 为原生轻量实现（不依赖 sparkdesign JS barrel），header/离线横幅/
-// 悬浮球随入口 chunk 立即渲染；Spark 重组件（Mermaid/KaTeX/Response）只在路由 chunk
+// 导航随入口 chunk 立即渲染；Spark 重组件（Mermaid/KaTeX/Response）只在路由 chunk
 // 懒加载（见 themed-routes.tsx），首屏不再下载它们。
 // =============================================
 import { Component } from 'react'

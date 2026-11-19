@@ -65,6 +65,8 @@ test('observe: chats files only, subagents skipped, cap and newest-first', async
   assert.equal(rows.length, 2);
   assert.equal(rows[0].title, 'B');
   assert.equal(rows[0].status, 'done');
+  assert.equal(rows[0].projectId, 'p2');
+  assert.equal(rows[0].projectName, 'p2');
   assert.equal(rows[1].lastMessage, 'ra');
 });
 
