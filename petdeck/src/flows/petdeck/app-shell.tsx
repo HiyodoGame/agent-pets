@@ -2,12 +2,18 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   ArrowRightLeft,
+  Bot,
+  FileBarChart,
   FlaskConical,
+  FolderGit2,
+  LayoutDashboard,
   Link2,
+  ListTodo,
   MessagesSquare,
   Moon,
   PawPrint,
   PlugZap,
+  Settings2,
   Sun,
 } from 'lucide-react'
 import { PetAvatar } from '../shared/pet-avatar'
@@ -18,15 +24,32 @@ import { fmtCount } from '../shared/ui-logic'
 import { listenForPanelNavigation } from '../../desktop/window'
 import { getDemoPreference, setDemoPreference } from '../../desktop/demo-preference.ts'
 import { useGrowth } from '../shared/pet/use-growth.ts'
+import { useRuntimeOverview } from '../console/runtime-hooks.ts'
 import { t, useLocale } from '../../i18n/index.ts'
 
 const ThemedRoutes = lazy(() => import('./themed-routes').then((m) => ({ default: m.ThemedRoutes })))
 
-const NAV = [
-  { path: '/panel', key: 'nav.panel' as const, icon: MessagesSquare },
-  { path: '/relay', key: 'nav.relay' as const, icon: ArrowRightLeft },
-  { path: '/connect', key: 'nav.connect' as const, icon: PlugZap },
-  { path: '/pet', key: 'nav.pet' as const, icon: PawPrint },
+const NAV_GROUPS = [
+  {
+    key: 'shell.navConsole' as const,
+    items: [
+      { path: '/today', key: 'nav.today' as const, icon: LayoutDashboard },
+      { path: '/tasks', key: 'nav.tasks' as const, icon: ListTodo },
+      { path: '/projects', key: 'nav.projects' as const, icon: FolderGit2 },
+      { path: '/agents', key: 'nav.agents' as const, icon: Bot },
+      { path: '/reports', key: 'nav.reports' as const, icon: FileBarChart },
+      { path: '/settings', key: 'nav.settings' as const, icon: Settings2 },
+    ],
+  },
+  {
+    key: 'shell.navLegacy' as const,
+    items: [
+      { path: '/panel', key: 'nav.panel' as const, icon: MessagesSquare },
+      { path: '/relay', key: 'nav.relay' as const, icon: ArrowRightLeft },
+      { path: '/connect', key: 'nav.connect' as const, icon: PlugZap },
+      { path: '/pet', key: 'nav.pet' as const, icon: PawPrint },
+    ],
+  },
 ]
 
 type Appearance = 'light' | 'dark'
@@ -46,13 +69,18 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: {
   const navigate = useNavigate()
   const { locale } = useLocale()
   const { progress: growth } = useGrowth()
-  const { sessions, mode, connState, savedAt, reconnect } = usePetData()
-  const modeRef = useRef(mode)
-  useEffect(() => { track('shell', EVENT.appSessionStart, { mode: modeRef.current }) }, [])
+  const { connState, savedAt, reconnect } = usePetData()
+  const { tasks } = useRuntimeOverview(4000, !demo)
+  const modeRef = useRef(!demo)
+  useEffect(() => { track('shell', EVENT.appSessionStart, { mode: modeRef.current ? 'live' : 'mock' }) }, [])
   useEffect(() => {
     let active = true
     let unlisten: (() => void) | null = null
-    listenForPanelNavigation((target) => navigate('/panel', { state: target })).then((fn) => {
+    listenForPanelNavigation((target) => {
+      if (target.taskId) navigate('/tasks/' + target.taskId)
+      else if (target.projectId || target.sessionId) navigate('/panel', { state: target })
+      else navigate('/today')
+    }).then((fn) => {
       if (active) unlisten = fn
       else fn()
     }).catch(() => {})
@@ -62,16 +90,15 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: {
     }
   }, [navigate])
 
-  const running = sessions.filter((s) => s.status === 'active').length
-  const waiting = sessions.filter((s) => s.status === 'waiting' || s.status === 'stuck').length
-  const offline = connState === 'offline' && mode !== 'mock'
+  const running = tasks.filter((task) => task.status === 'running').length
   const bridgeStartupError = bridgeConfigError()
-  const degraded = connState !== 'live' && mode !== 'mock'
-  const petStatus = degraded ? 'offline' : waiting > 0 ? 'stuck' : running > 0 ? 'running' : 'idle'
+  const offline = connState === 'offline' && !demo
+  const degraded = connState !== 'live' && !demo
+  const petStatus = degraded ? 'offline' : running > 0 ? 'running' : 'idle'
   const clock = savedAt !== null
     ? new Date(savedAt).toLocaleTimeString(locale === 'zh' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit' })
     : null
-  const connectionLabel = mode === 'mock'
+  const connectionLabel = demo
     ? t('shell.demo')
     : connState === 'live'
       ? t('shell.live')
@@ -83,7 +110,7 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: {
     <div data-theme={appearance} data-style="soft" className="app-shell">
       <a className="app-skip-link" href="#main-content">{t('shell.skipToContent')}</a>
       <aside className="app-sidebar">
-        <NavLink to="/panel" className="app-brand" aria-label="PetDeck">
+        <NavLink to="/today" className="app-brand" aria-label="PetDeck">
           <img src="/brand-mark.png" width="42" height="42" alt="" className="app-brand-mark" />
           <span className="app-brand-copy">
             <strong>PetDeck</strong>
@@ -92,17 +119,22 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: {
         </NavLink>
 
         <nav className="app-nav" aria-label={t('shell.mainNav')}>
-          {NAV.map(({ path, key, icon: Icon }) => (
-            <NavLink key={path} to={path} className={({ isActive }) => `app-nav-link${isActive ? ' is-active' : ''}`}>
-              <Icon aria-hidden="true" />
-              <span>{t(key)}</span>
-            </NavLink>
+          {NAV_GROUPS.map((group) => (
+            <div className="app-nav-group" key={group.key}>
+              <span className="app-nav-group-label">{t(group.key)}</span>
+              {group.items.map(({ path, key, icon: Icon }) => (
+                <NavLink key={path} to={path} className={({ isActive }) => `app-nav-link${isActive ? ' is-active' : ''}`}>
+                  <Icon aria-hidden="true" />
+                  <span>{t(key)}</span>
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
 
         <div className="app-sidebar-bottom">
           <div className="app-companion-summary">
-            <PetAvatar status={petStatus} size={48} />
+            <PetAvatar status={petStatus} size={42} />
             <div>
               <strong>{t(growth.titleKey)}</strong>
               <span>{t('growth.level', { level: growth.level })}</span>
@@ -131,7 +163,6 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: {
           </div>
           <div className="app-topbar-summary tabular-nums">
             <span>{t('common.running', { n: fmtCount(running) })}</span>
-            {waiting > 0 && <strong>{t('common.pending', { n: fmtCount(waiting) })}</strong>}
           </div>
         </header>
 

@@ -4,6 +4,7 @@
 // Import does NOT listen — call createApp()/main() so tests can inject fakes on an ephemeral port.
 // main() requires PETDECK_BRIDGE_TOKEN (fails closed without it); PETDECK_BRIDGE_ORIGINS
 // (comma-separated) is merged into the default allowed Origins.
+import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -21,6 +22,7 @@ import { TIER, injectDecision } from './tiers.mjs';
 import { createBus, toPetEventType } from './bus.mjs';
 import { pollOnce } from './freshness.mjs';
 import { canonicalizeRows, createRootResolver } from './project-root.mjs';
+import { createRuntimeService, RuntimeError } from './runtime/service.mjs';
 
 const REAL_ADAPTERS = [codex, claude, opencode, kimi, kimiCode, zcode, dsh, cursor, gemini, remote];
 const DEFAULT_ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '::1'];
@@ -90,7 +92,7 @@ function readBody(req, max) {
 }
 
 /** Build the bridge HTTP server (not listening). Pure w.r.t. injected adapters/security/bus. */
-export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = createBus(100), logger = console } = {}) {
+export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = createBus(100), logger = console, runtime = null } = {}) {
   const sec = withDefaults(security);
   let sessions = [];
   let sessionsKey = '';
@@ -154,6 +156,39 @@ export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = creat
     cors(res, req);
     res.writeHead(code, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(obj));
+  }
+
+  // Runtime writes share inject's guard shape: whitelisted Origin, token, JSON body,
+  // bounded size. Kept as one helper so a new endpoint cannot silently skip a check.
+  async function readJsonWrite(req, res) {
+    const origin = req.headers.origin;
+    if (origin && !sec.allowedOrigins.includes(origin)) { json(res, req, 403, { ok: false, error: 'forbidden origin' }); return null; }
+    if (!String(req.headers['content-type'] || '').includes('application/json')) { json(res, req, 415, { ok: false, error: 'json required' }); return null; }
+    if (sec.token && req.headers['x-petdeck-token'] !== sec.token) { json(res, req, 401, { ok: false, error: 'unauthorised' }); return null; }
+    let body;
+    try { body = await readBody(req, sec.maxBodyBytes); }
+    catch (e) { json(res, req, e.code === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'unreadable body' }); return null; }
+    let payload = {};
+    try { payload = body.trim() ? JSON.parse(body) : {}; }
+    catch { json(res, req, 400, { ok: false, error: 'invalid json' }); return null; }
+    return payload;
+  }
+
+  function runtimeUnavailable(res, req) {
+    json(res, req, 503, { ok: false, error: 'runtime unavailable' });
+  }
+
+  function runtimeFailure(res, req, e, logger) {
+    if (e instanceof RuntimeError) {
+      return json(res, req, e.status, { ok: false, error: e.code, message: e.message, ...(e.details ? { details: e.details } : {}) });
+    }
+    logger.error?.('[petdeck-runtime] request failed:', e?.message ?? e);
+    return json(res, req, 500, { ok: false, error: 'runtime error' });
+  }
+
+  function sendEvent(res, event) {
+    res.write(`id: ${event.id}\n`);
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
   }
 
   const server = http.createServer(async (req, res) => {
@@ -221,6 +256,254 @@ export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = creat
         return json(res, req, 500, { ok: false, error: 'inject failed', reason: 'bridge-error' });
       } finally { inflight--; }
     }
+    // --- runtime: projects / tasks / runs / events -------------------------
+    if (url.pathname === '/api/runtime/projects') {
+      if (readGuard()) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      if (req.method === 'GET') return json(res, req, 200, { ok: true, projects: runtime.listProjects() });
+      if (req.method === 'POST') {
+        const payload = await readJsonWrite(req, res);
+        if (!payload) return;
+        try {
+          const result = await runtime.registerProject({ projectPath: payload.path, name: payload.name ?? null });
+          return json(res, req, result.created ? 201 : 200, { ok: true, ...result });
+        } catch (e) { return runtimeFailure(res, req, e, logger); }
+      }
+      return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
+    if (url.pathname === '/api/runtime/agents') {
+      if (readGuard()) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      if (req.method === 'GET') return json(res, req, 200, { ok: true, agents: runtime.listAgents() });
+      return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
+    if (url.pathname === '/api/runtime/settings') {
+      if (readGuard()) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      if (req.method === 'GET') return json(res, req, 200, { ok: true, settings: runtime.getSettings() });
+      if (req.method === 'PUT') {
+        const payload = await readJsonWrite(req, res);
+        if (!payload) return;
+        try { return json(res, req, 200, { ok: true, settings: runtime.updateSettings(payload) }); }
+        catch (e) { return runtimeFailure(res, req, e, logger); }
+      }
+      return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
+    if (url.pathname === '/api/runtime/decisions') {
+      if (readGuard()) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      if (req.method === 'GET') return json(res, req, 200, { ok: true, decisions: runtime.listDecisions() });
+      return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
+    const decisionRoute = url.pathname.match(/^\/api\/runtime\/decisions\/([^/]+)\/answer$/);
+    if (decisionRoute) {
+      if (!runtime) return runtimeUnavailable(res, req);
+      if (req.method !== 'POST') return json(res, req, 405, { ok: false, error: 'method not allowed' });
+      const payload = await readJsonWrite(req, res);
+      if (!payload) return;
+      try {
+        let decisionId;
+        try { decisionId = decodeURIComponent(decisionRoute[1]); } catch { return json(res, req, 400, { ok: false, error: 'invalid decision id' }); }
+        const result = await runtime.answerDecision(decisionId, { answer: payload.answer ?? null, optionIndex: payload.optionIndex ?? null });
+        return json(res, req, 200, { ok: true, ...result });
+      } catch (e) { return runtimeFailure(res, req, e, logger); }
+    }
+
+    if (url.pathname === '/api/runtime/tasks') {
+      if (readGuard()) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      if (req.method === 'GET') {
+        const projectId = url.searchParams.get('projectId') || null;
+        return json(res, req, 200, { ok: true, tasks: runtime.listTasks(projectId) });
+      }
+      if (req.method === 'POST') {
+        const payload = await readJsonWrite(req, res);
+        if (!payload) return;
+        try {
+          const task = runtime.createTask({
+            projectId: payload.projectId,
+            title: payload.title,
+            prompt: payload.prompt,
+            agent: payload.agent,
+            permissionMode: payload.permissionMode,
+            dependsOn: payload.dependsOn,
+            priority: payload.priority,
+          });
+          return json(res, req, 201, { ok: true, task });
+        } catch (e) { return runtimeFailure(res, req, e, logger); }
+      }
+      return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
+    const artifactRoute = url.pathname.match(/^\/api\/runtime\/artifacts\/([^/]+)(\/content)?$/);
+    if (artifactRoute) {
+      if (!runtime) return runtimeUnavailable(res, req);
+      const isContent = Boolean(artifactRoute[2]);
+      if (isContent) {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, req, 405, { ok: false, error: 'method not allowed' });
+        if (readGuard(true)) return;
+        let artifactId;
+        try { artifactId = decodeURIComponent(artifactRoute[1]); } catch { return json(res, req, 400, { ok: false, error: 'invalid artifact id' }); }
+        const artifact = runtime.getArtifact(artifactId);
+        if (!artifact) return json(res, req, 404, { ok: false, error: 'artifact not found' });
+        let stat;
+        try { stat = fs.statSync(artifact.stored_path); }
+        catch { return json(res, req, 404, { ok: false, error: 'artifact file missing' }); }
+        const total = stat.size;
+        const range = req.headers.range;
+        let start = 0;
+        let end = total - 1;
+        let partial = false;
+        if (range) {
+          const match = /^bytes=(\d*)-(\d*)$/.exec(String(range).trim());
+          if (!match) {
+            cors(res, req);
+            res.writeHead(416, { 'Content-Range': 'bytes */' + total });
+            return res.end();
+          }
+          if (match[1]) start = Number(match[1]);
+          if (match[2]) end = Number(match[2]);
+          if (!match[1] && match[2]) { start = Math.max(0, total - Number(match[2])); end = total - 1; }
+          if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= total) {
+            cors(res, req);
+            res.writeHead(416, { 'Content-Range': 'bytes */' + total });
+            return res.end();
+          }
+          end = Math.min(end, total - 1);
+          partial = true;
+        }
+        const inline = ['image', 'video', 'audio', 'pdf'].includes(artifact.kind);
+        const safeName = String(artifact.name || 'artifact').replace(/["\r\n]/g, '_');
+        const headers = {
+          'Content-Type': artifact.mime || 'application/octet-stream',
+          'Content-Length': end - start + 1,
+          'Accept-Ranges': 'bytes',
+          'Cache-Control': 'private, max-age=300',
+          'X-Content-Type-Options': 'nosniff',
+          'Content-Disposition': (inline ? 'inline' : 'attachment') + '; filename="' + safeName + '"; filename*=UTF-8\'\'' + encodeURIComponent(safeName),
+          ...(partial ? { 'Content-Range': 'bytes ' + start + '-' + end + '/' + total } : {}),
+        };
+        cors(res, req);
+        res.writeHead(partial ? 206 : 200, headers);
+        if (req.method === 'HEAD') return res.end();
+        const stream = fs.createReadStream(artifact.stored_path, { start, end });
+        stream.on('error', () => { try { res.destroy(); } catch { /* ignore */ } });
+        return stream.pipe(res);
+      }
+      if (req.method === 'DELETE') {
+        const payload = await readJsonWrite(req, res);
+        if (payload === null) return;
+        let artifactId;
+        try { artifactId = decodeURIComponent(artifactRoute[1]); } catch { return json(res, req, 400, { ok: false, error: 'invalid artifact id' }); }
+        try { return json(res, req, 200, { ok: true, ...runtime.removeArtifact(payload.taskId, artifactId) }); }
+        catch (e) { return runtimeFailure(res, req, e, logger); }
+      }
+      return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
+    const taskRoute = url.pathname.match(/^\/api\/runtime\/tasks\/([^/]+)(?:\/(start|stop|resume|pause|continue|accept|reject|merge|authorize-merge|abandon-merge|cleanup|events|stream|artifacts|merge-preview))?$/);
+    if (taskRoute) {
+      if (!runtime) return runtimeUnavailable(res, req);
+      let taskId;
+      try { taskId = decodeURIComponent(taskRoute[1]); } catch { return json(res, req, 400, { ok: false, error: 'invalid task id' }); }
+      const action = taskRoute[2] || null;
+
+      if (action === 'stream' && req.method === 'GET') {
+        if (readGuard(true)) return;
+        cors(res, req);
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        });
+        res.write(': sse connected\n\n');
+        let lastId = Number(url.searchParams.get('after') || 0) || 0;
+        const unsubscribe = runtime.subscribe((event) => {
+          if (event.taskId !== taskId || event.id <= lastId) return;
+          lastId = event.id;
+          sendEvent(res, event);
+        });
+        try {
+          for (const event of runtime.listEvents(taskId, { after: lastId, limit: 5000 })) {
+            if (event.id <= lastId) continue;
+            lastId = event.id;
+            sendEvent(res, event);
+          }
+        } catch {
+          unsubscribe();
+          res.write('event: error\ndata: ' + JSON.stringify({ error: 'task not found' }) + '\n\n');
+          res.end();
+          return;
+        }
+        const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 15000);
+        keepAlive.unref?.();
+        req.on('close', () => { clearInterval(keepAlive); unsubscribe(); });
+        return;
+      }
+
+      if (req.method === 'GET' && !action) {
+        if (readGuard()) return;
+        try { return json(res, req, 200, { ok: true, ...runtime.getTaskDetail(taskId) }); }
+        catch (e) { return runtimeFailure(res, req, e, logger); }
+      }
+      if (req.method === 'GET' && action === 'events') {
+        if (readGuard()) return;
+        try {
+          const after = Number(url.searchParams.get('after') || 0) || 0;
+          const limit = Number(url.searchParams.get('limit') || 500) || 500;
+          return json(res, req, 200, { ok: true, events: runtime.listEvents(taskId, { after, limit }) });
+        } catch (e) { return runtimeFailure(res, req, e, logger); }
+      }
+      if (req.method === 'GET' && action === 'merge-preview') {
+        if (readGuard()) return;
+        try { return json(res, req, 200, { ok: true, preview: await runtime.mergePreviewForTask(taskId) }); }
+        catch (e) { return runtimeFailure(res, req, e, logger); }
+      }
+      if (action === 'artifacts') {
+        if (req.method === 'GET') {
+          if (readGuard()) return;
+          try { return json(res, req, 200, { ok: true, artifacts: runtime.listArtifacts(taskId) }); }
+          catch (e) { return runtimeFailure(res, req, e, logger); }
+        }
+        if (req.method === 'POST') {
+          const payload = await readJsonWrite(req, res);
+          if (!payload) return;
+          try { return json(res, req, 201, { ok: true, artifact: runtime.addArtifact(taskId, { path: payload.path }) }); }
+          catch (e) { return runtimeFailure(res, req, e, logger); }
+        }
+        return json(res, req, 405, { ok: false, error: 'method not allowed' });
+      }
+      if (req.method === 'POST' && ['accept', 'reject', 'merge', 'authorize-merge', 'abandon-merge', 'cleanup'].includes(action)) {
+        const payload = await readJsonWrite(req, res);
+        if (!payload) return;
+        try {
+          if (action === 'accept') return json(res, req, 200, { ok: true, ...(await runtime.acceptTask(taskId)) });
+          if (action === 'reject') return json(res, req, 200, { ok: true, ...(await runtime.rejectTask(taskId, { feedback: payload.feedback, agent: payload.agent ?? null })) });
+          if (action === 'authorize-merge') return json(res, req, 200, { ok: true, ...(await runtime.authorizeMerge(taskId)) });
+          if (action === 'merge') return json(res, req, 200, { ok: true, ...(await runtime.mergeTask(taskId, { token: payload.token })) });
+          if (action === 'abandon-merge') return json(res, req, 200, { ok: true, ...(await runtime.abandonMerge(taskId)) });
+          return json(res, req, 200, { ok: true, ...(await runtime.cleanupTask(taskId)) });
+        } catch (e) { return runtimeFailure(res, req, e, logger); }
+      }
+      if (req.method === 'POST' && ['start', 'stop', 'resume', 'pause', 'continue'].includes(action)) {
+        const payload = await readJsonWrite(req, res);
+        if (!payload) return;
+        try {
+          if (action === 'start') return json(res, req, 202, { ok: true, run: await runtime.startTask(taskId, { permissionMode: payload.permissionMode ?? null }) });
+          if (action === 'resume') return json(res, req, 202, { ok: true, run: await runtime.resumeTask(taskId, { prompt: payload.prompt ?? null, permissionMode: payload.permissionMode ?? null }) });
+          if (action === 'pause') return json(res, req, 200, { ok: true, ...(await runtime.pauseTask(taskId)) });
+          if (action === 'continue') return json(res, req, 200, { ok: true, ...(await runtime.resumePausedTask(taskId)) });
+          return json(res, req, 200, { ok: true, ...(await runtime.stopTask(taskId)) });
+        } catch (e) { return runtimeFailure(res, req, e, logger); }
+      }
+      return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
     return json(res, req, 404, { ok: false, error: 'not found' });
   });
 
@@ -252,14 +535,22 @@ export function securityFromEnv(env = process.env) {
 }
 
 // Tests may inject {adapters, startPoll} to stay hermetic; production uses the defaults.
-export function main({ adapters = REAL_ADAPTERS, startPoll = true } = {}) {
+export function main({ adapters = REAL_ADAPTERS, startPoll = true, runtime } = {}) {
   const PORT = Number(process.env.PETDECK_BRIDGE_PORT || 5199);
   const security = securityFromEnv();
   if (!security.token) {
     console.error('[petdeck-bridge] configuration error: PETDECK_BRIDGE_TOKEN is required (refusing to start without inject auth). Set it and retry.');
     return null;
   }
-  const server = createApp({ adapters, security });
+  const rt = runtime === undefined ? createRuntimeService({ logger: console }) : runtime;
+  const server = createApp({ adapters, security, runtime: rt });
+  const shutdown = async (signal) => {
+    console.log('[petdeck-bridge] shutting down (' + signal + ')');
+    server.close();
+    try { await rt?.shutdown(); } catch (e) { console.error('[petdeck-bridge] runtime shutdown failed:', e?.message ?? e); }
+  };
+  process.once('SIGINT', () => { shutdown('SIGINT'); });
+  process.once('SIGTERM', () => { shutdown('SIGTERM'); });
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`[petdeck-bridge] listening on http://127.0.0.1:${PORT} (home=${os.homedir()}) auth=token`);
     if (startPoll) {

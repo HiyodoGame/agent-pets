@@ -187,7 +187,8 @@ test('main: PETDECK_BRIDGE_ORIGINS merged with defaults (extra origin passes the
   });
   // Hermetic: no real adapters (no home-dir observation) and no polling — the origin
   // decision is read from the 401/403 status before any adapter could run.
-  const server = main({ adapters: [], startPoll: false });
+  // runtime: null keeps the test hermetic (no sqlite or polling intervals).
+  const server = main({ adapters: [], startPoll: false, runtime: null });
   t.after(() => { server.closeAllConnections?.(); server.close(); });
   await once(server, 'listening');
   const port = server.address().port;
@@ -267,7 +268,7 @@ test('main: desktop WebView origins accept correct token and reject wrong token'
     PETDECK_BRIDGE_PORT: '0',
   });
   const { adapters, injectCalls } = fakeAdapters();
-  const server = main({ adapters, startPoll: false });
+  const server = main({ adapters, startPoll: false, runtime: null });
   t.after(() => { server.closeAllConnections?.(); server.close(); });
   await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}`;

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Inbox, PanelTop, RefreshCw, Settings2 } from 'lucide-react'
 import { usePetData } from '../../adapters'
-import type { PetEvent } from '../shared/types'
+import type { AgentStatus, PetEvent } from '../shared/types'
 import { PetAvatar } from '../shared/pet-avatar'
 import { statusLabel } from '../shared/status-tokens'
 import { eventWatermark, newEventsAfter, routeDndArrivals, fmtCount, type EventWatermark } from '../shared/ui-logic'
@@ -20,6 +20,9 @@ import { PetEventCard } from './pet-event-card'
 import { PetQuickSettings } from './pet-quick-settings'
 import { presentSession, prioritizeSessions } from '../shared/session-presentation.ts'
 import { createNotificationDispatcher, sendPetSystemNotification } from '../../desktop/notifications'
+import { usePendingDecisions, useRuntimeOverview } from '../console/runtime-hooks.ts'
+import { DecisionCard } from '../console/decision-card.tsx'
+import { getSettings } from '../../adapters/runtime-client.ts'
 
 export function CompactPet({ bridgeError = null }: { bridgeError?: string | null }) {
   useI18n()
@@ -31,6 +34,9 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
   const [menu, setMenu] = useState<PetMenuPoint | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [desktopError, setDesktopError] = useState(false)
+  const [decisionSound, setDecisionSound] = useState(true)
+  const lastDecisionRef = useRef<string | null>(null)
+  const decisionPrimedRef = useRef(false)
   const dispatchNotification = useMemo(() => createNotificationDispatcher(sendPetSystemNotification), [])
   const watermarkRef = useRef<EventWatermark | null>(null)
   const initializedRef = useRef(false)
@@ -40,10 +46,18 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
   const petButtonRef = useRef<HTMLButtonElement>(null)
   const events = unhandledEvents()
   const summary = summarizeSessions(sessions)
+  const runtime = useRuntimeOverview(4000, mode === 'live')
+  const decisions = usePendingDecisions(4000, mode === 'live')
+  const decision = decisions.decisions[0] ?? null
+  const runtimeTasks = mode === 'live'
+    ? runtime.tasks.filter((task) => ['running', 'paused', 'waiting', 'queued', 'ready'].includes(task.status))
+    : []
+  const runtimeRunning = runtimeTasks.filter((task) => task.status === 'running' || task.status === 'paused').length
+  const runningCount = Math.max(summary.running, runtimeRunning)
   const quickSessions = prioritizeSessions(sessions)
     .filter((session) => session.status === 'waiting' || session.status === 'stuck' || session.status === 'active')
     .slice(0, 3)
-  const status = compactPetStatus(connState, summary)
+  const status: AgentStatus = runtimeRunning > 0 ? 'running' : compactPetStatus(connState, summary)
   const growth = useGrowth()
   const attention = summary.waiting + summary.stuck
   const hasError = Boolean(bridgeError || desktopError)
@@ -140,6 +154,29 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
       unlisten?.()
     }
   }, [])
+
+  useEffect(() => {
+    let active = true
+    getSettings().then((next) => { if (active) setDecisionSound(next.decisionSound) }).catch(() => {})
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    const next = decision?.id ?? null
+    if (!next) {
+      lastDecisionRef.current = null
+      decisionPrimedRef.current = false
+      return
+    }
+    if (lastDecisionRef.current === next) return
+    lastDecisionRef.current = next
+    if (!decisionPrimedRef.current) {
+      decisionPrimedRef.current = true
+      return
+    }
+    if (dnd || !decisionSound) return
+    playDecisionChime()
+  }, [decision, dnd, decisionSound])
 
   const openPanel = async (target: PanelTarget = {}) => {
     try {
@@ -266,7 +303,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
         <div className="pet-status-pill" role="status" data-status={status}>
           <span className="pet-status-dot" aria-hidden="true" />
           <span>{dnd ? t('pet.quietCompanion') : statusLabel(status)}</span>
-          {summary.running > 0 && <span className="tabular-nums">{t('common.running', { n: fmtCount(summary.running) })}</span>}
+          {runningCount > 0 && <span className="tabular-nums">{t('common.running', { n: fmtCount(runningCount) })}</span>}
           {attention > 0 && <span className="pet-attention-count tabular-nums">{t('pet.pendingCount', { n: fmtCount(attention) })}</span>}
         </div>
         {connState === 'offline' && !bridgeError && (
@@ -287,6 +324,37 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
               <Settings2 className="h-4 w-4" />
             </button>
           </div>
+          {decision && (
+            <div className="pet-decision-block">
+              <span className="pet-task-shortlist-label">{t('pet.decisionsTitle')}</span>
+              <DecisionCard decision={decision} compact onAnswered={() => void decisions.refresh()} />
+              {decisions.decisions.length > 1 && (
+                <button type="button" className="pet-more-button" onClick={() => void openPanel({})}>
+                  {t('pet.decisionMore', { n: fmtCount(decisions.decisions.length - 1) })}
+                </button>
+              )}
+            </div>
+          )}
+          {runtimeTasks.length > 0 && (
+            <div className="pet-task-shortlist">
+              <span className="pet-task-shortlist-label">{t('pet.runtimeTasks', { n: fmtCount(runtimeRunning) })}</span>
+              <ul>
+                {runtimeTasks.slice(0, 3).map((task) => (
+                  <li key={task.id}>
+                    <button type="button" onClick={() => void openPanel({ taskId: task.id })}>
+                      <span className="pet-task-status" data-status={petTaskTone(task.status)}>
+                        {petTaskLabel(task.status)}
+                      </span>
+                      <span className="pet-task-copy">
+                        <strong>{task.title}</strong>
+                        <span>{task.project_name ?? '—'} · {task.agent}</span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {quickSessions.length > 0 && (
             <div className="pet-task-shortlist">
               <span className="pet-task-shortlist-label">{attention > 0 ? t('pet.priorityTitle') : t('pet.runningTitle')}</span>
@@ -385,4 +453,47 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
       )}
     </main>
   )
+}
+
+
+function petTaskTone(status: string): string {
+  if (status === 'running') return 'active'
+  if (status === 'paused') return 'paused'
+  return 'waiting'
+}
+
+function petTaskLabel(status: string): string {
+  if (status === 'running') return t('console.status.running')
+  if (status === 'queued') return t('pet.taskQueued')
+  if (status === 'waiting') return t('pet.taskWaiting')
+  if (status === 'paused') return t('pet.taskPaused')
+  return t('console.status.ready')
+}
+
+let decisionAudio: AudioContext | null = null
+
+function playDecisionChime(): void {
+  try {
+    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!Ctor) return
+    decisionAudio ??= new Ctor()
+    const ctx = decisionAudio
+    if (ctx.state === 'suspended') void ctx.resume()
+    const now = ctx.currentTime
+    for (const [offset, frequency] of [[0, 880], [0.16, 1174.7]] as const) {
+      const oscillator = ctx.createOscillator()
+      const gain = ctx.createGain()
+      oscillator.type = 'sine'
+      oscillator.frequency.value = frequency
+      gain.gain.setValueAtTime(0.0001, now + offset)
+      gain.gain.exponentialRampToValueAtTime(0.18, now + offset + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.16)
+      oscillator.connect(gain)
+      gain.connect(ctx.destination)
+      oscillator.start(now + offset)
+      oscillator.stop(now + offset + 0.18)
+    }
+  } catch {
+    // Audio is a nicety; autoplay policy or a missing device must not break the pet.
+  }
 }

@@ -30,6 +30,12 @@ export function bridgeConfigError(): string | undefined {
   return bridgeConfig.error
 }
 
+/** Read-only snapshot for sibling clients (runtime API / SSE) that share the same
+ *  loopback bridge token. Never log or render the token. */
+export function bridgeConfigSnapshot(): { url: string; token: string } {
+  return { url: bridgeConfig.url, token: bridgeConfig.token }
+}
+
 export async function fetchHealth(): Promise<boolean> {
   try {
     const r = await fetch(`${bridgeConfig.url}/api/health`, { signal: AbortSignal.timeout(1500) })

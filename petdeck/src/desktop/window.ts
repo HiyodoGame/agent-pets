@@ -10,6 +10,8 @@ import { createLatestOnlyQueue } from './latest-only-queue.ts'
 export interface PanelTarget {
   projectId?: string
   sessionId?: string
+  /** Runtime task to open in the console; takes precedence over the legacy panel. */
+  taskId?: string
 }
 
 const schedulePetLayout = createLatestOnlyQueue()

@@ -13,6 +13,9 @@ spike/tmp-relay/
 petdeck/spark-output/
 petdeck/.tmp-observe/
 
+# local probe scratch (M0 CLI experiments, redirected homes)
+.scratch/
+
 # SDD scratch workspaces (ledger/briefs/reports; git history is the record)
 .superpowers/
 .worktrees/

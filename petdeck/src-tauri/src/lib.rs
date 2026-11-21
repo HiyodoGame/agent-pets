@@ -55,6 +55,7 @@ fn tr(locale: UiLocale, key: &str) -> &'static str {
 struct PanelTarget {
     project_id: Option<String>,
     session_id: Option<String>,
+    task_id: Option<String>,
 }
 
 struct DndState(Mutex<bool>);

@@ -51,7 +51,7 @@ export function resolveExecutable(cmd, { platform = process.platform, env = proc
 
 /** Quote one argv element for cmd.exe. Values reaching this path are CLI-controlled
  *  flags, but quoting stays conservative so no metacharacter is ever interpreted. */
-function quoteForCmd(value) {
+export function quoteForCmd(value) {
   const s = String(value ?? '');
   return /[\s"&|<>^()%]/.test(s) ? '"' + s.replace(/"/g, '""').replace(/%/g, '%%') + '"' : s;
 }
