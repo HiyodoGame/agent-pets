@@ -36,9 +36,14 @@ export function bridgeConfigSnapshot(): { url: string; token: string } {
   return { url: bridgeConfig.url, token: bridgeConfig.token }
 }
 
+// The bridge polls observed sessions on the same 5s cadence as this health check.
+// A synchronous adapter walk can hold the single Node event loop for a few seconds,
+// so a 1.5s timeout made the UI flip to offline exactly when the phase-locked poll ran.
+const HEALTH_TIMEOUT_MS = 5000
+
 export async function fetchHealth(): Promise<boolean> {
   try {
-    const r = await fetch(`${bridgeConfig.url}/api/health`, { signal: AbortSignal.timeout(1500) })
+    const r = await fetch(`${bridgeConfig.url}/api/health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) })
     if (!r.ok) return false
     const j = await r.json()
     return Boolean(j.ok)
