@@ -16,7 +16,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"server/**/*.test.mjs\" \"src/**/*.test.ts\""
+    "test": "node --test \"server/**/*.test.mjs\" \"src/**/*.test.ts\"",
+    "test:e2e:opencode": "node scripts/opencode-e2e.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

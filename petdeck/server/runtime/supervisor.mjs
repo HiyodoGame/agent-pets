@@ -38,11 +38,13 @@ export function createSupervisor({ onEvent = () => {}, onExit = () => {}, platfo
     if (handles.has(runId)) throw new Error('run already started');
     const mergedEnv = { ...env, ...extraEnv };
     const target = resolveExecutable(command, { platform, env: mergedEnv });
+    // preface is the shim's own argument (a node-script entry), never user text.
+    const preface = target.preface ?? [];
     let spawnCmd = target.file;
-    let spawnArgs = args;
+    let spawnArgs = [...preface, ...args];
     if (target.viaCmd) {
       spawnCmd = mergedEnv.ComSpec || process.env.ComSpec || 'cmd.exe';
-      spawnArgs = ['/d', '/s', '/c', [target.file, ...args].map(quoteForCmd).join(' ')];
+      spawnArgs = ['/d', '/s', '/c', [target.file, ...preface, ...args].map(quoteForCmd).join(' ')];
     }
 
     let child;

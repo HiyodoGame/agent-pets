@@ -4,10 +4,12 @@ import { buildArgs, createParser, parseLine } from './opencode.mjs';
 
 const line = (obj) => JSON.stringify(obj);
 
-test('buildArgs uses run --format json --auto and --session for resume', () => {
-  assert.deepEqual(buildArgs({ prompt: 'do it' }), ['run', '--format', 'json', '--auto', 'do it']);
+test('buildArgs uses run --format json --auto --standalone and --session for resume', () => {
+  // --standalone keeps the worktree out of the shared background daemon (its cwd
+  // pins the directory on Windows and blocks worktree cleanup).
+  assert.deepEqual(buildArgs({ prompt: 'do it' }), ['run', '--format', 'json', '--auto', '--standalone', 'do it']);
   // guardDash neutralises a leading dash with a space instead of inserting `--`.
-  assert.deepEqual(buildArgs({ prompt: '-danger', sessionId: 'ses_1' }), ['run', '--format', 'json', '--auto', '--session', 'ses_1', ' -danger']);
+  assert.deepEqual(buildArgs({ prompt: '-danger', sessionId: 'ses_1' }), ['run', '--format', 'json', '--auto', '--standalone', '--session', 'ses_1', ' -danger']);
 });
 
 test('step_start announces the session once', () => {

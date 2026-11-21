@@ -11,13 +11,21 @@
 // Windows shim handling: npm-installed CLIs (opencode, dsh) only exist as .cmd/.bat
 // shims in %APPDATA%\npm. Node never applies PATHEXT (so 'opencode' is ENOENT) and
 // Node >= 20.12 refuses to spawn .cmd/.bat with shell:false (EINVAL). resolve
-// +ME resolves the real file and hosts scripts in cmd.exe explicitly.
+// resolves the real file behind a shim: a shim wrapping a concrete .exe is spawned
+// directly (its argv — prompt included — survives byte for byte), a node-script shim
+// resolves to node.exe + script (preface), and only an unparseable shim is hosted in
+// cmd.exe. cmd.exe ends its /c command at the first newline even inside quotes, so
+// quoteForCmd folds CR/LF into spaces for that remaining path: without the fold a
+// multi-line prompt silently reaches the CLI as its first line only.
 import { spawn } from 'node:child_process';
-import { accessSync, constants as FS } from 'node:fs';
+import { accessSync, constants as FS, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const MAX_OUTPUT = 1024 * 1024; // keep the tail of each stream, drop older bytes
 const WIN_CMD_EXTS = new Set(['.cmd', '.bat']);
+const SHIM_MAX_BYTES = 64 * 1024;
+const DP0_REF = /%[~]?dp0%?/i;
+const SCRIPT_EXTS = new Set(['.js', '.cjs', '.mjs']);
 
 function isFile(file) {
   try { accessSync(file, FS.F_OK); return true; } catch { return false; }
@@ -33,8 +41,12 @@ function isFile(file) {
 export function resolveExecutable(cmd, { platform = process.platform, env = process.env, isFileImpl = isFile } = {}) {
   if (platform !== 'win32' || !cmd) return { file: cmd, viaCmd: false };
   const ext = path.extname(cmd).toLowerCase();
-  if (/[\\/]/.test(cmd)) return { file: cmd, viaCmd: WIN_CMD_EXTS.has(ext) };
-  if (WIN_CMD_EXTS.has(ext) || ext === '.exe' || ext === '.com') return { file: cmd, viaCmd: WIN_CMD_EXTS.has(ext) };
+  if (/[\\/]/.test(cmd)) {
+    if (!WIN_CMD_EXTS.has(ext)) return { file: cmd, viaCmd: false };
+    return resolveShimTarget(cmd, { env, platform, isFileImpl }) ?? { file: cmd, viaCmd: true };
+  }
+  if (WIN_CMD_EXTS.has(ext)) return resolveShimTarget(cmd, { env, platform, isFileImpl }) ?? { file: cmd, viaCmd: true };
+  if (ext === '.exe' || ext === '.com') return { file: cmd, viaCmd: false };
 
   const dirs = String(env.PATH || env.Path || '').split(path.delimiter).filter(Boolean);
   const pathext = String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
@@ -43,16 +55,54 @@ export function resolveExecutable(cmd, { platform = process.platform, env = proc
   for (const name of ranked.map((e) => cmd + e)) {
     for (const dir of dirs) {
       const full = path.join(dir, name);
-      if (isFileImpl(full)) return { file: full, viaCmd: WIN_CMD_EXTS.has(path.extname(full).toLowerCase()) };
+      if (!isFileImpl(full)) continue;
+      if (!WIN_CMD_EXTS.has(path.extname(full).toLowerCase())) return { file: full, viaCmd: false };
+      return resolveShimTarget(full, { env, platform, isFileImpl }) ?? { file: full, viaCmd: true };
     }
   }
   return { file: cmd, viaCmd: false }; // unresolved: let spawn report ENOENT as before
 }
 
+/** Expand a %dp0% / %~dp0 / %~dp0% reference into the shim's own directory. */
+function expandDp0(token, dir) {
+  return path.normalize(token.replace(/%dp0%/gi, dir).replace(/%~dp0/gi, dir).replace(/%$/, ''));
+}
+
+/**
+ * npm writes two shim shapes:
+ *   "%dp0%\node_modules\<pkg>\bin\<name>.exe" %*        -> a concrete executable
+ *   "%_prog%" "%dp0%\node_modules\<pkg>\<entry>.js" %*   -> node + script
+ * Resolving either drops cmd.exe from the path, which is what keeps a multi-line
+ * prompt intact: cmd.exe treats a newline in its /c string as a command separator.
+ * Returns { file, viaCmd:false[, preface] } or null when the shim needs cmd.exe.
+ */
+function resolveShimTarget(shimFile, { env = process.env, platform = process.platform, isFileImpl = isFile } = {}) {
+  let text;
+  try { text = readFileSync(shimFile, 'utf8').slice(0, SHIM_MAX_BYTES); } catch { return null; }
+  if (!DP0_REF.test(text)) return null;
+  const dir = path.dirname(shimFile);
+  const candidates = [...text.matchAll(/"([^"\r\n]*%[~]?dp0%?[^"\r\n]*)"/gi)]
+    .map((m) => expandDp0(m[1], dir))
+    .filter((file) => isFileImpl(file));
+  // A script entry wins over a bare exe: npm emits `"%_prog%" "<entry>" %*`, so the
+  // first quoted path can be the interpreter itself. A shim with only an .exe is the
+  // shim-wraps-a-native-binary shape (opencode) and spawns that binary alone.
+  const script = candidates.find((file) => SCRIPT_EXTS.has(path.extname(file).toLowerCase()));
+  if (script) {
+    const localNode = path.join(dir, 'node.exe');
+    const node = isFileImpl(localNode) ? { file: localNode } : resolveExecutable('node', { platform, env, isFileImpl });
+    if (node && !node.viaCmd && isFileImpl(node.file)) return { file: node.file, viaCmd: false, preface: [script] };
+  }
+  const exe = candidates.find((file) => ['.exe', '.com'].includes(path.extname(file).toLowerCase()));
+  return exe ? { file: exe, viaCmd: false } : null;
+}
+
 /** Quote one argv element for cmd.exe. Values reaching this path are CLI-controlled
- *  flags, but quoting stays conservative so no metacharacter is ever interpreted. */
+ *  flags, but quoting stays conservative so no metacharacter is ever interpreted.
+ *  CR/LF are folded into spaces: cmd.exe ends the /c command at a newline even inside
+ *  quotes, so the alternative is silent truncation of everything after line 1. */
 export function quoteForCmd(value) {
-  const s = String(value ?? '');
+  const s = String(value ?? '').replace(/\r\n?|\n/g, ' ');
   return /[\s"&|<>^()%]/.test(s) ? '"' + s.replace(/"/g, '""').replace(/%/g, '%%') + '"' : s;
 }
 
@@ -65,9 +115,14 @@ export function quoteForCmd(value) {
 export function runCli(cmd, args = [], opts = {}) {
   const { input, timeout = 60000, spawnImpl = spawn, resolve = true, env = process.env } = opts;
   const target = resolve ? resolveExecutable(cmd, { platform: opts.platform, env, isFileImpl: opts.isFile }) : { file: cmd, viaCmd: false };
-  // .cmd/.bat scripts can only be hosted by cmd.exe; their argv payload is quoted above.
+  // preface is the shim's own argument (a node-script entry), never user text.
+  const preface = target.preface ?? [];
+  // .cmd/.bat scripts that could not be resolved to a real target can only be hosted
+  // by cmd.exe; their argv payload is quoted (and newline-folded) above.
   const spawnCmd = target.viaCmd ? (env.ComSpec || 'cmd.exe') : target.file;
-  const spawnArgs = target.viaCmd ? ['/d', '/s', '/c', [target.file, ...args].map(quoteForCmd).join(' ')] : args;
+  const spawnArgs = target.viaCmd
+    ? ['/d', '/s', '/c', [target.file, ...preface, ...args].map(quoteForCmd).join(' ')]
+    : [...preface, ...args];
   return new Promise((resolvePromise) => {
     let settled = false;
     let child = null;

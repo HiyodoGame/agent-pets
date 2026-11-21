@@ -1,7 +1,12 @@
 // opencode runtime adapter — hosted in a worktree, JSON event stream.
 // Contract verified against opencode 2.0.30:
-//   opencode run --format json --auto [--session <id>] <prompt>
+//   opencode run --format json --auto --standalone [--session <id>] <prompt>
 // Events are one JSON object per line; the first step_start carries the sessionID.
+// --standalone pins the run to a private server instead of the background service
+// daemon: the daemon keeps the run's worktree as its working directory, and on
+// Windows a directory that is some process's cwd cannot be deleted - which made
+// `git worktree remove` fail with 'failed to delete ...: Permission denied' long
+// after the run exited (E2E: merge succeeded, cleanup returned CLEANUP_FAILED).
 // Completion is settled by process exit (run.exited) so multi-step runs are not cut
 // short; the service still gets a final assistant text for decision detection.
 import { guardDash } from '../../adapters/exec.mjs';
@@ -44,7 +49,8 @@ function clipValue(value, depth = 0) {
 
 export function buildArgs({ prompt, sessionId = null } = {}) {
   if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('prompt is required');
-  const args = ['run', '--format', 'json', '--auto'];
+  // --standalone: never hand the worktree to the shared background daemon (see header).
+  const args = ['run', '--format', 'json', '--auto', '--standalone'];
   if (sessionId) args.push('--session', String(sessionId));
   args.push(guardDash(prompt));
   return args;

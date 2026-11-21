@@ -177,9 +177,60 @@ export async function deleteBranch(repoPath, branch) {
   return true;
 }
 
-/** Remove a worktree and report failures instead of silently succeeding. */
+const REMOVE_ATTEMPTS = 3;
+const REMOVE_RETRY_MS = 250;
+
+/** Remove a worktree and report failures instead of silently succeeding. A lock that
+ *  is released a moment later (AV scan, a just-exited CLI's handle) must not fail the
+ *  cleanup, so the git call retries briefly before it is treated as a real failure. */
 export async function cleanupWorktree({ repoPath, worktreePath }) {
-  const out = await gitResult(['worktree', 'remove', '--force', worktreePath], { cwd: repoPath });
-  if (!out.ok) throw new Error('git worktree remove failed: ' + (out.stderr || out.stdout).trim());
+  let last = '';
+  for (let attempt = 0; attempt < REMOVE_ATTEMPTS; attempt++) {
+    const out = await gitResult(['worktree', 'remove', '--force', worktreePath], { cwd: repoPath });
+    if (out.ok) return true;
+    last = (out.stderr || out.stdout).trim();
+    if (attempt < REMOVE_ATTEMPTS - 1) await new Promise((r) => setTimeout(r, REMOVE_RETRY_MS));
+  }
+  throw new Error('git worktree remove failed: ' + last);
+}
+
+/** True while git still lists worktreePath as a worktree of repoPath. */
+export async function isWorktreeRegistered(repoPath, worktreePath) {
+  const out = await gitResult(['worktree', 'list', '--porcelain'], { cwd: repoPath });
+  if (!out.ok) return false;
+  const wanted = path.resolve(worktreePath).toLowerCase();
+  return out.stdout.split(/\r?\n/).some((line) => {
+    if (!line.startsWith('worktree ')) return false;
+    return path.resolve(line.slice('worktree '.length).trim()).toLowerCase() === wanted;
+  });
+}
+
+/** Drop admin entries whose directories are gone. */
+export async function pruneWorktrees(repoPath) {
+  const out = await gitResult(['worktree', 'prune'], { cwd: repoPath });
+  if (!out.ok) throw new Error('git worktree prune failed: ' + (out.stderr || out.stdout).trim());
   return true;
+}
+
+/**
+ * Dispose of a worktree so cleanup can finish even when git already unregistered it.
+ * `git worktree remove` deletes .git/worktrees/<id> before its final rmdir, so a
+ * directory held open by another process (Windows delete-pending, AV scan) leaves an
+ * empty, unregistered shell behind while the command still exits non-zero. Treating
+ * that leftover as a hard failure made cleanup return 409 forever and kept
+ * worktree_path/branch on the task. Registered worktree failures are still reported.
+ * Returns { removed, cleaned } (cleaned = git no longer knew it; leftovers deleted).
+ */
+export async function disposeWorktree({ repoPath, worktreePath }) {
+  try {
+    await cleanupWorktree({ repoPath, worktreePath });
+    return { removed: true, cleaned: false };
+  } catch (e) {
+    const message = e?.message ?? String(e);
+    if (await isWorktreeRegistered(repoPath, worktreePath)) throw new Error(message);
+    try { fs.rmSync(worktreePath, { recursive: true, force: true, maxRetries: 8, retryDelay: 120 }); }
+    catch (rm) { throw new Error(message + '; leftover directory could not be deleted: ' + (rm?.message ?? rm)); }
+    try { await pruneWorktrees(repoPath); } catch { /* registration is already gone */ }
+    return { removed: false, cleaned: true };
+  }
 }

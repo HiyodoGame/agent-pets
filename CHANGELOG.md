@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### 修复
+
+- **打回意见被截断**：Windows 上从 npm 安装的 CLI 是 `.cmd` shim，经 `cmd.exe /d /s /c` 托管时命令行在第一个换行处断开，多行提示词只剩第一行（opencode 真机 E2E 中打回原因整段丢失，Agent 反问「打回原因是什么」后只改了原文件）。`exec.mjs` 现在解析 shim 文本找到真实可执行文件直接拉起（本机 opencode、codex、dsh 均命中），仍必须经过 cmd 的 shim 把 CR/LF 折成空格兜底。
+- **合并后清理失败（`CLEANUP_FAILED`）**：opencode 后台守护进程把任务 worktree 当作自己的工作目录，Windows 下被占用的目录删不掉，`git worktree remove` 报 `failed to delete ...: Permission denied`，分支已删但任务仍挂着 worktree 路径。运行改用 `opencode --standalone`（私有 server，跑完不留守护进程）；清理改为短暂重试，并以 `disposeWorktree` 处理「git 已摘除注册、只剩残留目录」的情况（记录 `leftover_removed`），确实仍注册时才报错。
+- 以 opencode 2.0.30 真机补齐「完成→验收→打回→重跑→验收→合并→清理」全链路验收：一次 49.45s 走通，打回后 run2 续接同一会话并收到完整意见，主仓库 hello/second 均落地。
+
 ## [0.1.3] — 2026-11-20
 
 ### 变更

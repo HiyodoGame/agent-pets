@@ -11,7 +11,7 @@ import { createSupervisor } from './supervisor.mjs';
 import {
   createWorktree, currentBranch, statusPorcelain, statusPorcelainSync, commitAllSync, mergeTreeCheck,
   mergePreview as buildMergePreview, mergeBranch, deleteBranch,
-  cleanupWorktree as removeWorktreeStrict,
+  disposeWorktree,
 } from './worktree.mjs';
 import { detectDecision } from './decision-detector.mjs';
 import {
@@ -1421,9 +1421,12 @@ export function createRuntimeService({
     }
     const project = requireProject(task.project_id);
     const errors = [];
+    let worktreeCleaned = false;
     if (task.worktree_path) {
       if (fs.existsSync(task.worktree_path)) {
-        try { await removeWorktreeStrict({ repoPath: project.path, worktreePath: task.worktree_path }); }
+        // disposeWorktree tolerates a leftover directory git already unregistered, so a
+        // half-removed worktree cannot pin cleanup at 409 forever.
+        try { worktreeCleaned = (await disposeWorktree({ repoPath: project.path, worktreePath: task.worktree_path })).cleaned; }
         catch (e) { errors.push(e?.message ?? String(e)); }
       }
     }
@@ -1436,7 +1439,7 @@ export function createRuntimeService({
     }
     if (errors.length) throw new RuntimeError('CLEANUP_FAILED', errors.join('; ').slice(0, 800), 409);
     db.updateTask(taskId, { worktree_path: null, branch: null });
-    recordEvent('task.cleaned', { worktree: task.worktree_path, branch: task.branch }, { taskId, runId: null });
+    recordEvent('task.cleaned', { worktree: task.worktree_path, branch: task.branch, leftover_removed: worktreeCleaned }, { taskId, runId: null });
     return getTaskDetail(taskId);
   }
 
