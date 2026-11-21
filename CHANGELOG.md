@@ -6,6 +6,7 @@
 
 ### 新增
 
+- **密钥加固**：经理 API 密钥改用 Windows DPAPI（CurrentUser）加密后存入本机 SQLite，密文带 `dpapi:v1:` 前缀；启动时自动把历史明文迁移为密文，内存只缓存明文，保存模型/温度等未触及密钥的字段不会重新加密。DPAPI 不可用时降级明文并在设置页运行状态卡标注「未加密」；密文无法解密时保留原值、提示重填且不影响启动。未引入 koffi 等原生依赖，调用系统 PowerShell 完成加解密，日志与诊断包不输出密钥。
 - **内置 Node 运行时**：安装包自带官方未修改的 Node.js **v24.18.0** Windows x64 运行时（MIT），干净机器不再需要预装 Node。`scripts/fetch-node.mjs` 按官方 `SHASUMS256.txt` 校验后解出 `node.exe`，版本与哈希记录在 `node-runtime.json`；`LICENSE` 与 `THIRD_PARTY_LICENSES` 全文随包，设置页「运行状态」新增许可入口。bridge 启动优先使用内置运行时，release 绝不回退 PATH；内置运行时缺失、无法启动或版本过低时提示「安装可能不完整/已损坏」而非要求安装 Node，开发态才回退系统 Node。CI 缓存并校验下载产物、构建后核对 `node.exe`。NSIS 安装包 29.66 MB（v0.2.0 为 7.8 MB，增量 22.2 MB），安装后主占用 107.0 MB。
 - **只读观察**：新增 `GET /api/observe/sessions` 聚合 Cursor / DSH / ZCode / Gemini / Kimi 等 observe-only 会话（标题、项目、来源、最近活动、状态 running/idle/error）与 `GET /api/observe/sessions/:agent/:session/transcript` 只读转录；今日页新增「观察中的会话」区（最多 5 条 + 查看全部，抽屉展示最近 20 条脱敏转录），Agents 页观察型卡片显示最近写入、解析成功/失败计数与最近错误。观察会话不进任务板、验收、合并与汇报统计；隐藏推理与工具调用不进入转录。
 - **本地文件日志**：bridge 以结构化 JSON 行写入 `<数据目录>/logs/petdeck-YYYY-MM-DD.log`，按天与 5 MB 轮转、保留 7 天；记录启动/关闭、任务生命周期（发起、完成、失败、停止、验收、打回、合并、清理、决策）与进程退出码，写入前按键名脱敏，不含提示词全文、密钥与 token。生产包另把 sidecar 的 stdout/stderr 落到 `%APPDATA%/PetDeck/logs/sidecar-*.log`，「Node 未安装」「脚本缺失」「端口占用」等启动失败也有记录。

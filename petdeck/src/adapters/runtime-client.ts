@@ -639,6 +639,13 @@ export interface RuntimeIntegrity {
   at?: number
 }
 
+export interface RuntimeSecrets {
+  mode: 'dpapi' | 'plaintext' | 'unreadable' | 'none'
+  available: boolean | null
+  provider: string
+  error: string | null
+}
+
 export interface RuntimeStatusSnapshot {
   ok: true
   version: string
@@ -660,6 +667,8 @@ export interface RuntimeStatusSnapshot {
     recovery?: RuntimeRecovery
     crash?: RuntimeCrash | null
     dbIntegrity?: RuntimeIntegrity
+    /** How the manager API key is stored at rest (M5 W9). */
+    secrets?: RuntimeSecrets
     counts: RuntimeCounts
   } | null
   adapters: RuntimeAdapterProbe[]

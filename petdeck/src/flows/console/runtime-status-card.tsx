@@ -6,6 +6,7 @@ import {
   getRuntimeStatus,
   type DiagnosticsExport,
   type RuntimeAdapterProbe,
+  type RuntimeSecrets,
   type RuntimeStatusSnapshot,
 } from '../../adapters/runtime-client.ts'
 import { openNodeLicenses, restartBridge } from '../../desktop/bridge-config.ts'
@@ -25,6 +26,13 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+function secretLabel(secrets: RuntimeSecrets | undefined): string {
+  if (!secrets || secrets.mode === 'none') return t('console.settings.secretsNone')
+  if (secrets.mode === 'dpapi') return t('console.settings.secretsDpapi')
+  if (secrets.mode === 'plaintext') return t('console.settings.secretsPlaintext')
+  return t('console.settings.secretsUnreadable')
 }
 
 function probeBadge(agent: RuntimeAdapterProbe) {
@@ -151,6 +159,7 @@ export function RuntimeStatusCard() {
             <div><dt>{t('console.settings.healthNode')}</dt><dd>{status.node}</dd></div>
             <div><dt>{t('console.settings.healthPort')}</dt><dd>{status.port ?? '—'}</dd></div>
             <div><dt>{t('console.settings.healthDb')}</dt><dd>{status.dbVersion ?? '—'}</dd></div>
+            <div><dt>{t('console.settings.healthSecrets')}</dt><dd>{secretLabel(status.runtime?.secrets)}</dd></div>
             <div><dt>{t('console.settings.healthUptime')}</dt><dd>{status.runtime ? formatUptime(status.runtime.uptimeSec) : '—'}</dd></div>
             <div>
               <dt>{t('console.settings.dataDir')}</dt>
@@ -205,6 +214,18 @@ export function RuntimeStatusCard() {
               {status.runtime.dbIntegrity.backupPath
                 ? t('console.settings.dbRebuilt', { file: status.runtime.dbIntegrity.backupPath })
                 : t('console.settings.dbBroken', { reason: status.runtime.dbIntegrity.reason ?? 'unknown' })}
+            </p>
+          ) : null}
+          {status.runtime?.secrets?.mode === 'plaintext' ? (
+            <p className="console-banner warn" role="status">
+              <AlertTriangle aria-hidden="true" />
+              {t('console.settings.secretsPlaintextHint')}
+            </p>
+          ) : null}
+          {status.runtime?.secrets?.mode === 'unreadable' ? (
+            <p className="console-banner warn" role="status">
+              <AlertTriangle aria-hidden="true" />
+              {t('console.settings.secretsUnreadableHint')}
             </p>
           ) : null}
           <div className="probe-block">

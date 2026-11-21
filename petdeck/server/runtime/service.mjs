@@ -8,6 +8,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { openRuntimeDb, resolveDataDir, resolveWorktreesDir } from './db.mjs';
 import { pruneRunTranscripts } from './retention.mjs';
 import { consumeCrashReports } from './crash.mjs';
+import { createSecretBox, isDpapiValue } from './secrets.mjs';
 import { createRuntimeEventBus } from './event-bus.mjs';
 import { createSupervisor } from './supervisor.mjs';
 import {
@@ -102,6 +103,7 @@ export function createRuntimeService({
   env = process.env,
   logger = console,
   managerClient: injectedManagerClient = null,
+  secretBox: injectedSecretBox = null,
 } = {}) {
   const dir = dataDir ?? resolveDataDir(env);
   const log = typeof logger?.child === 'function' ? logger.child('runtime') : logger;
@@ -155,9 +157,67 @@ export function createRuntimeService({
   /** Structured lifecycle line: ids and codes only, never prompt text. */
   function lifecycle(level, msg, fields) { try { log[level]?.(msg, fields); } catch { /* logging must not break a run */ } }
 
-  function storedManagerSettings() {
+  // M5 W9: the manager API key is the only secret the runtime persists. Keep the
+  // plaintext in this process only; SQLite stores DPAPI ciphertext with a versioned
+  // prefix, and a plaintext value found from an older build is migrated on boot.
+  const secretBox = injectedSecretBox ?? createSecretBox({ platform: process.platform });
+  let managerSecret = { cipher: '', plain: '', mode: 'none', error: null };
+  migrateManagerSecret();
+
+  function rawManagerSettings() {
     const stored = db.getSetting('manager', null);
-    return { ...MANAGER_DEFAULTS, ...(stored && typeof stored === 'object' ? stored : {}) };
+    return stored && typeof stored === 'object' ? stored : {};
+  }
+
+  function migrateManagerSecret() {
+    const raw = rawManagerSettings();
+    const value = typeof raw.apiKey === 'string' ? raw.apiKey : '';
+    if (!value) { managerSecret = { cipher: '', plain: '', mode: 'none', error: null }; return; }
+    if (isDpapiValue(value)) {
+      try {
+        const plain = secretBox.decrypt(value);
+        managerSecret = { cipher: value, plain, mode: 'dpapi', error: null };
+        lifecycle('debug', 'secret.unlocked', { field: 'manager.apiKey', scheme: 'dpapi' });
+      } catch {
+        managerSecret = { cipher: value, plain: '', mode: 'unreadable', error: 'DPAPI_UNREADABLE' };
+        lifecycle('warn', 'secret.decrypt_failed', { field: 'manager.apiKey', code: 'DPAPI_UNREADABLE' });
+      }
+      return;
+    }
+    try {
+      const cipher = secretBox.encrypt(value);
+      db.setSetting('manager', { ...raw, apiKey: cipher });
+      managerSecret = { cipher, plain: value, mode: 'dpapi', error: null };
+      lifecycle('info', 'secret.migrated', { field: 'manager.apiKey', scheme: 'dpapi' });
+    } catch {
+      managerSecret = { cipher: '', plain: value, mode: 'plaintext', error: 'DPAPI_UNAVAILABLE' };
+      lifecycle('warn', 'secret.encrypt_failed', { field: 'manager.apiKey', code: 'DPAPI_UNAVAILABLE' });
+    }
+  }
+
+  function secretStatus() {
+    const raw = rawManagerSettings();
+    const value = typeof raw.apiKey === 'string' ? raw.apiKey : '';
+    const mode = !value ? 'none' : isDpapiValue(value) ? (managerSecret.mode === 'unreadable' ? 'unreadable' : 'dpapi') : 'plaintext';
+    return {
+      mode,
+      available: typeof secretBox.available === 'function' ? secretBox.available() : null,
+      provider: 'windows-dpapi',
+      error: managerSecret.error ?? null,
+    };
+  }
+
+  function storedManagerSettings() {
+    const stored = rawManagerSettings();
+    const next = { ...MANAGER_DEFAULTS, ...stored };
+    if (isDpapiValue(next.apiKey)) {
+      if (managerSecret.cipher === next.apiKey) next.apiKey = managerSecret.plain;
+      else {
+        try { next.apiKey = secretBox.decrypt(next.apiKey); }
+        catch { next.apiKey = ''; }
+      }
+    }
+    return next;
   }
   function effectiveManagerConfig() { return resolveManagerConfig(storedManagerSettings(), env); }
   const managerClient = injectedManagerClient ?? createManagerClient({ getConfig: effectiveManagerConfig });
@@ -212,6 +272,7 @@ export function createRuntimeService({
       },
       crash: crashReport ? { file: crashReport.file, at: crashReport.at, reason: crashReport.reason } : null,
       dbIntegrity: db.integrity ?? { ok: true },
+      secrets: secretStatus(),
       counts: {
         total: tasks.length,
         running: count(['running']),
@@ -842,10 +903,34 @@ export function createRuntimeService({
   }
 
   function updateManagerSettings(patch = {}) {
+    const raw = rawManagerSettings();
     const current = storedManagerSettings();
     let next;
     try { next = normalizeManagerPatch(patch, current); }
     catch (error) { throw asRuntimeError(error); }
+    const keyTouched = patch.apiKey != null || patch.clearApiKey === true;
+    if (!keyTouched) {
+      // Saving an unrelated field (model, temperature, endpoint) must not re-encrypt
+      // or replace the stored ciphertext, including when it is currently unreadable.
+      next.apiKey = typeof raw.apiKey === 'string' ? raw.apiKey : '';
+    } else {
+      const plain = typeof next.apiKey === 'string' ? next.apiKey : '';
+      if (!plain) {
+        managerSecret = { cipher: '', plain: '', mode: 'none', error: null };
+        next.apiKey = '';
+      } else {
+        try {
+          const cipher = secretBox.encrypt(plain);
+          managerSecret = { cipher, plain, mode: 'dpapi', error: null };
+          next.apiKey = cipher;
+          lifecycle('info', 'secret.updated', { field: 'manager.apiKey', scheme: 'dpapi' });
+        } catch {
+          managerSecret = { cipher: '', plain, mode: 'plaintext', error: 'DPAPI_UNAVAILABLE' };
+          next.apiKey = plain;
+          lifecycle('warn', 'secret.encrypt_failed', { field: 'manager.apiKey', code: 'DPAPI_UNAVAILABLE' });
+        }
+      }
+    }
     db.setSetting('manager', next);
     return getManagerSettings();
   }
