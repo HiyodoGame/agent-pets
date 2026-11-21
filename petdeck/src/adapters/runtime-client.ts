@@ -394,8 +394,11 @@ export async function getTaskDetail(taskId: string): Promise<TaskDetail> {
   return request<TaskDetail>('/api/runtime/tasks/' + encodeURIComponent(taskId))
 }
 
-export async function listEvents(taskId: string, after = 0, limit = 500): Promise<RuntimeEvent[]> {
-  const query = '?after=' + after + '&limit=' + limit
+export async function listEvents(
+  taskId: string,
+  { after = 0, before = 0, limit = 500 }: { after?: number; before?: number; limit?: number } = {},
+): Promise<RuntimeEvent[]> {
+  const query = '?after=' + after + '&before=' + before + '&limit=' + limit
   const body = await request<{ ok: true; events: RuntimeEvent[] }>('/api/runtime/tasks/' + encodeURIComponent(taskId) + '/events' + query)
   return body.events
 }

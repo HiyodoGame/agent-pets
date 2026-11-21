@@ -48,7 +48,7 @@ export function TodayPage() {
     let disposed = false
     async function load() {
       try {
-        const events = await listEvents(selected.id, 0, 200)
+        const events = await listEvents(selected.id, { before: Number.MAX_SAFE_INTEGER, limit: 200 })
         if (!disposed) setPreview(events.slice(-7))
       } catch {
         if (!disposed) setPreview([])

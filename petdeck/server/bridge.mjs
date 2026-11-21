@@ -646,8 +646,9 @@ export function createApp({
         if (readGuard()) return;
         try {
           const after = Number(url.searchParams.get('after') || 0) || 0;
+          const before = Number(url.searchParams.get('before') || 0) || 0;
           const limit = Number(url.searchParams.get('limit') || 500) || 500;
-          return json(res, req, 200, { ok: true, events: runtime.listEvents(taskId, { after, limit }) });
+          return json(res, req, 200, { ok: true, events: runtime.listEvents(taskId, { after, before, limit }) });
         } catch (e) { return runtimeFailure(res, req, e, logger); }
       }
       if (req.method === 'GET' && action === 'merge-preview') {

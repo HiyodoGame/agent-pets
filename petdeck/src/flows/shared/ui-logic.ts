@@ -79,6 +79,15 @@ export function getOsReducedMotion(matchMediaFn?: (query: string) => { matches: 
   }
 }
 
+/** 焦点陷阱里的下一个 Tab 落点：在首尾之间循环，焦点在容器外时从边缘进入。
+ *  返回目标下标；count <= 0 时返回 -1。 */
+export function trapTabIndex(current: number, count: number, shift: boolean): number {
+  if (count <= 0) return -1
+  if (current < 0 || current >= count) return shift ? count - 1 : 0
+  if (shift) return current === 0 ? count - 1 : current - 1
+  return current === count - 1 ? 0 : current + 1
+}
+
 /** 新鲜度相对时间（stale 标记用）。ts 在未来时按「刚刚」处理。 */
 export function fmtAgo(ts: number, now: number): string {
   const s = Math.max(0, Math.floor((now - ts) / 1000))

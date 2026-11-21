@@ -695,6 +695,8 @@ html[data-pet-window="true"] #root {
   .pet-stage *::before,
   .pet-stage *::after {
     transition-duration: var(--pd-duration-none) !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
   }
 
   @starting-style {

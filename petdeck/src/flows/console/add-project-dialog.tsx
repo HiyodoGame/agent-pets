@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Loader2, X } from 'lucide-react'
 import { registerProject, type Project } from '../../adapters/runtime-client.ts'
 import { t } from '../../i18n/index.ts'
+import { useFocusTrap } from './focus-trap.ts'
 
 export function AddProjectDialog({ onClose, onRegistered }: {
   onClose: () => void
@@ -12,7 +13,9 @@ export function AddProjectDialog({ onClose, onRegistered }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const pathRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
 
+  useFocusTrap(dialogRef)
   useEffect(() => { pathRef.current?.focus() }, [])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
@@ -38,7 +41,7 @@ export function AddProjectDialog({ onClose, onRegistered }: {
 
   return (
     <div className="console-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <div className="console-dialog narrow" role="dialog" aria-modal="true" aria-labelledby="add-project-title">
+      <div ref={dialogRef} className="console-dialog narrow" role="dialog" aria-modal="true" aria-labelledby="add-project-title">
         <header className="console-dialog-head">
           <div>
             <h2 id="add-project-title">{t('console.addProject.title')}</h2>

@@ -2,9 +2,19 @@
 // Run: node --test src/flows/shared/ui-logic.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stepperState, resolveMotionEnabled, getOsReducedMotion, fmtAgo, fmtTokens, fmtResetCountdown, decideLiveConnect, planFollowUp, fmtRateLimitWait, nextRateLimit, rateLimitPhase, mapSessionStatus, eventWatermark, newEventsAfter, routeDndArrivals, shouldStreamResponse, fieldErrorState } from './ui-logic.ts';
+import { stepperState, resolveMotionEnabled, getOsReducedMotion, fmtAgo, fmtTokens, fmtResetCountdown, decideLiveConnect, planFollowUp, fmtRateLimitWait, nextRateLimit, rateLimitPhase, mapSessionStatus, eventWatermark, newEventsAfter, routeDndArrivals, shouldStreamResponse, fieldErrorState, trapTabIndex } from './ui-logic.ts';
 import type { PetEvent } from './types.ts';
 import type { InjectDecision } from '../../adapters/types.ts';
+
+test('trapTabIndex wraps at both edges and enters from outside', () => {
+  assert.equal(trapTabIndex(0, 3, true), 2);
+  assert.equal(trapTabIndex(2, 3, false), 0);
+  assert.equal(trapTabIndex(1, 3, false), 2);
+  assert.equal(trapTabIndex(1, 3, true), 0);
+  assert.equal(trapTabIndex(-1, 3, false), 0);
+  assert.equal(trapTabIndex(-1, 3, true), 2);
+  assert.equal(trapTabIndex(0, 0, false), -1);
+});
 
 test('stepper: marks done/current/todo', () => {
   assert.deepEqual(stepperState(4, 1), ['done', 'current', 'todo', 'todo']);

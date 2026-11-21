@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Loader2, X } from 'lucide-react'
 import { createTask, listAgents, type AgentInfo, type Project, type Task } from '../../adapters/runtime-client.ts'
 import { t } from '../../i18n/index.ts'
+import { useFocusTrap } from './focus-trap.ts'
 
 const MODE_LABEL: Record<string, Parameters<typeof t>[0]> = {
   acceptEdits: 'console.mode.acceptEdits',
@@ -32,7 +33,9 @@ export function NewTaskDialog({ projects, tasks = [], defaultProjectId, onClose,
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const titleRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
 
+  useFocusTrap(dialogRef)
   useEffect(() => { titleRef.current?.focus() }, [])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
@@ -78,7 +81,7 @@ export function NewTaskDialog({ projects, tasks = [], defaultProjectId, onClose,
 
   return (
     <div className="console-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <div className="console-dialog" role="dialog" aria-modal="true" aria-labelledby="new-task-title">
+      <div ref={dialogRef} className="console-dialog" role="dialog" aria-modal="true" aria-labelledby="new-task-title">
         <header className="console-dialog-head">
           <div>
             <h2 id="new-task-title">{t('console.newTask.title')}</h2>

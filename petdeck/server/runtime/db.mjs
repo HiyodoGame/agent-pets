@@ -273,6 +273,7 @@ function createStore(db) {
     runsByTask: db.prepare('SELECT * FROM runs WHERE task_id = ? ORDER BY started_at ASC'),
     insertEvent: db.prepare('INSERT INTO events (task_id, run_id, type, ts, payload_json) VALUES (?, ?, ?, ?, ?)'),
     eventsByTask: db.prepare('SELECT * FROM events WHERE task_id = ? AND id > ? ORDER BY id ASC LIMIT ?'),
+    eventsBefore: db.prepare('SELECT * FROM events WHERE task_id = ? AND id < ? ORDER BY id DESC LIMIT ?'),
     maxEvent: db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM events WHERE task_id = ?'),
     insertDecision: db.prepare(`
       INSERT INTO decisions (id, task_id, run_id, question, options_json, allow_freeform, status, answer, created_at, answered_at, expires_at)
@@ -373,8 +374,26 @@ function createStore(db) {
         payload,
       };
     },
-    listEvents(taskId, { after = 0, limit = 500 } = {}) {
-      return allRows(q.eventsByTask, taskId, after, Math.max(1, Math.min(5000, limit))).map((r) => ({
+    /** Bulk insert in one transaction — seeding and imports otherwise pay one
+     *  WAL sync per event (~25 ms locally). */
+    appendEvents(rows) {
+      const written = [];
+      db.exec('BEGIN');
+      try {
+        for (const row of rows) written.push(this.appendEvent(row));
+        db.exec('COMMIT');
+        return written;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
+    listEvents(taskId, { after = 0, before = 0, limit = 500 } = {}) {
+      const capped = Math.max(1, Math.min(5000, limit));
+      const rows = before > 0
+        ? allRows(q.eventsBefore, taskId, before, capped).reverse()
+        : allRows(q.eventsByTask, taskId, after, capped);
+      return rows.map((r) => ({
         id: r.id,
         taskId: r.task_id,
         runId: r.run_id,

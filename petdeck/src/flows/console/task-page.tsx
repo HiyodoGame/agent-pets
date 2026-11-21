@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ChevronDown, Loader2, Pause, Play, RotateCcw, Square, TerminalSquare, Trash2, Wrench } from 'lucide-react'
 import {
@@ -21,10 +21,15 @@ import { useTaskDetail } from './runtime-hooks.ts'
 import { eventText, formatClock, formatDuration, formatMs, formatRelative, shortPath, summarizeToolInput } from './format.ts'
 import { DecisionCard } from './decision-card.tsx'
 import { AcceptancePanel, ArtifactPanel, MergePanel } from './review-panels.tsx'
-import { EmptyState, TaskStatusBadge } from './task-bits.tsx'
+import { EmptyState, TaskStatusBadge, statusLabel } from './task-bits.tsx'
 import { InterruptBanner } from './interrupt-banner.tsx'
 
 type TaskAction = 'start' | 'stop' | 'resume' | 'pause' | 'continue'
+
+/** Memory window for the transcript; older history is fetched on demand. */
+const EVENTS_WINDOW = 2000
+const EVENTS_PAGE = 200
+const EVENT_FLUSH_MS = 50
 
 export function TaskPage() {
   const { taskId = '' } = useParams()
@@ -32,6 +37,9 @@ export function TaskPage() {
   const { locale } = useLocale()
   const { detail, loading, error, applyDetail, refresh } = useTaskDetail(taskId)
   const [events, setEvents] = useState<RuntimeEvent[]>([])
+  const [hasOlder, setHasOlder] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [unread, setUnread] = useState(0)
   const [streamError, setStreamError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [busy, setBusy] = useState<TaskAction | null>(null)
@@ -42,24 +50,61 @@ export function TaskPage() {
   const [follow, setFollow] = useState(true)
   const streamRef = useRef<HTMLDivElement>(null)
   const lastIdRef = useRef(0)
+  const followRef = useRef(true)
+  const flushRef = useRef<() => void>(() => {})
+  const loadingOlderRef = useRef(false)
 
   useEffect(() => {
     setEvents([])
+    setHasOlder(false)
+    setUnread(0)
+    setLoadingOlder(false)
+    loadingOlderRef.current = false
     lastIdRef.current = 0
     if (!taskId) return
     let disposed = false
     let close: (() => void) | null = null
+    let flushTimer: number | null = null
+    const pending: RuntimeEvent[] = []
+
+    function flushNow() {
+      if (disposed || pending.length === 0) return
+      const batch = pending.splice(0, pending.length)
+      setEvents((current) => {
+        const seen = new Set(current.map((event) => event.id))
+        const next = current.concat(batch.filter((event) => !seen.has(event.id)))
+        return next.length > EVENTS_WINDOW ? next.slice(next.length - EVENTS_WINDOW) : next
+      })
+      setUnread(0)
+    }
+    flushRef.current = flushNow
+
+    function schedule() {
+      if (flushTimer !== null) return
+      flushTimer = window.setTimeout(() => {
+        flushTimer = null
+        if (disposed) return
+        if (!followRef.current) { setUnread(pending.length); return }
+        flushNow()
+      }, EVENT_FLUSH_MS)
+    }
+
     async function attach() {
       try {
-        const initial = await listEvents(taskId, 0, 500)
+        // Latest window first: finished long transcripts open at the end, and
+        // older pages arrive through ?before=<id> as the user scrolls up.
+        const initial = await listEvents(taskId, { before: Number.MAX_SAFE_INTEGER, limit: 500 })
         if (disposed) return
-        setEvents(dedupe(initial))
-        lastIdRef.current = initial.reduce((max, event) => Math.max(max, event.id), 0)
+        const synced = dedupe(initial)
+        setEvents(synced.length > EVENTS_WINDOW ? synced.slice(-EVENTS_WINDOW) : synced)
+        setHasOlder(initial.length >= 500)
+        lastIdRef.current = synced.reduce((max, event) => Math.max(max, event.id), 0)
         close = subscribeTask(taskId, lastIdRef.current, {
           onEvent: (event) => {
             if (event.id <= lastIdRef.current) return
             lastIdRef.current = event.id
-            setEvents((current) => [...current, event])
+            pending.push(event)
+            schedule()
             if (event.type === 'decision.requested' || event.type === 'decision.answered') refresh()
           },
           onOpen: () => setStreamError(null),
@@ -70,14 +115,55 @@ export function TaskPage() {
       }
     }
     void attach()
-    return () => { disposed = true; close?.() }
+    return () => {
+      disposed = true
+      flushRef.current = () => {}
+      if (flushTimer !== null) window.clearTimeout(flushTimer)
+      close?.()
+    }
   }, [taskId, refresh])
 
   useEffect(() => {
     if (!follow) return
+    flushRef.current()
+    setUnread(0)
     const node = streamRef.current
     if (node) node.scrollTop = node.scrollHeight
   }, [events, follow])
+
+  async function loadOlder() {
+    if (!taskId || loadingOlderRef.current || !hasOlder) return
+    const oldest = events[0]?.id
+    if (!oldest) return
+    loadingOlderRef.current = true
+    setLoadingOlder(true)
+    setFollow(false)
+    followRef.current = false
+    const node = streamRef.current
+    const prevHeight = node?.scrollHeight ?? 0
+    const prevTop = node?.scrollTop ?? 0
+    try {
+      const older = await listEvents(taskId, { before: oldest, limit: EVENTS_PAGE })
+      setHasOlder(older.length >= EVENTS_PAGE)
+      if (older.length === 0) return
+      setEvents((current) => {
+        const seen = new Set(current.map((event) => event.id))
+        const merged = older.filter((event) => !seen.has(event.id)).concat(current)
+        // Browsing backwards keeps the oldest edge of the window; the newest
+        // events stay buffered until the user jumps back to the bottom.
+        return merged.length > EVENTS_WINDOW ? merged.slice(0, EVENTS_WINDOW) : merged
+      })
+      window.requestAnimationFrame(() => {
+        const view = streamRef.current
+        if (view) view.scrollTop = prevTop + (view.scrollHeight - prevHeight)
+      })
+    } catch (cause) {
+      setStreamError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      loadingOlderRef.current = false
+      setLoadingOlder(false)
+    }
+  }
 
   useEffect(() => {
     let disposed = false
@@ -244,6 +330,10 @@ export function TaskPage() {
         />
       ) : null}
 
+      <p className="visually-hidden" role="status" aria-live="polite">
+        {t('console.task.statusAnnounce', { status: statusLabel(task.status) })}
+      </p>
+
       {task.status === 'pending_merge' ? (
         <MergePanel
           task={task}
@@ -268,8 +358,9 @@ export function TaskPage() {
               <span>{events.length} {t('console.task.events')}</span>
             </div>
             {!follow && events.length > 0 && (
-              <button type="button" className="button ghost small" onClick={() => { setFollow(true); const node = streamRef.current; if (node) node.scrollTop = node.scrollHeight }}>
+              <button type="button" className="button ghost small" onClick={() => { flushRef.current(); followRef.current = true; setFollow(true); const node = streamRef.current; if (node) node.scrollTop = node.scrollHeight }}>
                 <ChevronDown aria-hidden="true" />{t('console.task.jumpLatest')}
+                {unread > 0 ? <span className="stream-unread">{t('console.task.newEvents', { n: String(unread) })}</span> : null}
               </button>
             )}
           </header>
@@ -278,9 +369,20 @@ export function TaskPage() {
             className="task-stream"
             onScroll={(event) => {
               const node = event.currentTarget
-              setFollow(node.scrollHeight - node.scrollTop - node.clientHeight < 80)
+              const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 80
+              followRef.current = atBottom
+              setFollow(atBottom)
+              if (node.scrollTop < 48 && hasOlder && !loadingOlderRef.current) void loadOlder()
             }}
           >
+            {hasOlder || loadingOlder ? (
+              <div className="stream-older">
+                <button type="button" className="button ghost small" disabled={loadingOlder} onClick={() => void loadOlder()}>
+                  {loadingOlder ? <Loader2 className="spin" aria-hidden="true" /> : null}
+                  {loadingOlder ? t('console.task.olderLoading') : t('console.task.olderLoad')}
+                </button>
+              </div>
+            ) : null}
             {events.length === 0
               ? <div className="stream-empty"><TerminalSquare aria-hidden="true" /><p>{t('console.task.waiting')}</p></div>
               : events.map((event) => <EventItem key={event.id} event={event} />)}
@@ -330,7 +432,7 @@ function dedupe(events: RuntimeEvent[]): RuntimeEvent[] {
   })
 }
 
-function EventItem({ event }: { event: RuntimeEvent }) {
+const EventItem = memo(function EventItem({ event }: { event: RuntimeEvent }) {
   const { locale } = useLocale()
   const { payload } = event
   if (event.type === 'message.assistant') {
@@ -418,4 +520,4 @@ function EventItem({ event }: { event: RuntimeEvent }) {
     return <pre className={'stream-log' + (event.type === 'log.stderr' ? ' error' : '')}>{text}</pre>
   }
   return null
-}
+})
