@@ -108,6 +108,23 @@ export function statusPorcelainSync(repoPath) {
   return String(out.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
+/** Commit everything an agent left in its isolated worktree. Review and merge
+ *  must operate on a commit; asking every CLI to remember `git commit` is not
+ *  reliable. Returns null when the tree is already clean. */
+export function commitAllSync(repoPath, message) {
+  const status = statusPorcelainSync(repoPath);
+  if (status.length === 0) return null;
+  const add = spawnSync('git', ['add', '-A'], { cwd: repoPath, encoding: 'utf8', windowsHide: true, timeout: 30000 });
+  if (add.status !== 0) throw new Error('git add failed: ' + String(add.stderr || '').trim().slice(0, 500));
+  const commit = spawnSync('git', [
+    '-c', 'user.name=PetDeck', '-c', 'user.email=petdeck@local',
+    'commit', '--no-verify', '-m', message,
+  ], { cwd: repoPath, encoding: 'utf8', windowsHide: true, timeout: 30000 });
+  if (commit.status !== 0) throw new Error('git commit failed: ' + String(commit.stderr || '').trim().slice(0, 500));
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoPath, encoding: 'utf8', windowsHide: true, timeout: 15000 });
+  return { hash: String(head.stdout || '').trim() || null, files: status.length };
+}
+
 function parseConflictFiles(text) {
   const files = new Set();
   for (const line of String(text).split(/\r?\n/)) {

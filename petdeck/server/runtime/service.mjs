@@ -9,7 +9,7 @@ import { openRuntimeDb, resolveDataDir, resolveWorktreesDir } from './db.mjs';
 import { createRuntimeEventBus } from './event-bus.mjs';
 import { createSupervisor } from './supervisor.mjs';
 import {
-  createWorktree, currentBranch, statusPorcelain, statusPorcelainSync, mergeTreeCheck,
+  createWorktree, currentBranch, statusPorcelain, statusPorcelainSync, commitAllSync, mergeTreeCheck,
   mergePreview as buildMergePreview, mergeBranch, deleteBranch,
   cleanupWorktree as removeWorktreeStrict,
 } from './worktree.mjs';
@@ -113,7 +113,7 @@ export function createRuntimeService({
   const adapterMap = adapters instanceof Map ? adapters : new Map(Object.entries(adapters));
   const active = new Map(); // taskId -> { runId, handle }
   const launching = new Set();
-  const preparedRuns = new Set(); // runs whose summary/artifacts are already collected
+  const preparedRuns = new Map(); // runId -> { summary, artifacts } already collected
   let draining = false;
 
   db.recoverInterrupted();
@@ -208,9 +208,15 @@ export function createRuntimeService({
 
   // ---- side effects -------------------------------------------------------
 
+  function isResumeHint(text) {
+    return typeof text === 'string' && text.length < 500 && /resume this session|--resume\b|\bkimi -r\b|--session\b/i.test(text);
+  }
+
   function summaryForRun(taskId, runId, payload = {}) {
     const reported = typeof payload.result === 'string' ? payload.result.trim() : '';
-    const text = reported || lastAssistantText(taskId, runId);
+    // Kimi's only completion carrier is its resume hint, not the agent's answer.
+    // Prefer the last assistant message whenever the CLI result is just that hint.
+    const text = (reported && !isResumeHint(reported) ? reported : '') || lastAssistantText(taskId, runId) || reported;
     return text ? text.slice(0, 800) : '';
   }
 
@@ -266,7 +272,7 @@ export function createRuntimeService({
         artifacts: artifacts.map((a) => ({ id: a.id, name: a.name, kind: a.kind })),
       }, { taskId, runId });
     }
-    preparedRuns.add(runId);
+    preparedRuns.set(runId, { summary, artifacts });
     return { task, summary, artifacts };
   }
 
@@ -278,12 +284,19 @@ export function createRuntimeService({
     if (!task) return null;
     if (!['running', 'waiting', 'paused'].includes(task.status)) return null;
     if (db.listDecisions(taskId).some((d) => d.status === 'pending')) return null;
-    const done = prepared && preparedRuns.has(runId)
-      ? { task, summary: task.summary ?? null, artifacts: [] }
+    const stored = prepared ? preparedRuns.get(runId) : null;
+    const done = stored
+      ? { task, summary: stored.summary ?? null, artifacts: stored.artifacts }
       : prepareRunCompletion(taskId, runId, payload);
     preparedRuns.delete(runId);
     if (!done) return null;
     if (!prepared && maybeRequestDecision(taskId, runId, payload)) return null;
+    try {
+      const commit = task.worktree_path ? commitAllSync(task.worktree_path, 'PetDeck: ' + String(task.title || 'task deliver').slice(0, 160)) : null;
+      if (commit) recordEvent('git.committed', commit, { taskId, runId });
+    } catch (e) {
+      logger.error?.('[petdeck-runtime] auto-commit failed:', e?.message ?? e);
+    }
     db.updateTask(taskId, { status: 'review', reviewed_at: null });
     recordEvent('task.review_requested', {
       summary: done.summary || null,

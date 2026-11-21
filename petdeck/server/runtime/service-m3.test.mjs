@@ -51,7 +51,7 @@ function makeAdapter(calls, id = 'claude-code') {
 
 // The action runs inside the task worktree before the fake run completes, so
 // the test exercises real commits, real diffs and real worktree cleanup.
-function createActionSupervisor(mode = 'done', action = null) {
+function createActionSupervisor(mode = 'done', action = null, result = 'done') {
   const record = { starts: [], stops: [] };
   return {
     record,
@@ -88,7 +88,7 @@ function createActionSupervisor(mode = 'done', action = null) {
             if (mode === 'long') return;
             setTimeout(() => {
               if (!alive) return;
-              emit('run.completed', { sessionId: 'sess-' + record.starts.length, result: 'done' });
+              emit('run.completed', { sessionId: 'sess-' + record.starts.length, result });
               setTimeout(() => exit({ code: 0, signal: null }), 0);
             }, 5);
           }, 0);
@@ -102,12 +102,12 @@ function createActionSupervisor(mode = 'done', action = null) {
   };
 }
 
-function makeService(t, { action = null, agents = ['claude-code'], mode = 'done' } = {}) {
+function makeService(t, { action = null, agents = ['claude-code'], mode = 'done', result = 'done' } = {}) {
   const dataDir = tempDir('m3-data');
   const worktreesRoot = tempDir('m3-wt');
   const calls = [];
   const adapters = Object.fromEntries(agents.map((id) => [id, makeAdapter(calls, id)]));
-  const fake = createActionSupervisor(mode, action);
+  const fake = createActionSupervisor(mode, action, result);
   const service = createRuntimeService({
     dataDir,
     worktreesRoot,
@@ -154,6 +154,8 @@ test('m3: git task collects artifacts, accepts, previews, merges with token, the
   assert.deepEqual(names, ['result.txt', 'shot.png']);
   assert.equal(detail.artifacts.find((a) => a.name === 'shot.png').kind, 'image');
   assert.ok(detail.task.worktree_path && fs.existsSync(detail.task.worktree_path));
+  const reviewEvent = service.listEvents(task.id).find((event) => event.type === 'task.review_requested');
+  assert.equal(reviewEvent.payload.artifact_count, 2, 'review event reports collected artifacts after the exit race');
 
   const accepted = await service.acceptTask(task.id);
   assert.equal(accepted.merge_required, true);
@@ -304,5 +306,42 @@ test('m3: merge can be re-authorized after a reload and the old token stops work
   assert.equal(merged.task.status, 'merged');
   assert.ok(fs.existsSync(path.join(repo, 'authorize.txt')));
   await service.cleanupTask(task.id);
+});
+
+test('m3: uncommitted agent output is committed before review and survives merge', async (t) => {
+  const repo = makeGitRepo();
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const { service } = makeService(t, {
+    action(cwd) {
+      fs.writeFileSync(path.join(cwd, 'deliver.txt'), 'uncommitted agent output\n');
+      return ['deliver.txt'];
+    },
+  });
+
+  const { project } = await service.registerProject({ projectPath: repo });
+  const task = service.createTask({ projectId: project.id, title: 'M3 auto commit', prompt: 'write deliver.txt' });
+  const detail = await startAndReview(service, project, task);
+
+  assert.equal(detail.task.status, 'review');
+  assert.equal(gitIn(detail.task.worktree_path, 'status', '--porcelain').trim(), '', 'worktree is clean before review');
+  assert.match(gitIn(detail.task.worktree_path, 'log', '-1', '--format=%s'), /^PetDeck: /);
+
+  const accepted = await service.acceptTask(task.id);
+  assert.equal(accepted.merge_required, true);
+  await service.mergeTask(task.id, { token: accepted.merge_token });
+  assert.match(fs.readFileSync(path.join(repo, 'deliver.txt'), 'utf8'), /^uncommitted agent output\r?\n$/);
+  await service.cleanupTask(task.id);
+});
+
+test('m3: a Kimi resume hint is not used as the review summary', async (t) => {
+  const repo = makeGitRepo();
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const { service } = makeService(t, { result: 'To resume this session: kimi -r session_fake' });
+
+  const { project } = await service.registerProject({ projectPath: repo });
+  const task = service.createTask({ projectId: project.id, title: 'M3 summary', prompt: 'summarize' });
+  const detail = await startAndReview(service, project, task);
+
+  assert.equal(detail.task.summary, 'hello from fake agent');
 });
 

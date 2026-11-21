@@ -8,6 +8,7 @@ import {
   buildLocalReport,
   createManagerClient,
   extractLooseProposal,
+  stripToolCallEcho,
   normalizeManagerPatch,
   publicManagerConfig,
   resolveManagerConfig,
@@ -70,6 +71,28 @@ test('manager client: sends auth, tools and maps structured tool calls', async (
   assert.equal(result.content, '需要拆成两个任务');
   assert.equal(result.toolCalls[0].name, 'propose_tasks');
   assert.equal(result.model, 'gpt-test');
+});
+
+test('manager client: strips a raw tool-call chunk echoed into content', async () => {
+  const polluted = '我来拆解。{"index":0,"finish_reason":"tool_calls","delta":{"role":"assistant","tool_calls":[{"function":{"name":"propose_tasks"}}]}}';
+  assert.equal(stripToolCallEcho(polluted, [{ name: 'propose_tasks' }]), '我来拆解。');
+  assert.equal(stripToolCallEcho('我来拆解。', []), '我来拆解。');
+  assert.equal(stripToolCallEcho('正常提到 {"index":0,"finish_reason":"stop"}', [{ name: 'propose_tasks' }]), '正常提到 {"index":0,"finish_reason":"stop"}');
+
+  const client = createManagerClient({
+    getConfig: () => ({ provider: 'custom', baseUrl: 'https://manager.example/v1', model: 'glm-test', apiKey: 'sk-test', temperature: 0.3, timeoutMs: 1000, ready: true }),
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        model: 'glm-test',
+        choices: [{ message: { content: polluted, tool_calls: [{ id: 'call-1', function: { name: 'propose_tasks', arguments: '{"tasks":[]}' } }] } }],
+      }),
+    }),
+  });
+  const result = await client.chat({ messages: [{ role: 'user', content: '拆任务' }], tools: [PROPOSE_TASKS_TOOL] });
+  assert.equal(result.content, '我来拆解。');
+  assert.equal(result.toolCalls[0].name, 'propose_tasks');
 });
 
 test('manager client: missing key and HTTP errors are explicit', async () => {

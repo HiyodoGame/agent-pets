@@ -32,6 +32,19 @@ function text(value, max = 200_000) {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
 }
 
+/**
+ * Some OpenAI-compatible gateways echo a raw streaming chunk into message.content
+ * when they also emit structured tool calls. Keep the natural-language lead-in and
+ * drop the trailing chunk so the manager transcript never shows transport JSON.
+ */
+export function stripToolCallEcho(content, toolCalls = []) {
+  const value = typeof content === 'string' ? content : '';
+  if (!value || !toolCalls.length) return value;
+  const marker = value.search(/\{\s*"index"\s*:\s*\d+\s*,\s*"finish_reason"\s*:\s*"tool_calls"/);
+  if (marker < 0) return value;
+  return value.slice(0, marker).trimEnd();
+}
+
 export function providerPreset(provider) {
   return MANAGER_PROVIDERS[provider] ?? MANAGER_PROVIDERS.custom;
 }
@@ -153,7 +166,7 @@ export function createManagerClient({ getConfig, fetchImpl = globalThis.fetch } 
     const message = payload?.choices?.[0]?.message ?? {};
     const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
     return {
-      content: typeof message.content === 'string' ? message.content : '',
+      content: stripToolCallEcho(typeof message.content === 'string' ? message.content : '', toolCalls),
       toolCalls: toolCalls.map((call) => ({
         id: call?.id ?? null,
         name: call?.function?.name ?? null,
