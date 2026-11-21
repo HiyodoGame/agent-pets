@@ -223,71 +223,72 @@ export function ManagerPanel({ projects, onDispatched }: ManagerPanelProps) {
       <div className="manager-messages" ref={messagesRef}>
         {loading && messages.length === 0 ? (
           <div className="manager-loading"><Loader2 className="spin" aria-hidden="true" />{t('common.loading')}</div>
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && proposals.length === 0 ? (
           <div className="manager-empty">
             <span className="manager-empty-icon"><Sparkles aria-hidden="true" /></span>
             <strong>{t('console.manager.empty')}</strong>
             <p>{t('console.manager.emptyHint')}</p>
           </div>
         ) : (
-          messages.map((message) => <ManagerBubble key={message.id} message={message} locale={locale} />)
+          <>
+            {messages.map((message) => <ManagerBubble key={message.id} message={message} locale={locale} />)}
+            {proposals.length > 0 ? (
+              <div className="manager-proposals">
+                <div className="manager-proposals-head">
+                  <span><Check aria-hidden="true" />{t('console.manager.proposalKicker')}</span>
+                  <span>{proposals.length}</span>
+                </div>
+                {proposals.map((proposal) => editing?.id === proposal.id ? (
+                  <div className="proposal-card is-editing" key={proposal.id}>
+                    <label className="field">
+                      <span>{t('console.manager.fieldTitle')}</span>
+                      <input value={editTitle} maxLength={200} onChange={(event) => setEditTitle(event.target.value)} />
+                    </label>
+                    {editItems.map((item, index) => (
+                      <div className="proposal-edit-item" key={item.ref}>
+                        <div className="proposal-edit-item-head"><span>{index + 1}</span><strong>{item.ref}</strong></div>
+                        <label className="field">
+                          <span>{t('console.manager.fieldTitle')}</span>
+                          <input value={item.title} maxLength={200} onChange={(event) => patchEditItem(index, { title: event.target.value })} />
+                        </label>
+                        <label className="field">
+                          <span>{t('console.manager.fieldPrompt')}</span>
+                          <textarea value={item.prompt} onChange={(event) => patchEditItem(index, { prompt: event.target.value })} />
+                        </label>
+                        <label className="field">
+                          <span>{t('console.manager.fieldAcceptance')}</span>
+                          <textarea value={item.acceptance} onChange={(event) => patchEditItem(index, { acceptance: event.target.value })} />
+                        </label>
+                        <label className="field">
+                          <span>{t('console.manager.agent')}</span>
+                          <select value={item.agent} onChange={(event) => patchEditItem(index, { agent: event.target.value })}>
+                            {AGENT_OPTIONS.map((agent) => <option key={agent} value={agent}>{agent}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                    ))}
+                    <div className="proposal-actions">
+                      <button type="button" className="button ghost small" onClick={() => setEditing(null)} disabled={busyProposal === proposal.id}>{t('console.manager.cancelAdjust')}</button>
+                      <button type="button" className="button primary small" onClick={() => void saveEdit()} disabled={busyProposal === proposal.id}>
+                        {busyProposal === proposal.id ? <Loader2 className="spin" aria-hidden="true" /> : null}{t('console.manager.saveAdjust')}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <ProposalCard
+                    key={proposal.id}
+                    proposal={proposal}
+                    busy={busyProposal === proposal.id}
+                    onConfirm={() => void dispatch(proposal)}
+                    onAdjust={() => beginEdit(proposal)}
+                    onDiscard={() => void discard(proposal)}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </>
         )}
       </div>
-
-      {proposals.length > 0 ? (
-        <div className="manager-proposals">
-          <div className="manager-proposals-head">
-            <span><Check aria-hidden="true" />{t('console.manager.proposalKicker')}</span>
-            <span>{proposals.length}</span>
-          </div>
-          {proposals.map((proposal) => editing?.id === proposal.id ? (
-            <div className="proposal-card is-editing" key={proposal.id}>
-              <label className="field">
-                <span>{t('console.manager.fieldTitle')}</span>
-                <input value={editTitle} maxLength={200} onChange={(event) => setEditTitle(event.target.value)} />
-              </label>
-              {editItems.map((item, index) => (
-                <div className="proposal-edit-item" key={item.ref}>
-                  <div className="proposal-edit-item-head"><span>{index + 1}</span><strong>{item.ref}</strong></div>
-                  <label className="field">
-                    <span>{t('console.manager.fieldTitle')}</span>
-                    <input value={item.title} maxLength={200} onChange={(event) => patchEditItem(index, { title: event.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>{t('console.manager.fieldPrompt')}</span>
-                    <textarea value={item.prompt} onChange={(event) => patchEditItem(index, { prompt: event.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>{t('console.manager.fieldAcceptance')}</span>
-                    <textarea value={item.acceptance} onChange={(event) => patchEditItem(index, { acceptance: event.target.value })} />
-                  </label>
-                  <label className="field">
-                    <span>{t('console.manager.agent')}</span>
-                    <select value={item.agent} onChange={(event) => patchEditItem(index, { agent: event.target.value })}>
-                      {AGENT_OPTIONS.map((agent) => <option key={agent} value={agent}>{agent}</option>)}
-                    </select>
-                  </label>
-                </div>
-              ))}
-              <div className="proposal-actions">
-                <button type="button" className="button ghost small" onClick={() => setEditing(null)} disabled={busyProposal === proposal.id}>{t('console.manager.cancelAdjust')}</button>
-                <button type="button" className="button primary small" onClick={() => void saveEdit()} disabled={busyProposal === proposal.id}>
-                  {busyProposal === proposal.id ? <Loader2 className="spin" aria-hidden="true" /> : null}{t('console.manager.saveAdjust')}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <ProposalCard
-              key={proposal.id}
-              proposal={proposal}
-              busy={busyProposal === proposal.id}
-              onConfirm={() => void dispatch(proposal)}
-              onAdjust={() => beginEdit(proposal)}
-              onDiscard={() => void discard(proposal)}
-            />
-          ))}
-        </div>
-      ) : null}
 
       {notice ? <p className="manager-notice" role="status">{notice}</p> : null}
       {error ? <p className="console-banner error" role="alert">{error}</p> : null}

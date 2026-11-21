@@ -723,7 +723,7 @@ export const zh = {
   // console: manager
   'console.manager.title': '经理',
   'console.manager.subtitle': '拆解任务、解释进展；派发前必须你确认。',
-  'console.manager.ready': '已连接',
+  'console.manager.ready': '已配置',
   'console.manager.notReady': '未配置',
   'console.manager.configure': '去设置',
   'console.manager.project': '项目',
@@ -1504,7 +1504,7 @@ export const en: Record<MessageKey, string> = {
   // console: manager
   'console.manager.title': 'Manager',
   'console.manager.subtitle': 'Breaks work down and explains progress. Nothing is dispatched without your confirmation.',
-  'console.manager.ready': 'Connected',
+  'console.manager.ready': 'Configured',
   'console.manager.notReady': 'Not configured',
   'console.manager.configure': 'Open settings',
   'console.manager.project': 'Project',

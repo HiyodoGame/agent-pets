@@ -1408,7 +1408,7 @@
 .manager-message p { margin: 0; font-size: var(--font-size-xs); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .manager-system { margin: 0; color: var(--color-text-tertiary); font-size: 0.625rem; text-align: center; }
 
-.manager-proposals { max-block-size: 46%; overflow-y: auto; padding: var(--pd-space-2) var(--pd-space-3); border-block-start: 0.0625rem solid var(--color-border-secondary); background: var(--color-bg-layout); }
+.manager-proposals { display: flex; flex-direction: column; gap: var(--pd-space-2); padding: 0; }
 .manager-proposals-head { display: flex; align-items: center; justify-content: space-between; gap: var(--pd-space-2); padding: 0 var(--pd-space-1) var(--pd-space-2); color: var(--color-text-secondary); font-size: 0.625rem; font-weight: 600; }
 .manager-proposals-head > span:first-child { display: inline-flex; align-items: center; gap: 0.25rem; }
 .manager-proposals-head svg { inline-size: 0.75rem; block-size: 0.75rem; }
