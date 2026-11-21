@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, Check, FileBarChart, FolderGit2, FolderPlus, Info, Loader2, Plus, Settings2, X } from 'lucide-react'
+import { Bot, Check, FolderGit2, FolderPlus, Info, Loader2, Plus, Settings2, X } from 'lucide-react'
 import {
   getSettings,
   listAgents,
@@ -17,6 +17,8 @@ import { formatRelative, isFinished } from './format.ts'
 import { EmptyState, TaskStatusBadge } from './task-bits.tsx'
 import { AddProjectDialog } from './add-project-dialog.tsx'
 import { NewTaskDialog } from './new-task-dialog.tsx'
+import { ReportsView } from './reports-view.tsx'
+import { ManagerSettingsSection } from './manager-settings.tsx'
 
 export function ProjectsPage() {
   const { locale } = useLocale()
@@ -217,7 +219,7 @@ export function ReportsPage() {
           <p className="console-subtitle">{t('console.reports.subtitle')}</p>
         </div>
       </header>
-      <EmptyState icon={<FileBarChart aria-hidden="true" />} title={t('console.reports.emptyTitle')} body={t('console.reports.emptyBody')} />
+      <ReportsView />
     </section>
   )
 }
@@ -324,6 +326,7 @@ export function SettingsPage() {
             </div>
           )}
         </section>
+        <ManagerSettingsSection />
         <section className="panel-card">
           <header className="panel-card-head"><h2><Info aria-hidden="true" />{t('console.settings.aboutTitle')}</h2></header>
           <p className="settings-note">{t('console.settings.aboutBody')}</p>

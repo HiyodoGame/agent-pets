@@ -148,7 +148,7 @@ export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = creat
   function cors(res, req) {
     const origin = req?.headers.origin;
     res.setHeader('Access-Control-Allow-Origin', origin && sec.allowedOrigins.includes(origin) ? origin : sec.allowedOrigins[0]);
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-Petdeck-Token');
     res.setHeader('Vary', 'Origin');
   }
@@ -290,6 +290,113 @@ export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = creat
         catch (e) { return runtimeFailure(res, req, e, logger); }
       }
       return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
+    if (url.pathname === '/api/runtime/manager/settings') {
+      if (readGuard()) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      if (req.method === 'GET') return json(res, req, 200, { ok: true, manager: runtime.getManagerSettings() });
+      if (req.method === 'PUT') {
+        const payload = await readJsonWrite(req, res);
+        if (!payload) return;
+        try { return json(res, req, 200, { ok: true, manager: runtime.updateManagerSettings(payload) }); }
+        catch (e) { return runtimeFailure(res, req, e, logger); }
+      }
+      return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
+    if (url.pathname === '/api/runtime/manager/test' && req.method === 'POST') {
+      const payload = await readJsonWrite(req, res);
+      if (!payload) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      try { return json(res, req, 200, { ok: true, ...(await runtime.testManager()) }); }
+      catch (e) { return runtimeFailure(res, req, e, logger); }
+    }
+
+    if (url.pathname === '/api/runtime/manager/messages') {
+      if (readGuard()) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      if (req.method === 'GET') {
+        const limit = Number(url.searchParams.get('limit'));
+        return json(res, req, 200, { ok: true, messages: runtime.listManagerMessages({ limit: Number.isFinite(limit) && limit > 0 ? Math.min(500, limit) : 100 }) });
+      }
+      if (req.method === 'POST') {
+        const payload = await readJsonWrite(req, res);
+        if (!payload) return;
+        try {
+          const result = await runtime.sendManagerMessage({ content: payload.content ?? '', projectId: payload.projectId ?? null });
+          return json(res, req, 200, { ok: true, ...result });
+        } catch (e) { return runtimeFailure(res, req, e, logger); }
+      }
+      return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
+    if (url.pathname === '/api/runtime/proposals') {
+      if (readGuard()) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      if (req.method === 'GET') {
+        return json(res, req, 200, { ok: true, proposals: runtime.listProposals(url.searchParams.get('status') || 'pending') });
+      }
+      return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
+    const proposalRoute = url.pathname.match(/^\/api\/runtime\/proposals\/([^/]+)\/(confirm|reject|update)$/);
+    if (proposalRoute) {
+      if (req.method !== 'POST') return json(res, req, 405, { ok: false, error: 'method not allowed' });
+      const payload = await readJsonWrite(req, res);
+      if (!payload) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      try {
+        let proposalId;
+        try { proposalId = decodeURIComponent(proposalRoute[1]); } catch { return json(res, req, 400, { ok: false, error: 'invalid proposal id' }); }
+        const action = proposalRoute[2];
+        if (action === 'confirm') {
+          const result = await runtime.confirmProposal(proposalId, { start: payload.start !== false });
+          return json(res, req, 200, { ok: true, ...result });
+        }
+        if (action === 'reject') {
+          return json(res, req, 200, { ok: true, proposal: runtime.rejectProposal(proposalId, { reason: payload.reason ?? '' }) });
+        }
+        return json(res, req, 200, { ok: true, proposal: runtime.updateProposal(proposalId, payload) });
+      } catch (e) { return runtimeFailure(res, req, e, logger); }
+    }
+
+    if (url.pathname === '/api/runtime/reports/generate' && req.method === 'POST') {
+      const payload = await readJsonWrite(req, res);
+      if (!payload) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      try {
+        const report = await runtime.generateDailyReport({ date: payload.date ?? null, projectId: payload.projectId ?? null });
+        return json(res, req, 200, { ok: true, report });
+      } catch (e) { return runtimeFailure(res, req, e, logger); }
+    }
+
+    if (url.pathname === '/api/runtime/reports') {
+      if (readGuard()) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      if (req.method === 'GET') {
+        const limit = Number(url.searchParams.get('limit'));
+        return json(res, req, 200, {
+          ok: true,
+          reports: runtime.listReports({
+            projectId: url.searchParams.get('projectId') || null,
+            limit: Number.isFinite(limit) && limit > 0 ? Math.min(100, limit) : 30,
+          }),
+        });
+      }
+      return json(res, req, 405, { ok: false, error: 'method not allowed' });
+    }
+
+    const reportRoute = url.pathname.match(/^\/api\/runtime\/reports\/([^/]+)$/);
+    if (reportRoute) {
+      if (readGuard()) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      if (req.method !== 'GET') return json(res, req, 405, { ok: false, error: 'method not allowed' });
+      try {
+        let reportId;
+        try { reportId = decodeURIComponent(reportRoute[1]); } catch { return json(res, req, 400, { ok: false, error: 'invalid report id' }); }
+        return json(res, req, 200, { ok: true, report: runtime.getReport(reportId) });
+      } catch (e) { return runtimeFailure(res, req, e, logger); }
     }
 
     if (url.pathname === '/api/runtime/decisions') {

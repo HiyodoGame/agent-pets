@@ -151,6 +151,136 @@ export interface RuntimeSettings {
   decisionSound: boolean
 }
 
+export interface ManagerProvider {
+  id: string
+  label: string
+  baseUrl: string
+  requiresKey: boolean
+}
+
+export type ManagerApiKeySource = 'settings' | 'environment' | 'none'
+
+export interface ManagerSettings {
+  provider: string
+  baseUrl: string
+  model: string
+  temperature: number
+  timeoutMs: number
+  apiKeySet: boolean
+  apiKeySource: ManagerApiKeySource
+  ready: boolean
+  providers: ManagerProvider[]
+}
+
+export interface ManagerSettingsPatch {
+  provider?: string
+  baseUrl?: string
+  model?: string
+  temperature?: number
+  timeoutMs?: number
+  apiKey?: string
+  clearApiKey?: boolean
+}
+
+export interface ManagerTestResult {
+  model: string
+  reply: string
+}
+
+export type ManagerMessageRole = 'user' | 'assistant' | 'system'
+
+export interface ManagerMessage {
+  id: string
+  role: ManagerMessageRole
+  content: string
+  proposal_id: string | null
+  meta: Record<string, unknown>
+  created_at: number
+}
+
+export interface ProposalItem {
+  ref: string
+  title: string
+  prompt: string
+  acceptance: string
+  agent: string
+  dependsOn: string[]
+  priority: number
+}
+
+export type ProposalStatus = 'pending' | 'confirmed' | 'rejected'
+
+export interface Proposal {
+  id: string
+  project_id: string | null
+  project_name: string | null
+  title: string
+  summary: string
+  status: ProposalStatus
+  items: ProposalItem[]
+  task_ids: string[]
+  created_at: number
+  updated_at: number
+  confirmed_at: number | null
+}
+
+export interface ManagerReply {
+  message: ManagerMessage
+  proposal: Proposal | null
+}
+
+export interface ProposalPatch {
+  title?: string
+  summary?: string
+  items?: ProposalItem[]
+}
+
+export interface StartedTaskResult {
+  taskId: string
+  deferred?: boolean
+  status?: string
+  error?: string
+  runId?: string | null
+  queued?: boolean
+}
+
+export interface ConfirmProposalResult {
+  proposal: Proposal
+  tasks: Task[]
+  started: StartedTaskResult[]
+}
+
+export interface DailyReportStats {
+  total?: number
+  completed?: number
+  merged?: number
+  review?: number
+  pending_merge?: number
+  running?: number
+  queued?: number
+  paused?: number
+  waiting?: number
+  failed?: number
+  stopped?: number
+  decisions?: number
+  proposals?: number
+  manager_error?: string
+  [key: string]: number | string | null | undefined
+}
+
+export interface DailyReport {
+  id: string
+  date: string
+  project_id: string | null
+  project_name: string | null
+  title: string
+  body: string
+  stats: DailyReportStats
+  source: 'local' | 'manager'
+  created_at: number
+  updated_at: number
+}
+
 /** Result of starting/resuming a task: it either launches immediately or queues. */
 export interface StartResult {
   taskId: string
@@ -192,14 +322,14 @@ function headers(): Record<string, string> {
   return token ? { 'X-Petdeck-Token': token } : {}
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, timeoutMs = TIMEOUT_MS): Promise<T> {
   const { url } = bridgeConfigSnapshot()
   let response: Response
   try {
     response = await fetch(url + path, {
       ...init,
       headers: { ...headers(), ...(init.headers ?? {}) },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (error) {
     throw new RuntimeClientError(error instanceof Error ? error.message : 'network error', 0)
@@ -368,6 +498,77 @@ export async function removeArtifact(taskId: string, artifactId: string): Promis
 export function artifactContentUrl(artifactId: string): string {
   const { url, token } = bridgeConfigSnapshot()
   return url + '/api/runtime/artifacts/' + encodeURIComponent(artifactId) + '/content' + (token ? '?token=' + encodeURIComponent(token) : '')
+}
+
+export async function getManagerSettings(): Promise<ManagerSettings> {
+  const body = await request<{ ok: true; manager: ManagerSettings }>('/api/runtime/manager/settings')
+  return body.manager
+}
+
+export async function updateManagerSettings(patch: ManagerSettingsPatch): Promise<ManagerSettings> {
+  const body = await request<{ ok: true; manager: ManagerSettings }>('/api/runtime/manager/settings', jsonInit('PUT', patch))
+  return body.manager
+}
+
+export async function testManager(): Promise<ManagerTestResult> {
+  return request<{ ok: true } & ManagerTestResult>('/api/runtime/manager/test', jsonInit('POST', {}), 60_000)
+}
+
+export async function listManagerMessages(limit = 100): Promise<ManagerMessage[]> {
+  const body = await request<{ ok: true; messages: ManagerMessage[] }>('/api/runtime/manager/messages?limit=' + limit)
+  return body.messages
+}
+
+export async function sendManagerMessage(input: { content: string; projectId?: string | null }): Promise<ManagerReply> {
+  const body = await request<{ ok: true } & ManagerReply>('/api/runtime/manager/messages', jsonInit('POST', {
+    content: input.content,
+    ...(input.projectId ? { projectId: input.projectId } : {}),
+  }), 120_000)
+  const { ok: _ok, ...result } = body
+  return result
+}
+
+export async function listProposals(status = 'pending'): Promise<Proposal[]> {
+  const body = await request<{ ok: true; proposals: Proposal[] }>('/api/runtime/proposals?status=' + encodeURIComponent(status))
+  return body.proposals
+}
+
+export async function updateProposal(proposalId: string, patch: ProposalPatch): Promise<Proposal> {
+  const body = await request<{ ok: true; proposal: Proposal }>('/api/runtime/proposals/' + encodeURIComponent(proposalId) + '/update', jsonInit('POST', patch))
+  return body.proposal
+}
+
+export async function rejectProposal(proposalId: string, reason = ''): Promise<Proposal> {
+  const body = await request<{ ok: true; proposal: Proposal }>('/api/runtime/proposals/' + encodeURIComponent(proposalId) + '/reject', jsonInit('POST', { reason }))
+  return body.proposal
+}
+
+export async function confirmProposal(proposalId: string, start = true): Promise<ConfirmProposalResult> {
+  const body = await request<{ ok: true } & ConfirmProposalResult>('/api/runtime/proposals/' + encodeURIComponent(proposalId) + '/confirm', jsonInit('POST', { start }), 120_000)
+  const { ok: _ok, ...result } = body
+  return result
+}
+
+export async function generateDailyReport(input: { date?: string | null; projectId?: string | null } = {}): Promise<DailyReport> {
+  const body = await request<{ ok: true; report: DailyReport }>('/api/runtime/reports/generate', jsonInit('POST', {
+    date: input.date ?? null,
+    projectId: input.projectId ?? null,
+  }), 120_000)
+  return body.report
+}
+
+export async function listReports(input: { projectId?: string | null; limit?: number } = {}): Promise<DailyReport[]> {
+  const query = new URLSearchParams()
+  if (input.projectId) query.set('projectId', input.projectId)
+  if (input.limit) query.set('limit', String(input.limit))
+  const suffix = query.size > 0 ? '?' + query.toString() : ''
+  const body = await request<{ ok: true; reports: DailyReport[] }>('/api/runtime/reports' + suffix)
+  return body.reports
+}
+
+export async function getReport(reportId: string): Promise<DailyReport> {
+  const body = await request<{ ok: true; report: DailyReport }>('/api/runtime/reports/' + encodeURIComponent(reportId))
+  return body.report
 }
 
 export interface TaskSubscriptionHooks {

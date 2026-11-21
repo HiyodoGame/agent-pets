@@ -15,6 +15,7 @@ import { t, useLocale } from '../../i18n/index.ts'
 import { usePendingDecisions, useRuntimeOverview } from './runtime-hooks.ts'
 import { formatRelative, groupTasks, eventText } from './format.ts'
 import { DecisionCard } from './decision-card.tsx'
+import { ManagerPanel } from './manager-panel.tsx'
 import { EmptyState, TaskRow, TaskStatusBadge } from './task-bits.tsx'
 import { NewTaskDialog } from './new-task-dialog.tsx'
 import { AddProjectDialog } from './add-project-dialog.tsx'
@@ -171,12 +172,15 @@ export function TodayPage() {
         <div className="today-stat" role="listitem"><strong className="tabular-nums">{counts.done}</strong><span>{t('console.status.completed')}</span></div>
       </div>
 
-      {error && <p className="console-banner error" role="alert">{error}</p>}
-      {decisions.error && <p className="console-banner error" role="alert">{decisions.error}</p>}
+      <div className="today-workbench">
+        <ManagerPanel projects={projects} onDispatched={refreshAll} />
+        <div className="today-main">
+          {error && <p className="console-banner error" role="alert">{error}</p>}
+          {decisions.error && <p className="console-banner error" role="alert">{decisions.error}</p>}
 
-      <div className="today-grid">
-        {rail}
-        <div className="detail-pane">
+          <div className="today-grid">
+            {rail}
+            <div className="detail-pane">
           {!selected ? (
             <EmptyState
               icon={<TerminalSquare aria-hidden="true" />}
@@ -246,6 +250,8 @@ export function TodayPage() {
               </div>
             </article>
           )}
+            </div>
+          </div>
         </div>
       </div>
 

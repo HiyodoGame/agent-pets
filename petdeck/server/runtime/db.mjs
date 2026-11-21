@@ -7,7 +7,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export function resolveDataDir(env = process.env) {
   if (env.PETDECK_DATA_DIR) return path.resolve(env.PETDECK_DATA_DIR);
@@ -34,6 +34,7 @@ const TASK_FIELDS = new Set([
 const RUN_FIELDS = new Set(['session_id', 'pid', 'status', 'ended_at', 'exit_code', 'error']);
 const DECISION_FIELDS = new Set(['status', 'answer', 'answered_at', 'expires_at']);
 const ARTIFACT_FIELDS = new Set(['name', 'kind', 'mime', 'bytes']);
+const PROPOSAL_FIELDS = new Set(['project_id', 'title', 'summary', 'status', 'items_json', 'task_ids_json', 'confirmed_at', 'updated_at']);
 
 function nowMs() { return Date.now(); }
 
@@ -158,6 +159,41 @@ function migrate(db) {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_artifacts_task ON artifacts(task_id, created_at);
+    CREATE TABLE IF NOT EXISTS manager_messages (
+      id TEXT PRIMARY KEY,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      proposal_id TEXT,
+      meta_json TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_manager_messages ON manager_messages(created_at);
+    CREATE TABLE IF NOT EXISTS proposals (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      title TEXT NOT NULL,
+      summary TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      items_json TEXT NOT NULL DEFAULT '[]',
+      task_ids_json TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      confirmed_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals(status, created_at);
+    CREATE TABLE IF NOT EXISTS reports (
+      id TEXT PRIMARY KEY,
+      report_date TEXT NOT NULL,
+      project_id TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      stats_json TEXT NOT NULL DEFAULT '{}',
+      source TEXT NOT NULL DEFAULT 'local',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(report_date, project_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reports_date ON reports(report_date DESC, updated_at DESC);
     PRAGMA user_version = ${SCHEMA_VERSION};
   `);
 }
@@ -201,6 +237,18 @@ function createStore(db) {
     getArtifact: db.prepare('SELECT * FROM artifacts WHERE id = ?'),
     artifactsByTask: db.prepare('SELECT * FROM artifacts WHERE task_id = ? ORDER BY created_at ASC'),
     deleteArtifact: db.prepare('DELETE FROM artifacts WHERE id = ?'),
+    insertManagerMessage: db.prepare('INSERT INTO manager_messages (id, role, content, proposal_id, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)'),
+    managerMessages: db.prepare('SELECT * FROM manager_messages ORDER BY created_at DESC LIMIT ?'),
+    clearManagerMessages: db.prepare('DELETE FROM manager_messages'),
+    insertProposal: db.prepare("INSERT INTO proposals (id, project_id, title, summary, status, items_json, task_ids_json, created_at, updated_at, confirmed_at) VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL)"),
+    getProposal: db.prepare('SELECT * FROM proposals WHERE id = ?'),
+    allProposals: db.prepare('SELECT * FROM proposals ORDER BY created_at DESC LIMIT ?'),
+    proposalsByStatus: db.prepare('SELECT * FROM proposals WHERE status = ? ORDER BY created_at DESC LIMIT ?'),
+    upsertReport: db.prepare("INSERT INTO reports (id, report_date, project_id, title, body, stats_json, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(report_date, project_id) DO UPDATE SET title = excluded.title, body = excluded.body, stats_json = excluded.stats_json, source = excluded.source, updated_at = excluded.updated_at"),
+    getReport: db.prepare('SELECT * FROM reports WHERE id = ?'),
+    reportByDate: db.prepare('SELECT * FROM reports WHERE report_date = ? AND project_id = ?'),
+    allReports: db.prepare('SELECT * FROM reports ORDER BY report_date DESC, updated_at DESC LIMIT ?'),
+    reportsByProject: db.prepare('SELECT * FROM reports WHERE project_id = ? ORDER BY report_date DESC, updated_at DESC LIMIT ?'),
   };
 
   function getRow(stmt, ...args) { return stmt.get(...args); }
@@ -330,6 +378,48 @@ function createStore(db) {
     },
     deleteArtifact(id) { q.deleteArtifact.run(id); },
 
+    insertManagerMessage({ role, content, proposalId = null, meta = {} }) {
+      const id = makeId();
+      q.insertManagerMessage.run(id, role, content, proposalId, JSON.stringify(meta ?? {}), nowMs());
+      return this.listManagerMessages({ limit: 500 }).find((m) => m.id === id) ?? null;
+    },
+    listManagerMessages({ limit = 100 } = {}) {
+      return allRows(q.managerMessages, Math.max(1, Math.min(500, limit))).reverse();
+    },
+    clearManagerMessages() { q.clearManagerMessages.run(); },
+
+    createProposal({ projectId = null, title, summary = '', items = [] }) {
+      const id = makeId();
+      const ts = nowMs();
+      q.insertProposal.run(id, projectId, title, summary, 'pending', JSON.stringify(items), ts, ts);
+      return this.getProposal(id);
+    },
+    getProposal(id) { return getRow(q.getProposal, id) ?? null; },
+    listProposals({ status = null, limit = 50 } = {}) {
+      const cap = Math.max(1, Math.min(200, limit));
+      return status ? allRows(q.proposalsByStatus, status, cap) : allRows(q.allProposals, cap);
+    },
+    updateProposal(id, patch) {
+      const keys = Object.keys(patch).filter((k) => PROPOSAL_FIELDS.has(k));
+      if (!keys.length) return this.getProposal(id);
+      const sets = keys.map((k) => k + ' = ?');
+      db.prepare('UPDATE proposals SET ' + sets.join(', ') + ', updated_at = ? WHERE id = ?')
+        .run(...keys.map((k) => patch[k]), nowMs(), id);
+      return this.getProposal(id);
+    },
+
+    upsertReport({ date, projectId = '', title, body, stats = {}, source = 'local' }) {
+      const existing = getRow(q.reportByDate, date, projectId);
+      const id = existing?.id ?? makeId();
+      const ts = nowMs();
+      q.upsertReport.run(id, date, projectId, title, body, JSON.stringify(stats ?? {}), source, existing?.created_at ?? ts, ts);
+      return this.getReport(id);
+    },
+    getReport(id) { return getRow(q.getReport, id) ?? null; },
+    listReports({ projectId = null, limit = 30 } = {}) {
+      const cap = Math.max(1, Math.min(100, limit));
+      return projectId ? allRows(q.reportsByProject, projectId, cap) : allRows(q.allReports, cap);
+    },
     /** A bridge restart kills every child it supervised; mark those runs/tasks so the
      *  UI never shows a phantom "running" row that has no process behind it. */
     recoverInterrupted() {

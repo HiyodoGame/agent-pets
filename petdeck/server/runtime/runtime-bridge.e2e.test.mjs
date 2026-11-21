@@ -297,6 +297,25 @@ test('runtime bridge: artifact content supports inline preview, Range and manual
   assert.equal(accepted.body.merge_required, false);
 });
 
+test('runtime bridge: CORS preflight advertises every method the console writes with', async (t) => {
+  const { base } = await withBridge(t, { script() {} });
+  const preflight = await fetch(base + '/api/runtime/manager/settings', {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'http://localhost:5173',
+      'Access-Control-Request-Method': 'PUT',
+      'Access-Control-Request-Headers': 'content-type,x-petdeck-token',
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+  const methods = (preflight.headers.get('access-control-allow-methods') || '').split(',').map((value) => value.trim());
+  for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']) {
+    assert.ok(methods.includes(method), 'preflight must allow ' + method + ', got ' + methods.join(','));
+  }
+  assert.match(preflight.headers.get('access-control-allow-headers') || '', /x-petdeck-token/i);
+});
+
 test('runtime bridge: auth, unknown ids, and unavailable runtime stay explicit', async (t) => {
   const { api, base } = await withBridge(t, { script() {} });
   assert.equal((await api('/api/runtime/tasks')).status, 200);
