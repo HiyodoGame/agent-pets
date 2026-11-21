@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "docs:check": "node scripts/check-docs.mjs",
+    "release:check": "node scripts/check-release.mjs",
     "build": "vite build",
     "lint": "oxlint src server",
     "preview": "vite preview",

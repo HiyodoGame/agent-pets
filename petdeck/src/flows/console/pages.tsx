@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, Check, FolderGit2, FolderPlus, Info, Loader2, Plus, Settings2, X } from 'lucide-react'
+import { Bot, Check, FolderGit2, FolderPlus, Loader2, Plus, Settings2, X } from 'lucide-react'
 import {
   getSettings,
   listAgents,
@@ -21,6 +21,7 @@ import { ReportsView } from './reports-view.tsx'
 import { ManagerSettingsSection } from './manager-settings.tsx'
 import { RuntimeStatusCard } from './runtime-status-card.tsx'
 import { StorageCard } from './storage-card.tsx'
+import { UpdateCard } from './update-card.tsx'
 
 export function ProjectsPage() {
   const { locale } = useLocale()
@@ -323,10 +324,7 @@ export function SettingsPage() {
           )}
         </section>
         <ManagerSettingsSection />
-        <section className="panel-card">
-          <header className="panel-card-head"><h2><Info aria-hidden="true" />{t('console.settings.aboutTitle')}</h2></header>
-          <p className="settings-note">{t('console.settings.aboutBody')}</p>
-        </section>
+        <UpdateCard />
       </div>
     </section>
   )

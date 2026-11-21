@@ -369,16 +369,29 @@ struct UpdateInfo {
     body: Option<String>,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateProgress {
+    downloaded: u64,
+    total: Option<u64>,
+}
+
 /// Check GitHub Releases for a newer signed build. Returns version/notes only; the
 /// actual download happens only after the user explicitly confirms install_update.
 #[tauri::command]
 async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
     let update = app
         .updater()
-        .map_err(|error| error.to_string())?
+        .map_err(|error| {
+            bridge::sidecar_note("error", "update.check_failed", serde_json::json!({ "reason": error.to_string() }));
+            error.to_string()
+        })?
         .check()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            bridge::sidecar_note("error", "update.check_failed", serde_json::json!({ "reason": error.to_string() }));
+            error.to_string()
+        })?;
     Ok(match update {
         Some(update) => UpdateInfo {
             available: true,
@@ -395,21 +408,56 @@ async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
 
 /// Download and install the pending update. On Windows the updater exits the app
 /// after launching the NSIS installer, so no explicit restart is needed here.
+/// Emits `update-progress` ({ downloaded, total }) so the settings page can show a bar.
 #[tauri::command]
 async fn install_update(app: AppHandle) -> Result<(), String> {
     let update = app
         .updater()
-        .map_err(|error| error.to_string())?
+        .map_err(|error| {
+            bridge::sidecar_note("error", "update.check_failed", serde_json::json!({ "reason": error.to_string() }));
+            error.to_string()
+        })?
         .check()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            bridge::sidecar_note("error", "update.check_failed", serde_json::json!({ "reason": error.to_string() }));
+            error.to_string()
+        })?;
     let Some(update) = update else {
         return Err("no update available".to_string());
     };
-    update
-        .download_and_install(|_, _| {}, || {})
-        .await
-        .map_err(|error| error.to_string())
+    let version = update.version.clone();
+    bridge::sidecar_note("info", "update.download_start", serde_json::json!({ "version": version }));
+    let handle = app.clone();
+    let mut downloaded: u64 = 0;
+    let mut last_percent: i64 = -1;
+    let result = update
+        .download_and_install(
+            move |chunk: usize, total: Option<u64>| {
+                downloaded += chunk as u64;
+                let percent = total
+                    .filter(|value| *value > 0)
+                    .map(|value| (downloaded.min(value) * 100 / value) as i64)
+                    .unwrap_or(-1);
+                if percent != last_percent {
+                    last_percent = percent;
+                    let _ = handle.emit("update-progress", UpdateProgress { downloaded, total });
+                }
+            },
+            || {},
+        )
+        .await;
+    match result {
+        Ok(()) => {
+            bridge::sidecar_note("info", "update.install_ok", serde_json::json!({ "version": version }));
+            let _ = app.emit("update-installed", ());
+            Ok(())
+        }
+        Err(error) => {
+            bridge::sidecar_note("error", "update.install_failed", serde_json::json!({ "version": version, "reason": error.to_string() }));
+            Err(error.to_string())
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

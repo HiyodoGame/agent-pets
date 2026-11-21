@@ -268,7 +268,7 @@ fn write_sidecar(file: &mut File, level: &str, msg: &str, fields: serde_json::Va
 }
 
 /// Append one line, opening (and rotating) the sidecar log on demand.
-fn sidecar_note(level: &str, msg: &str, fields: serde_json::Value) {
+pub(crate) fn sidecar_note(level: &str, msg: &str, fields: serde_json::Value) {
     if let Some((_, mut file)) = open_sidecar_log() {
         write_sidecar(&mut file, level, msg, fields);
     }
