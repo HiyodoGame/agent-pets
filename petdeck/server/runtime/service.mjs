@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { openRuntimeDb, resolveDataDir, resolveWorktreesDir } from './db.mjs';
+import { pruneRunTranscripts } from './retention.mjs';
 import { createRuntimeEventBus } from './event-bus.mjs';
 import { createSupervisor } from './supervisor.mjs';
 import {
@@ -102,6 +103,7 @@ export function createRuntimeService({
   managerClient: injectedManagerClient = null,
 } = {}) {
   const dir = dataDir ?? resolveDataDir(env);
+  const log = typeof logger?.child === 'function' ? logger.child('runtime') : logger;
   const db = injectedDb ?? openRuntimeDb({ dataDir: dir });
   const ownsDb = !injectedDb;
   const roots = worktreesRoot ?? resolveWorktreesDir(env);
@@ -118,6 +120,15 @@ export function createRuntimeService({
   const startedAt = Date.now();
 
   db.recoverInterrupted();
+  // Transcripts are the bulky part of a run; keep 30 days after the run ended. The
+  // SQLite event index is untouched, so history stays queryable.
+  try {
+    const pruned = pruneRunTranscripts({ dir });
+    if (pruned.removed) log.info?.('transcripts.pruned', { removed: pruned.removed, bytes: pruned.bytes });
+  } catch (e) { log.warn?.('transcripts.prune_failed', { reason: e?.name ?? 'unknown' }); }
+
+  /** Structured lifecycle line: ids and codes only, never prompt text. */
+  function lifecycle(level, msg, fields) { try { log[level]?.(msg, fields); } catch { /* logging must not break a run */ } }
 
   function storedManagerSettings() {
     const stored = db.getSetting('manager', null);
@@ -135,7 +146,7 @@ export function createRuntimeService({
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.appendFileSync(file, JSON.stringify(event) + '\n', 'utf8');
     } catch (e) {
-      logger.error?.('[petdeck-runtime] transcript append failed:', e?.message ?? e);
+      log.error?.('[petdeck-runtime] transcript append failed:', e?.message ?? e);
     }
   }
 
@@ -145,7 +156,7 @@ export function createRuntimeService({
     appendTranscript(runId, event);
     bus.publish(event);
     try { applySideEffects(type, payload, { taskId, runId }); }
-    catch (e) { logger.error?.('[petdeck-runtime] side effect failed:', e?.message ?? e); }
+    catch (e) { log.error?.('[petdeck-runtime] side effect failed:', e?.message ?? e); }
     return event;
   }
 
@@ -255,7 +266,7 @@ export function createRuntimeService({
     const candidates = extractArtifactPaths(events);
     if (project.kind === 'git' && task.worktree_path) {
       try { candidates.push(...mediaCandidatesFromStatus(statusPorcelainSync(root))); }
-      catch (e) { logger.error?.('[petdeck-runtime] artifact status scan failed:', e?.message ?? e); }
+      catch (e) { log.error?.('[petdeck-runtime] artifact status scan failed:', e?.message ?? e); }
     }
     const seen = new Set();
     const existing = new Set(db.listArtifacts(task.id).map((a) => a.name + ':' + a.bytes));
@@ -323,13 +334,14 @@ export function createRuntimeService({
       const commit = task.worktree_path ? commitAllSync(task.worktree_path, 'PetDeck: ' + String(task.title || 'task deliver').slice(0, 160)) : null;
       if (commit) recordEvent('git.committed', commit, { taskId, runId });
     } catch (e) {
-      logger.error?.('[petdeck-runtime] auto-commit failed:', e?.message ?? e);
+      log.error?.('[petdeck-runtime] auto-commit failed:', e?.message ?? e);
     }
     db.updateTask(taskId, { status: 'review', reviewed_at: null });
     recordEvent('task.review_requested', {
       summary: done.summary || null,
       artifact_count: done.artifacts.length,
     }, { taskId, runId });
+    lifecycle('info', 'task.review_requested', { taskId, runId, artifacts: done.artifacts.length });
     return true;
   }
 
@@ -339,6 +351,7 @@ export function createRuntimeService({
       const sessionId = typeof payload.sessionId === 'string' && payload.sessionId ? payload.sessionId : null;
       db.updateRun(runId, { status: 'running', ...(sessionId ? { session_id: sessionId } : {}) });
       if (sessionId) db.updateTask(taskId, { session_id: sessionId });
+      lifecycle('debug', 'run.started', { taskId, runId, session: Boolean(sessionId) });
       return;
     }
     if (type === 'run.completed' || type === 'run.failed') {
@@ -350,12 +363,14 @@ export function createRuntimeService({
     }
     if (type === 'run.completed') {
       db.updateRun(runId, { status: 'completed', ended_at: Date.now() });
+      lifecycle('info', 'run.completed', { taskId, runId });
       const prepared = prepareRunCompletion(taskId, runId, payload);
       if (prepared) maybeRequestDecision(taskId, runId, payload);
       return;
     }
     if (type === 'run.failed') {
       db.updateRun(runId, { status: 'failed', ended_at: Date.now(), error: String(payload.subtype ?? payload.error ?? 'failed').slice(0, 500) });
+      lifecycle('warn', 'run.failed', { taskId, runId, reason: String(payload.subtype ?? payload.error ?? 'failed').slice(0, 120) });
       applyTaskStatus(taskId, 'failed');
       return;
     }
@@ -365,11 +380,13 @@ export function createRuntimeService({
       if (run.status === 'starting' || run.status === 'running' || run.status === 'paused') {
         if (payload.stopped) {
           db.updateRun(runId, { status: 'stopped', ended_at: Date.now(), exit_code: typeof payload.code === 'number' ? payload.code : null });
+          lifecycle('info', 'run.stopped', { taskId, runId, exitCode: typeof payload.code === 'number' ? payload.code : null });
           applyTaskStatus(taskId, 'stopped');
           return;
         }
         if (payload.code === 0) {
           db.updateRun(runId, { status: 'completed', ended_at: Date.now(), exit_code: 0 });
+          lifecycle('info', 'run.exited', { taskId, runId, exitCode: 0 });
           finishRunOutcome(taskId, runId, {});
           return;
         }
@@ -379,6 +396,7 @@ export function createRuntimeService({
           exit_code: typeof payload.code === 'number' ? payload.code : null,
           error: 'exit:' + String(payload.code ?? 'unknown'),
         });
+        lifecycle('warn', 'run.exited_failed', { taskId, runId, exitCode: typeof payload.code === 'number' ? payload.code : null });
         applyTaskStatus(taskId, 'failed');
         return;
       }
@@ -484,7 +502,7 @@ export function createRuntimeService({
 
   function scheduleDrain() {
     queueMicrotask(() => {
-      drainQueue().catch((e) => logger.error?.('[petdeck-runtime] queue drain failed:', e?.message ?? e));
+      drainQueue().catch((e) => log.error?.('[petdeck-runtime] queue drain failed:', e?.message ?? e));
     });
   }
 
@@ -1073,7 +1091,7 @@ export function createRuntimeService({
         }
       } catch (error) {
         managerError = error instanceof ManagerClientError ? error.message : String(error?.message ?? error);
-        logger.error?.('[petdeck-runtime] manager report failed:', managerError);
+        log.error?.('[petdeck-runtime] manager report failed:', managerError);
       }
     }
     const title = facts.window.date + ' 日报' + (facts.project ? ' · ' + facts.project.name : '');
@@ -1165,6 +1183,7 @@ export function createRuntimeService({
       }
       db.updateRun(run.id, { pid: handle.pid ?? null, status: 'starting' });
       active.set(taskId, { runId: run.id, handle });
+      lifecycle('info', 'run.launch', { taskId, runId: run.id, agent: adapter.id, resume, pid: handle.pid ?? null, active: active.size });
       return { runId: run.id, pid: handle.pid ?? null, taskId, status: 'starting' };
     } finally {
       launching.delete(taskId);
@@ -1280,6 +1299,7 @@ export function createRuntimeService({
     if (project.kind !== 'git') {
       db.updateTask(taskId, { status: 'completed', reviewed_at: now, merge_token: null, merge_token_expires: null });
       recordEvent('task.accepted', { merge_required: false }, { taskId, runId: null });
+      lifecycle('info', 'task.accepted', { taskId, mergeRequired: false });
       return { task: getTaskView(taskId), merge_required: false, merge_token: null, merge_token_expires: null };
     }
     const token = randomBytes(16).toString('hex');
@@ -1291,6 +1311,7 @@ export function createRuntimeService({
       merge_token_expires: expiresAt,
     });
     recordEvent('task.accepted', { merge_required: true, merge_token_expires: expiresAt }, { taskId, runId: null });
+    lifecycle('info', 'task.accepted', { taskId, mergeRequired: true });
     return {
       task: getTaskView(taskId),
       merge_required: true,
@@ -1332,6 +1353,7 @@ export function createRuntimeService({
       agent: nextAgent,
       resume,
     }, { taskId, runId: null });
+    lifecycle('info', 'task.rejected', { taskId, agent: nextAgent, resume, rejects: Number(task.reject_count ?? 0) + 1 });
     const refreshed = requireTask(taskId);
     if (!hasCapacity()) {
       queueTask(refreshed, { resume, prompt, reason: 'rejected' });
@@ -1424,6 +1446,7 @@ export function createRuntimeService({
       merge_token_expires: null,
     });
     recordEvent('task.merged', { branch: task.branch, base }, { taskId, runId: null });
+    lifecycle('info', 'task.merged', { taskId, branch: task.branch, base });
     return getTaskDetail(taskId);
   }
 
@@ -1468,6 +1491,7 @@ export function createRuntimeService({
     if (errors.length) throw new RuntimeError('CLEANUP_FAILED', errors.join('; ').slice(0, 800), 409);
     db.updateTask(taskId, { worktree_path: null, branch: null });
     recordEvent('task.cleaned', { worktree: task.worktree_path, branch: task.branch, leftover_removed: worktreeCleaned }, { taskId, runId: null });
+    lifecycle('info', 'task.cleaned', { taskId, worktree: Boolean(task.worktree_path), branch: Boolean(task.branch) });
     return getTaskDetail(taskId);
   }
 
@@ -1522,6 +1546,7 @@ export function createRuntimeService({
     }
     const updated = db.updateDecision(decision.id, { status: 'answered', answer: text, answered_at: Date.now() });
     recordEvent('decision.answered', { decisionId: decision.id, answer: text }, { taskId: task.id, runId: decision.run_id });
+    lifecycle('info', 'decision.answered', { taskId: task.id, decisionId: decision.id, option: optionIndex != null });
     const prompt = '用户对你提出的问题「' + decision.question + '」做出了选择：' + text + '\n请基于这个决定继续完成任务。';
     let result;
     if (active.has(task.id) || launching.has(task.id)) {

@@ -20,6 +20,7 @@ import { NewTaskDialog } from './new-task-dialog.tsx'
 import { ReportsView } from './reports-view.tsx'
 import { ManagerSettingsSection } from './manager-settings.tsx'
 import { RuntimeStatusCard } from './runtime-status-card.tsx'
+import { StorageCard } from './storage-card.tsx'
 
 export function ProjectsPage() {
   const { locale } = useLocale()
@@ -277,6 +278,7 @@ export function SettingsPage() {
       {error && <p className="console-banner error" role="alert">{error}</p>}
       <div className="settings-stack">
         <RuntimeStatusCard />
+        <StorageCard />
         <section className="panel-card">
           <header className="panel-card-head"><h2><Settings2 aria-hidden="true" />{t('console.settings.schedulerTitle')}</h2></header>
           {loading || !draft ? <div className="page-loading"><Loader2 className="spin" aria-hidden="true" />{t('common.loading')}</div> : (

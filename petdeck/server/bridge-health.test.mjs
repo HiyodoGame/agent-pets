@@ -131,3 +131,56 @@ test('diagnostics export: guarded POST returns a readable zip that leaks no toke
   assert.equal(whole.includes('"apiKey"'), false, 'api key field never written');
   t.after(() => fs.rmSync(path.dirname(j.path), { recursive: true, force: true }));
 });
+
+test('storage: guarded usage snapshot reports the runtime directories', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'petdeck-bridge-storage-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(dir, 'runs', 'a'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'runs', 'a', 'events.jsonl'), 'x'.repeat(128));
+  const { base } = await withApp(t, { security: { token: 'sekret' }, runtime: fakeRuntime(dir) });
+  assert.equal((await fetch(base + '/api/storage')).status, 401);
+  const res = await fetch(base + '/api/storage', { headers: AUTH });
+  assert.equal(res.status, 200);
+  const j = await res.json();
+  assert.equal(j.ok, true);
+  assert.equal(j.storage.dataDir, dir);
+  assert.ok(j.storage.runsBytes >= 128);
+  assert.equal(j.storage.runCount, 1);
+  assert.equal(j.storage.runKeepDays, 30);
+  assert.equal(JSON.stringify(j).includes('sekret'), false);
+});
+
+test('storage cleanup: guarded POST prunes transcripts and reports the outcome', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'petdeck-bridge-clean-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const runs = path.join(dir, 'runs');
+  fs.mkdirSync(path.join(runs, 'old-run'), { recursive: true });
+  const oldFile = path.join(runs, 'old-run', 'events.jsonl');
+  fs.writeFileSync(oldFile, '{"type":"x"}\n');
+  const stale = new Date(Date.now() - 40 * 86_400_000);
+  fs.utimesSync(oldFile, stale, stale);
+  const fresh = path.join(runs, 'fresh-run');
+  fs.mkdirSync(fresh, { recursive: true });
+  fs.writeFileSync(path.join(fresh, 'events.jsonl'), '{"type":"y"}\n');
+  const { base } = await withApp(t, { security: { token: 'sekret' }, runtime: fakeRuntime(dir) });
+  const post = (body, headers = {}) => fetch(base + '/api/storage/cleanup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+  assert.equal((await post({ days: 30 })).status, 401);
+  const res = await post({ days: 30 }, AUTH);
+  assert.equal(res.status, 200);
+  const j = await res.json();
+  assert.equal(j.ok, true);
+  assert.equal(j.days, 30);
+  assert.equal(j.removed, 1);
+  assert.equal(fs.existsSync(path.join(runs, 'old-run')), false);
+  assert.equal(fs.existsSync(fresh), true);
+});
+
+test('storage: missing runtime degrades to 503 instead of throwing', async (t) => {
+  const { base } = await withApp(t, { runtime: null });
+  const res = await fetch(base + '/api/storage');
+  assert.equal(res.status, 503);
+});

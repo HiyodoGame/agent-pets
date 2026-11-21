@@ -24,6 +24,9 @@ import { createBus, toPetEventType } from './bus.mjs';
 import { pollOnce } from './freshness.mjs';
 import { canonicalizeRows, createRootResolver } from './project-root.mjs';
 import { createRuntimeService, RuntimeError } from './runtime/service.mjs';
+import { resolveDataDir } from './runtime/db.mjs';
+import { createLogger } from './runtime/logger.mjs';
+import { pruneRunTranscripts, storageUsage } from './runtime/retention.mjs';
 import { AGENT_CLI, collectDiagnostics, createAgentProbe } from './diagnostics.mjs';
 
 const REAL_ADAPTERS = [codex, claude, opencode, kimi, kimiCode, zcode, dsh, cursor, gemini, remote];
@@ -272,6 +275,25 @@ export function createApp({
           agents,
         });
         return json(res, req, 200, { ok: true, ...pkg });
+      } catch (e) { return runtimeFailure(res, req, e, logger); }
+    }
+    if (url.pathname === '/api/storage') {
+      if (readGuard()) return;
+      const dir = runtime?.statusSnapshot?.().dataDir;
+      if (!dir) return runtimeUnavailable(res, req);
+      try { return json(res, req, 200, { ok: true, storage: storageUsage({ dir }) }); }
+      catch (e) { return runtimeFailure(res, req, e, logger); }
+    }
+    if (url.pathname === '/api/storage/cleanup' && req.method === 'POST') {
+      const payload = await readJsonWrite(req, res);
+      if (!payload) return;
+      const dir = runtime?.statusSnapshot?.().dataDir;
+      if (!dir) return runtimeUnavailable(res, req);
+      try {
+        const days = Math.min(365, Math.max(1, Number(payload.days) || 30));
+        const result = pruneRunTranscripts({ dir, keepDays: days });
+        logger.info?.('storage.cleaned', { days, removed: result.removed, bytes: result.bytes });
+        return json(res, req, 200, { ok: true, days, ...result });
       } catch (e) { return runtimeFailure(res, req, e, logger); }
     }
     if (url.pathname === '/api/agents') { if (readGuard()) return; return json(res, req, 200, adapters.filter((a) => a.id !== 'remote').map((a) => ({ id: a.id, name: a.name, form: 'cli', capability: TIER[a.id], status: 'idle', projectIds: [] }))); }
@@ -680,8 +702,8 @@ export function createApp({
 }
 
 /** Start periodic polling with a fault-tolerant wrapper (carry: poll().catch). */
-export function startPolling(server, intervalMs = 5000) {
-  const tick = () => Promise.resolve(server.poll()).catch((e) => console.error('[petdeck-bridge] poll failed (kept last-known-good):', e?.message ?? e));
+export function startPolling(server, intervalMs = 5000, logger = console) {
+  const tick = () => Promise.resolve(server.poll()).catch((e) => logger.error?.('[petdeck-bridge] poll failed (kept last-known-good)', { reason: e?.name ?? 'unknown' }));
   tick();
   const timer = setInterval(tick, intervalMs);
   timer.unref?.();
@@ -706,23 +728,31 @@ export function securityFromEnv(env = process.env) {
 export function main({ adapters = REAL_ADAPTERS, startPoll = true, runtime } = {}) {
   const PORT = Number(process.env.PETDECK_BRIDGE_PORT || 5199);
   const security = securityFromEnv();
+  // File logs live beside the runtime database, so a diagnostic package can collect
+  // them and the desktop app's sidecar log stays the "bridge won't start" channel.
+  const dataDir = resolveDataDir(process.env);
+  const logger = createLogger({ dir: path.join(dataDir, 'logs'), scope: 'bridge' });
+  logger.info('bridge.start', { version: APP_VERSION, node: process.version, port: PORT, dataDir });
   if (!security.token) {
+    logger.error('bridge.config_error', { reason: 'PETDECK_BRIDGE_TOKEN missing' });
     console.error('[petdeck-bridge] configuration error: PETDECK_BRIDGE_TOKEN is required (refusing to start without inject auth). Set it and retry.');
     return null;
   }
-  const rt = runtime === undefined ? createRuntimeService({ logger: console }) : runtime;
-  const server = createApp({ adapters, security, runtime: rt });
+  const rt = runtime === undefined ? createRuntimeService({ logger }) : runtime;
+  const server = createApp({ adapters, security, runtime: rt, logger });
   const shutdown = async (signal) => {
+    logger.info('bridge.shutdown', { signal });
     console.log('[petdeck-bridge] shutting down (' + signal + ')');
     server.close();
-    try { await rt?.shutdown(); } catch (e) { console.error('[petdeck-bridge] runtime shutdown failed:', e?.message ?? e); }
+    try { await rt?.shutdown(); } catch (e) { logger.error('bridge.shutdown_failed', { reason: e?.name ?? 'unknown' }); }
   };
   process.once('SIGINT', () => { shutdown('SIGINT'); });
   process.once('SIGTERM', () => { shutdown('SIGTERM'); });
   server.listen(PORT, '127.0.0.1', () => {
+    logger.info('bridge.listening', { port: PORT, home: os.homedir() });
     console.log(`[petdeck-bridge] listening on http://127.0.0.1:${PORT} (home=${os.homedir()}) auth=token`);
     if (startPoll) {
-      startPolling(server);
+      startPolling(server, 5000, logger.child('poll'));
       // Live "running" status for opencode v2 comes from its SSE execution events.
       // Only the long-lived bridge starts the watcher (tests/verify-local stay short-lived).
       if (adapters.some((a) => a.id === 'opencode')) opencode.startEventWatcher();

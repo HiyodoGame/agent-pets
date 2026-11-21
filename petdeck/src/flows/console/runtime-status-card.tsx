@@ -61,7 +61,6 @@ export function RuntimeStatusCard() {
 
   useEffect(() => {
     let disposed = false
-    setLoading(true)
     load().finally(() => { if (!disposed) setLoading(false) })
     return () => { disposed = true }
   }, [load])

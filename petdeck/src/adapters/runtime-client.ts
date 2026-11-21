@@ -657,3 +657,39 @@ export async function exportDiagnostics(): Promise<DiagnosticsExport> {
   )
   return { path: body.path, bytes: body.bytes, files: body.files }
 }
+// --- M5 W3: storage usage and retention -------------------------------------
+
+export interface StorageUsage {
+  dataDir: string
+  logsBytes: number
+  runsBytes: number
+  artifactsBytes: number
+  dbBytes: number
+  totalBytes: number
+  runCount: number
+  oldestRunMs: number | null
+  runKeepDays: number
+}
+
+export interface StorageCleanupResult {
+  days: number
+  removed: number
+  bytes: number
+  kept: number
+}
+
+/** Disk usage of the three runtime folders plus the SQLite database. */
+export async function getStorageUsage(): Promise<StorageUsage> {
+  const body = await request<{ ok: true; storage: StorageUsage }>('/api/storage', {}, 15_000)
+  return body.storage
+}
+
+/** Delete run transcripts whose last write is older than the given days (default 30). */
+export async function cleanupRunTranscripts(days = 30): Promise<StorageCleanupResult> {
+  const body = await request<{ ok: true; days: number; removed: number; bytes: number; kept: number }>(
+    '/api/storage/cleanup',
+    jsonInit('POST', { days }),
+    30_000,
+  )
+  return { days: body.days, removed: body.removed, bytes: body.bytes, kept: body.kept }
+}

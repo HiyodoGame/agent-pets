@@ -52,10 +52,16 @@ export function createSupervisor({ onEvent = () => {}, onExit = () => {}, platfo
       child = spawnImpl(spawnCmd, spawnArgs, { cwd, env: mergedEnv, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       const code = typeof e?.code === 'string' ? e.code : 'spawn-error';
+      logger.warn?.('proc.spawn_failed', { runId, taskId, errCode: code });
       onEvent('run.failed', { error: 'spawn-error', code }, { runId, taskId });
       onExit({ runId, taskId, code: -1, signal: null, stopped: false, spawnError: code });
       return null;
     }
+
+    const startedAt = Date.now();
+    // The command name only: args carry the prompt and must never reach a log.
+    const exeName = String(target.file ?? command).split(/[\\/]/).pop();
+    logger.debug?.('proc.spawn', { runId, taskId, pid: child.pid ?? null, exe: exeName, viaCmd: Boolean(target.viaCmd) });
 
     const handle = {
       runId, taskId, pid: child.pid ?? null, child, stopped: false, paused: false,
@@ -176,6 +182,15 @@ export function createSupervisor({ onEvent = () => {}, onExit = () => {}, platfo
       }
       pending = '';
       handles.delete(runId);
+      logger.info?.('proc.exit', {
+        runId,
+        taskId,
+        exitCode: typeof code === 'number' ? code : null,
+        signal: signal ?? null,
+        stopped: handle.stopped,
+        durationMs: Date.now() - startedAt,
+        ...(spawnError ? { errCode: spawnError } : {}),
+      });
       emit('run.exited', { code, signal, stopped: handle.stopped });
       try {
         onExit({ runId, taskId, code, signal, stopped: handle.stopped, spawnError });
