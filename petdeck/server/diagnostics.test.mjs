@@ -81,6 +81,28 @@ test('redactObject masks credential-looking keys at any depth', () => {
   assert.equal(JSON.stringify(out).includes('sk-abcdef1234'), false);
 });
 
+test('redaction masks credentials but preserves status metadata', () => {
+  const out = redactObject({
+    apiKey: 'sk-abcdef1234',
+    apiKeySet: true,
+    apiKeySource: 'settings',
+    secrets: { mode: 'dpapi', available: true, provider: 'windows-dpapi' },
+    nested: { accessToken: 'bridge-token-9999', refresh_token: 'refresh-1234' },
+  });
+  assert.equal(out.apiKey, '***1234');
+  assert.equal(out.apiKeySet, true, 'boolean status must stay a boolean');
+  assert.equal(out.apiKeySource, 'settings', 'source is metadata, not the key');
+  assert.deepEqual(out.secrets, { mode: 'dpapi', available: true, provider: 'windows-dpapi' });
+  assert.equal(out.nested.accessToken, '***9999');
+  assert.equal(out.nested.refresh_token, '***1234');
+});
+
+test('redaction replaces a credential object instead of stringifying it', () => {
+  const out = redactObject({ secret: { nested: 'value' }, token: 'abcd' });
+  assert.equal(out.secret, '[redacted]');
+  assert.equal(out.token, '***');
+});
+
 test('probe cache: deep probes once per TTL, non-deep never spawns', async () => {
   let calls = 0;
   const probe = createAgentProbe({
@@ -110,7 +132,7 @@ test('collectDiagnostics writes whitelisted settings and recent logs, no secrets
   const old = new Date(Date.now() - 30 * 24 * 3600 * 1000);
   fs.utimesSync(path.join(logs, 'old.log'), old, old);
   const runtime = {
-    statusSnapshot: () => ({ dataDir: dir, dbVersion: 4, counts: { running: 0 }, startedAt: '2026-11-21T00:00:00.000Z' }),
+    statusSnapshot: () => ({ dataDir: dir, dbVersion: 4, counts: { running: 0 }, startedAt: '2026-11-21T00:00:00.000Z', secrets: { mode: 'dpapi', available: true } }),
     getSettings: () => ({ maxConcurrent: 2, decisionTimeoutMinutes: 10, decisionSound: true, promptText: 'SECRET PROMPT' }),
     getManagerSettings: () => ({ provider: 'openai', baseUrl: 'https://x', model: 'm', apiKeySet: true, apiKeySource: 'settings', apiKey: 'sk-live-should-never-appear' }),
   };
@@ -128,6 +150,9 @@ test('collectDiagnostics writes whitelisted settings and recent logs, no secrets
   const byName = Object.fromEntries(entries.map((e) => [e.name, e.data.toString('utf8')]));
   assert.equal('promptText' in JSON.parse(byName['settings.json']).runtime, false, 'unlisted setting dropped');
   assert.equal(JSON.parse(byName['settings.json']).manager.apiKey, undefined, 'manager key dropped');
+  assert.equal(JSON.parse(byName['settings.json']).manager.apiKeySet, true, 'apiKeySet stays a boolean');
+  assert.equal(JSON.parse(byName['settings.json']).manager.apiKeySource, 'settings');
+  assert.deepEqual(JSON.parse(byName['summary.json']).runtime.secrets, { mode: 'dpapi', available: true });
   const whole = Buffer.concat(entries.map((e) => e.data)).toString('utf8');
   assert.equal(whole.includes('sk-live-should-never-appear'), false);
   assert.equal(whole.includes('SECRET PROMPT'), false);

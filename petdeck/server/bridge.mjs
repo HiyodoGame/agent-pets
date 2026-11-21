@@ -38,10 +38,13 @@ import {
 const REAL_ADAPTERS = [codex, claude, opencode, kimi, kimiCode, zcode, dsh, cursor, gemini, remote];
 // Reported by /api/health for the desktop status card. Read once: the file ships with
 // the app, so a reload per request would be pure waste.
-const APP_VERSION = (() => {
+export function resolveAppVersion(env = process.env) {
+  const injected = String(env.PETDECK_APP_VERSION ?? '').trim();
+  if (injected) return injected;
   try { return JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version ?? null; }
   catch { return null; }
-})();
+}
+const APP_VERSION = resolveAppVersion();
 const DEFAULT_ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '::1'];
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://tauri.localhost', 'http://localhost:5183'];
 

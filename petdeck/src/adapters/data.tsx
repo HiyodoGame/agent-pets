@@ -16,7 +16,7 @@ import { observedToProjects } from './session-identity'
 import { petEventFromBridge, shouldSurfacePetEvent } from './pet-events'
 import { track, EVENT } from '../telemetry'
 import type { ObservedSession, PetData, RawAgentEvent } from './types'
-import { initializeBridgeConfig } from '../desktop/bridge-config'
+import { initializeBridgeConfig, onBridgeConfigChanged } from '../desktop/bridge-config'
 
 function emptyLive(): PetData {
   return { mode: 'live', agents: [], projects: [], sessions: [], events: [], artifacts: [] }
@@ -125,9 +125,14 @@ export function DataSourceProvider({ demo = false, children }: { demo?: boolean;
       }
     })
     tickRef.current = () => { void tick() }
+    // 重启本地服务后旧 EventSource 指向已关闭的端口与旧 token；必须丢弃并按新配置重建。
+    const offBridge = onBridgeConfigChanged(() => {
+      if (un) { un(); un = null }
+      tickRef.current()
+    })
     void tick()
     const t = setInterval(() => { void tick() }, 5000)
-    return () => { alive = false; clearInterval(t); if (un) un() }
+    return () => { alive = false; clearInterval(t); offBridge(); if (un) un() }
   }, [demo])
 
   // 连接状态迁移埋点（行为-only，无内容字段）

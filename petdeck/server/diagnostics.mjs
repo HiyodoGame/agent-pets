@@ -16,7 +16,14 @@ import { runCli } from './adapters/exec.mjs';
 const PROBE_TTL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 2_000;
 const VERSION_RE = /(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.]+)?)/;
-const SECRET_KEY_RE = /(token|secret|password|passwd|api[_-]?key|apikey|authorization|credential|private[_-]?key)/i;
+const SECRET_KEY_SUFFIXES = ['token', 'password', 'passwd', 'apikey', 'privatekey', 'secret'];
+
+/** True for credential field names, but not status metadata such as apiKeySet/secrets. */
+export function isSecretKey(key) {
+  const normalized = String(key).replace(/[_-]/g, '').toLowerCase();
+  if (normalized === 'authorization' || normalized === 'credential') return true;
+  return SECRET_KEY_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+}
 
 /** Commands for the observation adapters; ids without a CLI (cursor/remote) stay null. */
 export const AGENT_CLI = {
@@ -44,7 +51,11 @@ export function redactObject(value, depth = 0) {
   if (Array.isArray(value)) return value.map((v) => redactObject(v, depth + 1));
   const out = {};
   for (const [key, item] of Object.entries(value)) {
-    out[key] = SECRET_KEY_RE.test(key) ? maskSecret(item) : redactObject(item, depth + 1);
+    if (isSecretKey(key)) {
+      out[key] = item && typeof item === 'object' ? '[redacted]' : maskSecret(item);
+    } else {
+      out[key] = redactObject(item, depth + 1);
+    }
   }
   return out;
 }

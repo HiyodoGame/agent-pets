@@ -99,7 +99,9 @@ fn bridge_config(app: &AppHandle) -> BridgeConfig {
         .lock()
         .unwrap_or_else(|error| error.into_inner());
     if let Some(state) = app.try_state::<BridgeState>() {
-        if state.needs_restart() {
+        // A readable start error (missing/broken bundled Node) is not fixed by
+        // retrying on every get_bridge_config call — only an explicit restart is.
+        if state.needs_restart() && !state.failed() {
             state.restart(app);
         }
         return state.config();
@@ -378,7 +380,13 @@ fn open_node_licenses(app: AppHandle) -> Result<String, String> {
     if !dir.is_dir() {
         return Err("未找到 Node.js 许可文件目录，请重新安装 PetDeck。".to_string());
     }
-    let display = dir.to_string_lossy().to_string();
+    // Windows resource_dir may be a verbatim path (\\?\F:\...); show the
+    // normal path in the settings card while explorer still accepts the original.
+    let raw = dir.to_string_lossy();
+    let display = raw
+        .strip_prefix("\\\\?\\")
+        .unwrap_or(raw.as_ref())
+        .to_string();
     #[cfg(windows)]
     {
         std::process::Command::new("explorer.exe")

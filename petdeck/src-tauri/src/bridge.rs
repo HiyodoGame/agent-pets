@@ -433,7 +433,12 @@ pub(crate) fn sidecar_note(level: &str, msg: &str, fields: serde_json::Value) {
 
 pub fn start_bridge(app: &AppHandle) -> BridgeState {
     let mut config = BridgeConfig::new();
-    sidecar_note("info", "bridge.start", json!({ "port": config.port() }));
+    let app_version = app.package_info().version.to_string();
+    sidecar_note(
+        "info",
+        "bridge.start",
+        json!({ "port": config.port(), "version": app_version }),
+    );
     let node = match resolve_node_runtime(app) {
         Ok(node) => {
             sidecar_note(
@@ -469,6 +474,7 @@ pub fn start_bridge(app: &AppHandle) -> BridgeState {
                 let mut command = Command::new(&node.command);
                 command
                     .arg(&script)
+                    .env("PETDECK_APP_VERSION", &app_version)
                     .env("PETDECK_BRIDGE_TOKEN", &config.token)
                     .env("PETDECK_BRIDGE_PORT", config.port())
                     .env(

@@ -77,6 +77,22 @@ export function RuntimeStatusCard() {
     return () => { disposed = true }
   }, [load])
 
+  async function loadWithRetry(attempts = 10) {
+    let last: unknown = null
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        setStatus(await getRuntimeStatus())
+        setError(null)
+        return
+      } catch (cause) {
+        last = cause
+        if (attempt < attempts - 1) await new Promise((resolve) => window.setTimeout(resolve, 400))
+      }
+    }
+    setStatus(null)
+    setError(last instanceof Error ? last.message : String(last))
+  }
+
   async function refresh() {
     if (refreshing) return
     setRefreshing(true)
@@ -120,7 +136,7 @@ export function RuntimeStatusCard() {
     setError(null)
     try {
       await restartBridge()
-      await load()
+      await loadWithRetry()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {

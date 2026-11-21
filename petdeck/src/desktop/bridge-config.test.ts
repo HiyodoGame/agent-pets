@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { BRIDGE_URL, bridgeConfigError, configureBridgeClient, inject, subscribeEvents } from '../adapters/bridge-client.ts'
 import type { InjectPayload } from '../adapters/types.ts'
-import { initializeBridgeConfig } from './bridge-config.ts'
+import { BRIDGE_CONFIG_CHANGED, initializeBridgeConfig, onBridgeConfigChanged } from './bridge-config.ts'
 
 const payload: InjectPayload = { from: 'petdeck', to: 'codex', context: 'ctx', instruction: 'run' }
 const originalFetch = globalThis.fetch
@@ -62,6 +62,40 @@ test('desktop bridge: runtime URL is used for SSE', (t) => {
   const close = subscribeEvents(() => {})
   assert.equal(seenUrl, 'http://127.0.0.1:6322/api/events?token=desktop-secret')
   close()
+})
+
+test('desktop bridge: initializing a config notifies SSE owners', async (t) => {
+  const target = new EventTarget()
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  Object.defineProperty(globalThis, 'window', { value: target, configurable: true, writable: true })
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, 'window', previous)
+    else delete (globalThis as { window?: unknown }).window
+  })
+  let calls = 0
+  const off = onBridgeConfigChanged(() => { calls += 1 })
+  await initializeBridgeConfig()
+  assert.equal(calls, 1)
+  off()
+  await initializeBridgeConfig()
+  assert.equal(calls, 1)
+})
+
+test('desktop bridge: config changes notify and detach SSE owners', (t) => {
+  const target = new EventTarget()
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  Object.defineProperty(globalThis, 'window', { value: target, configurable: true, writable: true })
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, 'window', previous)
+    else delete (globalThis as { window?: unknown }).window
+  })
+  let calls = 0
+  const off = onBridgeConfigChanged(() => { calls += 1 })
+  target.dispatchEvent(new Event(BRIDGE_CONFIG_CHANGED))
+  assert.equal(calls, 1)
+  off()
+  target.dispatchEvent(new Event(BRIDGE_CONFIG_CHANGED))
+  assert.equal(calls, 1)
 })
 
 test('desktop bridge: failures never include the runtime token', async (t) => {

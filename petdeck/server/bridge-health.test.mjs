@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
 import { inflateRawSync } from 'node:zlib';
-import { createApp } from './bridge.mjs';
+import { createApp, resolveAppVersion } from './bridge.mjs';
 
 function fakeAdapters() {
   return [
@@ -50,6 +50,11 @@ async function withApp(t, { security = {}, runtime = fakeRuntime(os.tmpdir()) } 
 }
 
 const AUTH = { 'X-Petdeck-Token': 'sekret' };
+
+test('app version prefers the version injected by the desktop shell', () => {
+  assert.equal(resolveAppVersion({ PETDECK_APP_VERSION: ' 0.2.0 ' }), '0.2.0');
+  assert.match(resolveAppVersion({}), /^\d+\.\d+\.\d+$/);
+});
 
 test('health: version/node/adapters/status snapshot without deep probes', async (t) => {
   const { base, probe } = await withApp(t, { security: { token: 'sekret' } });
