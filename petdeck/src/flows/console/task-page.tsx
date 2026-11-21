@@ -22,6 +22,7 @@ import { eventText, formatClock, formatDuration, formatMs, formatRelative, short
 import { DecisionCard } from './decision-card.tsx'
 import { AcceptancePanel, ArtifactPanel, MergePanel } from './review-panels.tsx'
 import { EmptyState, TaskStatusBadge } from './task-bits.tsx'
+import { InterruptBanner } from './interrupt-banner.tsx'
 
 type TaskAction = 'start' | 'stop' | 'resume' | 'pause' | 'continue'
 
@@ -231,6 +232,7 @@ export function TaskPage() {
 
       {(error || actionError || streamError) && <p className="console-banner error" role="alert">{actionError ?? error ?? streamError}</p>}
       {task.status === 'queued' ? <p className="console-banner">{t('console.task.queuedNotice')}</p> : null}
+      <InterruptBanner task={task} busy={busy === 'resume'} canResume={canResume} onResume={() => void runAction('resume')} />
 
       {task.status === 'review' ? (
         <AcceptancePanel

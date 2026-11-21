@@ -59,7 +59,7 @@ test('migrates a v1 database without losing tasks and adds v2 defaults', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('restart recovery: queued tasks return to ready, paused runs/tasks are stopped', () => {
+test('restart recovery: queued tasks stay queued for the startup drain, paused runs/tasks are stopped', () => {
   const dir = tempDir('db-recover');
   const store = openRuntimeDb({ dataDir: dir });
   const project = store.addProject({ name: 'P', projectPath: 'C:/recover', kind: 'git' });
@@ -69,13 +69,52 @@ test('restart recovery: queued tasks return to ready, paused runs/tasks are stop
   const run = store.createRun({ taskId: paused.id, status: 'paused' });
   store.updateTask(paused.id, { status: 'paused' });
 
-  store.recoverInterrupted();
+  const recovery = store.recoverInterrupted();
 
-  assert.equal(store.getTask(queued.id).status, 'ready');
+  assert.equal(store.getTask(queued.id).status, 'queued');
   assert.equal(store.getTask(paused.id).status, 'stopped');
   const recovered = store.getRun(run.id);
   assert.equal(recovered.status, 'failed');
   assert.equal(recovered.error, 'bridge-restarted');
+  assert.equal(typeof recovery.at, 'number');
+  assert.equal(recovery.runsFailed, 1);
+  assert.equal(recovery.tasksStopped, 1);
+  assert.equal(recovery.queued, 1);
+  assert.deepEqual(recovery.interruptedRuns, [{ runId: run.id, taskId: paused.id, status: 'paused' }]);
+  store.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a healthy database reports integrity ok and keeps its rows', () => {
+  const dir = tempDir('db-integrity-ok');
+  const store = openRuntimeDb({ dataDir: dir });
+  assert.deepEqual(store.integrity, { ok: true });
+  const project = store.addProject({ name: 'P', projectPath: 'C:/ok', kind: 'git' });
+  const task = store.createTask({ projectId: project.id, title: 'Keep', prompt: 'x', agent: 'claude-code' });
+  store.close();
+
+  const reopened = openRuntimeDb({ dataDir: dir });
+  assert.deepEqual(reopened.integrity, { ok: true });
+  assert.equal(reopened.getTask(task.id).title, 'Keep');
+  reopened.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a corrupt database is moved aside and a fresh one starts', () => {
+  const dir = tempDir('db-integrity-bad');
+  const file = path.join(dir, 'petdeck.sqlite');
+  fs.writeFileSync(file, 'this is definitely not a sqlite database\n'.repeat(200));
+
+  const store = openRuntimeDb({ dataDir: dir });
+  assert.equal(store.integrity.ok, false);
+  assert.equal(typeof store.integrity.backupPath, 'string');
+  assert.ok(fs.existsSync(store.integrity.backupPath));
+  assert.match(fs.readFileSync(store.integrity.backupPath, 'utf8'), /definitely not a sqlite/);
+  assert.ok(store.integrity.reason.length > 0);
+  const project = store.addProject({ name: 'P', projectPath: 'C:/fresh', kind: 'git' });
+  const task = store.createTask({ projectId: project.id, title: 'Fresh', prompt: 'x', agent: 'claude-code' });
+  assert.equal(store.getTask(task.id).title, 'Fresh');
+  assert.equal(store.getSchemaVersion(), SCHEMA_VERSION);
   store.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });

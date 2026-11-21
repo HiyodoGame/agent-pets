@@ -26,6 +26,7 @@ import { canonicalizeRows, createRootResolver } from './project-root.mjs';
 import { createRuntimeService, RuntimeError } from './runtime/service.mjs';
 import { resolveDataDir } from './runtime/db.mjs';
 import { createLogger } from './runtime/logger.mjs';
+import { installCrashHandlers } from './runtime/crash.mjs';
 import { pruneRunTranscripts, storageUsage } from './runtime/retention.mjs';
 import { AGENT_CLI, collectDiagnostics, createAgentProbe } from './diagnostics.mjs';
 
@@ -739,6 +740,12 @@ export function main({ adapters = REAL_ADAPTERS, startPoll = true, runtime } = {
     return null;
   }
   const rt = runtime === undefined ? createRuntimeService({ logger }) : runtime;
+  // A hard exit must leave evidence for the next boot (and for the diagnostics ZIP).
+  installCrashHandlers({
+    dataDir,
+    logger,
+    getExtra: () => ({ activeTasks: rt?.activeTaskIds?.() ?? [], counts: rt?.statusSnapshot?.().counts ?? null }),
+  });
   const server = createApp({ adapters, security, runtime: rt, logger });
   const shutdown = async (signal) => {
     logger.info('bridge.shutdown', { signal });

@@ -10,7 +10,8 @@ import {
 } from '../../adapters/runtime-client.ts'
 import { restartBridge } from '../../desktop/bridge-config.ts'
 import { isTauri } from '../../desktop/window.ts'
-import { t } from '../../i18n/index.ts'
+import { t, useLocale } from '../../i18n/index.ts'
+import { formatClock } from './format.ts'
 
 function formatUptime(seconds: number): string {
   const total = Math.max(0, Math.round(seconds))
@@ -39,6 +40,7 @@ function probeBadge(agent: RuntimeAdapterProbe) {
 }
 
 export function RuntimeStatusCard() {
+  const { locale } = useLocale()
   const [status, setStatus] = useState<RuntimeStatusSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -170,6 +172,28 @@ export function RuntimeStatusCard() {
                 review: counts.review,
                 merge: counts.pending_merge,
               })}
+            </p>
+          ) : null}
+          {status.runtime?.crash ? (
+            <p className="console-banner warn" role="status">
+              <AlertTriangle aria-hidden="true" />
+              {t('console.settings.crashWarning', {
+                reason: status.runtime.crash.reason,
+                time: status.runtime.crash.at ? formatClock(Date.parse(status.runtime.crash.at), locale) : '—',
+              })}
+            </p>
+          ) : null}
+          {status.runtime?.recovery && status.runtime.recovery.interrupted > 0 ? (
+            <p className="settings-health-line">
+              {t('console.settings.recoveryLine', { n: status.runtime.recovery.interrupted })}
+            </p>
+          ) : null}
+          {status.runtime?.dbIntegrity && !status.runtime.dbIntegrity.ok ? (
+            <p className="console-banner warn" role="status">
+              <AlertTriangle aria-hidden="true" />
+              {status.runtime.dbIntegrity.backupPath
+                ? t('console.settings.dbRebuilt', { file: status.runtime.dbIntegrity.backupPath })
+                : t('console.settings.dbBroken', { reason: status.runtime.dbIntegrity.reason ?? 'unknown' })}
             </p>
           ) : null}
           <div className="probe-block">

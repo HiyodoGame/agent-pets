@@ -53,6 +53,8 @@ export interface Task {
   project_kind?: ProjectKind | null
   active?: boolean
   pending_decision?: Decision | null
+  /** Set only when this boot's recovery stopped the task mid-run (M5 W2). */
+  interrupted?: { runId: string; runStatus: string; at: number } | null
   summary?: string | null
   last_feedback?: string | null
   reviewed_at?: number | null
@@ -613,6 +615,27 @@ export interface RuntimeAdapterProbe {
   version: string | null
 }
 
+export interface RuntimeRecovery {
+  at: string
+  interrupted: number
+  runsFailed: number
+  tasksStopped: number
+  queued: number
+}
+
+export interface RuntimeCrash {
+  file: string
+  at: string | null
+  reason: string
+}
+
+export interface RuntimeIntegrity {
+  ok: boolean
+  backupPath?: string
+  reason?: string
+  at?: number
+}
+
 export interface RuntimeStatusSnapshot {
   ok: true
   version: string
@@ -630,6 +653,10 @@ export interface RuntimeStatusSnapshot {
     dbVersion: number
     maxConcurrent: number
     active: number
+    /** This boot's crash reconciliation (M5 W2). */
+    recovery?: RuntimeRecovery
+    crash?: RuntimeCrash | null
+    dbIntegrity?: RuntimeIntegrity
     counts: RuntimeCounts
   } | null
   adapters: RuntimeAdapterProbe[]

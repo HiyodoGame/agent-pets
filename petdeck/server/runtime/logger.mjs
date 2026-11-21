@@ -99,6 +99,10 @@ export function createLogger({
   let currentIndex = 0;
   let dirReady = false;
   let warning = null;
+  // Ring buffer for crash reports: writeCrashReport needs the tail of the log even
+  // when the file write itself is what failed.
+  const RECENT_MAX = 300;
+  const recent = [];
 
   function ensureDir() {
     if (dirReady) return true;
@@ -134,6 +138,8 @@ export function createLogger({
       ...sanitizeFields(fields, { maxString }),
     };
     const line = JSON.stringify(record);
+    recent.push(line);
+    if (recent.length > RECENT_MAX) recent.shift();
     if (ensureDir()) {
       try {
         const file = rollIfNeeded(localDate(ts), line.length + 1);
@@ -164,6 +170,7 @@ export function createLogger({
       error(msg, fields) { return writeFile('error', msg, fields, viewScope); },
       child(childScope) { return makeView(viewScope ? viewScope + ':' + childScope : childScope); },
       filePath() { return currentPath; },
+      recentLines(count = 50) { return recent.slice(-Math.max(1, Math.min(RECENT_MAX, count))); },
       lastWarning() { return warning; },
       close() { /* appendFileSync: nothing buffered */ },
     };

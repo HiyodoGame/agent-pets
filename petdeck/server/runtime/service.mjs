@@ -7,12 +7,13 @@ import path from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { openRuntimeDb, resolveDataDir, resolveWorktreesDir } from './db.mjs';
 import { pruneRunTranscripts } from './retention.mjs';
+import { consumeCrashReports } from './crash.mjs';
 import { createRuntimeEventBus } from './event-bus.mjs';
 import { createSupervisor } from './supervisor.mjs';
 import {
   createWorktree, currentBranch, statusPorcelain, statusPorcelainSync, commitAllSync, mergeTreeCheck,
   mergePreview as buildMergePreview, mergeBranch, deleteBranch,
-  disposeWorktree,
+  disposeWorktree, isWorktreeRegistered,
 } from './worktree.mjs';
 import { detectDecision } from './decision-detector.mjs';
 import {
@@ -117,15 +118,39 @@ export function createRuntimeService({
   const launching = new Set();
   const preparedRuns = new Map(); // runId -> { summary, artifacts } already collected
   let draining = false;
+  let closed = false;
   const startedAt = Date.now();
 
-  db.recoverInterrupted();
+  // M5 W2: a restart kills supervised children, so the first duty is to reconcile the
+  // database with reality and remember what was interrupted (the UI resumes those runs).
+  const recovery = db.recoverInterrupted();
+  const interruptedByTask = new Map(recovery.interruptedRuns.map((run) => [run.taskId, run]));
+  if (recovery.runsFailed || recovery.queued) {
+    lifecycle('info', 'runtime.recovered', {
+      runsFailed: recovery.runsFailed,
+      tasksStopped: recovery.tasksStopped,
+      queued: recovery.queued,
+    });
+  }
+  // A crash report left by the previous process explains a hard exit; consuming it here
+  // surfaces it once instead of replaying it on every boot.
+  let crashReport = null;
+  try { crashReport = consumeCrashReports({ dataDir: dir }); }
+  catch (e) { log.warn?.('crash.consume_failed', { reason: e?.name ?? 'unknown' }); }
+  if (crashReport) lifecycle('error', 'crash.previous_run', { file: crashReport.file, reason: crashReport.reason });
   // Transcripts are the bulky part of a run; keep 30 days after the run ended. The
   // SQLite event index is untouched, so history stays queryable.
   try {
     const pruned = pruneRunTranscripts({ dir });
     if (pruned.removed) log.info?.('transcripts.pruned', { removed: pruned.removed, bytes: pruned.bytes });
   } catch (e) { log.warn?.('transcripts.prune_failed', { reason: e?.name ?? 'unknown' }); }
+  // Queued work continues after a restart; the sweep waits a beat so stale worktrees do
+  // not race the first launches. Both are fire-and-forget: startup must never block.
+  if (recovery.queued) scheduleDrain();
+  {
+    const t = setTimeout(() => { if (!closed) void sweepLeftoverWorktrees(); }, 1500);
+    t.unref?.();
+  }
 
   /** Structured lifecycle line: ids and codes only, never prompt text. */
   function lifecycle(level, msg, fields) { try { log[level]?.(msg, fields); } catch { /* logging must not break a run */ } }
@@ -178,6 +203,15 @@ export function createRuntimeService({
       dbVersion: typeof db.getSchemaVersion === 'function' ? db.getSchemaVersion() : null,
       maxConcurrent: settings.maxConcurrent,
       active: active.size,
+      recovery: {
+        at: new Date(recovery.at).toISOString(),
+        interrupted: recovery.interruptedRuns.length,
+        runsFailed: recovery.runsFailed,
+        tasksStopped: recovery.tasksStopped,
+        queued: recovery.queued,
+      },
+      crash: crashReport ? { file: crashReport.file, at: crashReport.at, reason: crashReport.reason } : null,
+      dbIntegrity: db.integrity ?? { ok: true },
       counts: {
         total: tasks.length,
         running: count(['running']),
@@ -220,6 +254,36 @@ export function createRuntimeService({
 
   function hasCapacity() { return active.size + launching.size < maxConcurrent(); }
 
+  /**
+   * M5 W2: a crash can leave worktrees behind. A directory that is gone just loses its
+   * pointer; a directory git no longer registers is a half-deleted shell we dispose of.
+   * Registered worktrees still belong to review/merge state and are never touched.
+   */
+  async function sweepLeftoverWorktrees() {
+    let swept = 0;
+    for (const task of db.listTasks()) {
+      if (closed) return swept;
+      if (!task.worktree_path || active.has(task.id) || launching.has(task.id)) continue;
+      try {
+        if (!fs.existsSync(task.worktree_path)) {
+          db.updateTask(task.id, { worktree_path: null });
+          continue;
+        }
+        const project = db.getProject(task.project_id);
+        if (!project?.project_path || !fs.existsSync(project.project_path)) continue;
+        if (await isWorktreeRegistered(project.project_path, task.worktree_path)) continue;
+        await disposeWorktree({ repoPath: project.project_path, worktreePath: task.worktree_path });
+        db.updateTask(task.id, { worktree_path: null });
+        recordEvent('task.leftover_cleaned', { worktree: task.worktree_path }, { taskId: task.id });
+        swept += 1;
+      } catch (e) {
+        log.warn?.('worktree.sweep_failed', { taskId: task.id, reason: e?.name ?? 'unknown' });
+      }
+    }
+    if (swept) lifecycle('info', 'worktrees.swept', { count: swept });
+    return swept;
+  }
+
   // ---- task decoration ----------------------------------------------------
 
   function pendingDecisionFor(taskId) {
@@ -230,6 +294,9 @@ export function createRuntimeService({
     if (!task) return null;
     const p = project ?? db.getProject(task.project_id);
     const { merge_token: _mergeToken, ...rest } = task;
+    // Only a stopped task that THIS boot interrupted is resumable; once the user
+    // resumes it the status changes and the banner disappears on its own.
+    const hit = task.status === 'stopped' ? interruptedByTask.get(task.id) : null;
     return {
       ...rest,
       depends_on: parseJsonArray(task.depends_on),
@@ -237,6 +304,7 @@ export function createRuntimeService({
       project_name: p?.name ?? null,
       project_kind: p?.kind ?? null,
       pending_decision: pending ? publicDecision(pending) : null,
+      interrupted: hit ? { runId: hit.runId, runStatus: hit.status, at: recovery.at } : null,
     };
   }
 
@@ -1559,7 +1627,10 @@ export function createRuntimeService({
     return { decision: publicDecision(updated), task: getTaskView(task.id), ...result };
   }
 
+  function activeTaskIds() { return [...new Set([...active.keys(), ...launching])]; }
+
   async function shutdown() {
+    closed = true;
     await sv.stopAll();
     try { db.recoverInterrupted(); } catch { /* ignore */ }
     if (ownsDb) db.close();
@@ -1608,6 +1679,7 @@ export function createRuntimeService({
     listReports,
     getReport,
     statusSnapshot,
+    activeTaskIds,
     subscribe(fn) { return bus.subscribe(fn); },
     get activeCount() { return active.size; },
     shutdown,

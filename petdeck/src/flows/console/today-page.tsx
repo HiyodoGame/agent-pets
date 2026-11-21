@@ -17,6 +17,7 @@ import { formatRelative, groupTasks, eventText } from './format.ts'
 import { DecisionCard } from './decision-card.tsx'
 import { ManagerPanel } from './manager-panel.tsx'
 import { EmptyState, TaskRow, TaskStatusBadge } from './task-bits.tsx'
+import { InterruptBanner } from './interrupt-banner.tsx'
 import { NewTaskDialog } from './new-task-dialog.tsx'
 import { AddProjectDialog } from './add-project-dialog.tsx'
 
@@ -232,6 +233,7 @@ export function TodayPage() {
               </header>
 
               {actionError && <p className="console-banner error" role="alert">{actionError}</p>}
+              <InterruptBanner task={selected} busy={busy === selected.id} canResume={canResume} onResume={() => void runAction('resume', selected)} />
 
               <div className="today-preview-body">
                 <section className="preview-block">

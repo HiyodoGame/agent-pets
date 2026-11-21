@@ -103,3 +103,19 @@ test('never throws when the log directory cannot be created', () => {
   assert.doesNotThrow(() => log.info('still safe', { a: 1 }));
   assert.ok(log.lastWarning());
 });
+
+test('recentLines: keeps the tail of what was written and drops prompt-shaped fields', () => {
+  const dir = tmpDir();
+  const log = createLogger({ dir, scope: 'bridge', echo: false });
+  for (let i = 0; i < 80; i += 1) log.info('tick', { i });
+  log.warn('leaky', { prompt: 'SECRET PROMPT', taskId: 't1' });
+  const tail = log.recentLines(10);
+  assert.equal(tail.length, 10);
+  const last = JSON.parse(tail[9]);
+  assert.equal(last.msg, 'leaky');
+  assert.equal(last.prompt, undefined);
+  assert.equal(last.taskId, 't1');
+  assert.equal(tail.some((line) => line.includes('SECRET PROMPT')), false);
+  assert.equal(log.recentLines(1000).length, 81);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
