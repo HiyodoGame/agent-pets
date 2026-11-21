@@ -12,9 +12,9 @@
     }
   },
   "build": {
-    "beforeDevCommand": "npm run dev -- --port 5183 --strictPort",
+    "beforeDevCommand": "npm run fetch-node && npm run dev -- --port 5183 --strictPort",
     "devUrl": "http://localhost:5183",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run fetch-node && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -60,8 +60,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "externalBin": [
+      "binaries/node"
+    ],
     "resources": {
-      "../server/": "server/"
+      "../server/": "server/",
+      "resources/third-party/nodejs/": "third-party/nodejs/"
     },
     "windows": {
       "webviewInstallMode": {

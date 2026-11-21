@@ -52,7 +52,7 @@
 - [x] W4 更新流程：设置页入口、下载进度、失败分类与发布清单（2026-11-21 完成；「关于与更新」卡、`update-progress` 事件、三分类文案、`npm run release:check`）
 - [x] W5 性能与可访问性：事件窗口化（2000 条 + before 分页）、合批渲染、a11y 检查表（2026-11-21 完成；`useFocusTrap`、`aria-live` 状态播报、减弱动效、`scripts/seed-events.mjs`、《无障碍检查表》）
 - [x] W6 Cursor 转录接入：今日页「观察中的会话」，只读、不进任务板与验收（2026-11-21 完成；`/api/observe/sessions` 聚合、只读转录抽屉、Agents 观察卡；本机 15 会话/Cursor 5 条烟测通过，隐藏推理不进转录）
-- [ ] W7 安装包内置 Node 24 sidecar（消除干净机器装 Node 的前置依赖）
+- [x] W7 安装包内置 Node 24 sidecar（2026-11-21 完成；官方 v24.18.0 node.exe + 许可全文随包，release 优先内置且不回退 PATH；安装包 31.1 MB / 安装后 107.0 MB，均在底线内）
 - [ ] W8 用户手册重写与真机实测矩阵回填
 - [ ] W9 密钥落盘加固（DPAPI；建议 rc 前完成，可推迟到 M5.1）
 

@@ -5,7 +5,7 @@ Windows 优先的 Agent 桌面宠物：透明、无边框、置顶的小窗常�
 ## 桌面版前置条件
 
 - Windows 10/11 与 Microsoft Edge WebView2（安装器可在缺失时下载 bootstrapper）
-- **Node.js 24 或更新版本**（首个桌面 Beta 仍使用系统 Node 启动 bridge）
+- 安装包自带 Node.js 24 运行时，运行桌面版无需预装 Node；**源码开发**仍需要 Node.js 24+（npm 脚本与前端构建），开发态优先使用 `npm run fetch-node` 生成的内置运行时
 - 开发构建还需要 Rust 1.90+、Cargo 和 Visual Studio MSVC 工具链
 - 本地 Agent CLI 均为可选；缺失只影响对应卡片：
   - **Codex**：读取 `~/.codex/sessions` rollout jsonl；`codex exec` 注入为实验能力，失败降级剪贴板。
@@ -36,7 +36,7 @@ npm run tauri:dev
 - 托盘提供显示宠物、打开面板、免打扰、开机启动和退出；开机启动默认关闭。
 - 关闭宠物或主面板只会隐藏；退出应用才回收 bridge。
 
-缺少 Node、Node 版本过低或 bridge 组件缺失时，宠物会显示明确错误，不会自动切换到演示数据。
+内置 Node 运行时缺失、损坏或 bridge 组件缺失时，宠物会显示「安装可能不完整/已损坏」的明确错误；开发态才回退系统 Node，不会自动切换到演示数据。
 
 ## Windows 安装包
 
@@ -44,7 +44,7 @@ npm run tauri:dev
 npm run tauri:build
 ```
 
-NSIS 安装包输出到 `src-tauri/target/release/bundle/nsis/`。安装器包含前端、应用图标、WebView2 检查及 `server/` bridge resources。Node 24 暂不内嵌。
+NSIS 安装包输出到 `src-tauri/target/release/bundle/nsis/`。安装器包含前端、应用图标、WebView2 检查、`server/` bridge resources，以及官方 Node.js **v24.18.0** 运行时与许可全文（`resources/third-party/nodejs/`）；本地实测安装包 31,101,832 B（29.66 MB），安装后主占用约 107.0 MB。首次构建会由 `beforeBuildCommand` 自动执行 `npm run fetch-node`（按官方 SHASUMS256 校验并缓存）。
 
 本地打包含签名更新产物时，需要设置签名私钥（见 [自动更新与签名](../docs/自动更新与签名.md)）：
 

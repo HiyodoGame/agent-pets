@@ -5,7 +5,7 @@ use std::io::Write;
 use std::net::TcpListener;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -139,6 +139,147 @@ fn node_version_supported(version: &str) -> bool {
         .is_some_and(|major| major >= 24)
 }
 
+#[derive(Debug, Clone)]
+struct NodeRuntime {
+    command: PathBuf,
+    source: &'static str,
+    version: String,
+}
+
+fn node_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "node.exe"
+    } else {
+        "node"
+    }
+}
+
+/// Bundled runtime candidates, in priority order. The deps directory handles
+/// the lib test binary path (target/debug/deps), while the resource locations
+/// cover installs where the sidecar was copied next to the executable.
+fn bundled_node_candidates(exe_dir: Option<&Path>, resource_dir: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(dir) = exe_dir {
+        candidates.push(dir.join(node_binary_name()));
+        if dir
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy() == "deps")
+        {
+            if let Some(parent) = dir.parent() {
+                candidates.push(parent.join(node_binary_name()));
+            }
+        }
+    }
+    if let Some(dir) = resource_dir {
+        candidates.push(dir.join("nodejs").join(node_binary_name()));
+        candidates.push(dir.join(node_binary_name()));
+    }
+    let mut unique = Vec::new();
+    for candidate in candidates {
+        if !unique.contains(&candidate) {
+            unique.push(candidate);
+        }
+    }
+    unique
+}
+
+fn probe_node(path: &Path) -> Option<String> {
+    let mut command = Command::new(path);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = command.arg("--version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if version.is_empty() {
+        None
+    } else {
+        Some(version)
+    }
+}
+
+/// Pick the runtime that launches the bridge. Release builds only trust the
+/// bundled node.exe; debug builds fall back to PATH so tauri dev keeps working
+/// before fetch-node has run.
+fn select_node_runtime<F>(
+    debug: bool,
+    exe_dir: Option<&Path>,
+    resource_dir: Option<&Path>,
+    mut probe: F,
+) -> Result<NodeRuntime, String>
+where
+    F: FnMut(&Path) -> Option<String>,
+{
+    let mut broken = false;
+    let mut too_old: Option<String> = None;
+    for candidate in bundled_node_candidates(exe_dir, resource_dir) {
+        if !candidate.is_file() {
+            continue;
+        }
+        match probe(&candidate) {
+            Some(version) if node_version_supported(&version) => {
+                return Ok(NodeRuntime {
+                    command: candidate,
+                    source: "bundled",
+                    version,
+                });
+            }
+            Some(version) => too_old = Some(version),
+            None => broken = true,
+        }
+    }
+
+    if debug {
+        if let Some(version) = probe(Path::new("node")) {
+            if node_version_supported(&version) {
+                return Ok(NodeRuntime {
+                    command: PathBuf::from("node"),
+                    source: "system",
+                    version,
+                });
+            }
+            return Err(format!(
+                "开发模式需要 Node.js 24 或更新版本，当前系统 Node.js 为 {version}。"
+            ));
+        }
+        if let Some(version) = too_old {
+            return Err(format!(
+                "应用内置的 Node.js 版本过低（{version}），请运行 npm run fetch-node 更新内置运行时。"
+            ));
+        }
+        return Err(
+            "开发模式未检测到 Node.js。请安装 Node.js 24，或运行 npm run fetch-node 生成内置运行时。"
+                .to_string(),
+        );
+    }
+
+    if let Some(version) = too_old {
+        return Err(format!(
+            "应用内置的 Node.js 版本过低（{version}），安装可能不完整，请重新安装 PetDeck。"
+        ));
+    }
+    if broken {
+        return Err(
+            "应用内置的 Node.js 运行时无法启动，安装可能已损坏，请重新安装 PetDeck。".to_string(),
+        );
+    }
+    Err("应用内置的 Node.js 运行时缺失，安装可能不完整，请重新安装 PetDeck。".to_string())
+}
+
+fn resolve_node_runtime(app: &AppHandle) -> Result<NodeRuntime, String> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf));
+    let resource_dir = app.path().resource_dir().ok();
+    select_node_runtime(
+        cfg!(debug_assertions),
+        exe_dir.as_deref(),
+        resource_dir.as_deref(),
+        probe_node,
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Sidecar log: the packaged app has no console, so anything the bridge (or its
 // launch) reports must land in <APPDATA>/PetDeck/logs. Same shape as the Node
@@ -213,11 +354,15 @@ fn sidecar_name(date: &str, index: usize) -> String {
 }
 
 fn prune_sidecar_logs(dir: &std::path::Path, today: i64) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     let cutoff = date_string(today - SIDECAR_KEEP_DAYS);
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        let Some(rest) = name.strip_prefix("sidecar-") else { continue };
+        let Some(rest) = name.strip_prefix("sidecar-") else {
+            continue;
+        };
         if rest.len() < 10 {
             continue;
         }
@@ -252,9 +397,18 @@ fn open_sidecar_log() -> Option<(PathBuf, File)> {
 fn json_line(level: &str, msg: &str, fields: serde_json::Value) -> String {
     let mut object = serde_json::Map::new();
     object.insert("ts".to_string(), serde_json::Value::String(timestamp_iso()));
-    object.insert("level".to_string(), serde_json::Value::String(level.to_string()));
-    object.insert("scope".to_string(), serde_json::Value::String("sidecar".to_string()));
-    object.insert("msg".to_string(), serde_json::Value::String(msg.to_string()));
+    object.insert(
+        "level".to_string(),
+        serde_json::Value::String(level.to_string()),
+    );
+    object.insert(
+        "scope".to_string(),
+        serde_json::Value::String("sidecar".to_string()),
+    );
+    object.insert(
+        "msg".to_string(),
+        serde_json::Value::String(msg.to_string()),
+    );
     if let serde_json::Value::Object(extra) = fields {
         for (key, value) in extra {
             object.insert(key, value);
@@ -274,36 +428,45 @@ pub(crate) fn sidecar_note(level: &str, msg: &str, fields: serde_json::Value) {
     }
 }
 
-fn node_version_error() -> Option<String> {
-    let mut command = Command::new("node");
-    #[cfg(windows)]
-    command.creation_flags(CREATE_NO_WINDOW);
-    match command.arg("--version").output() {
-        Ok(output)
-            if output.status.success()
-                && node_version_supported(&String::from_utf8_lossy(&output.stdout)) =>
-        {
-            None
-        }
-        Ok(_) => Some("PetDeck 需要 Node.js 24 或更新版本，请升级后重启应用。".to_string()),
-        Err(_) => Some("未检测到 Node.js，请安装 Node.js 24 后重启 PetDeck。".to_string()),
-    }
-}
+// Node selection is implemented above by resolve_node_runtime; start_bridge keeps
+// the chosen command so spawn never falls back to a different PATH binary.
 
 pub fn start_bridge(app: &AppHandle) -> BridgeState {
     let mut config = BridgeConfig::new();
     sidecar_note("info", "bridge.start", json!({ "port": config.port() }));
-    config.error = node_version_error();
-    if let Some(reason) = config.error.as_ref() {
-        sidecar_note("error", "bridge.node_unavailable", json!({ "reason": reason }));
-    }
-    let child = if config.error.is_some() {
-        None
-    } else {
-        match resolve_bridge_script(app) {
+    let node = match resolve_node_runtime(app) {
+        Ok(node) => {
+            sidecar_note(
+                "info",
+                "bridge.node_selected",
+                json!({
+                    "source": node.source,
+                    "version": node.version,
+                    "file": node
+                        .command
+                        .file_name()
+                        .map(|name| name.to_string_lossy().to_string())
+                        .unwrap_or_default(),
+                }),
+            );
+            Some(node)
+        }
+        Err(reason) => {
+            sidecar_note(
+                "error",
+                "bridge.node_unavailable",
+                json!({ "reason": reason }),
+            );
+            config.error = Some(reason);
+            None
+        }
+    };
+    let child = match node.as_ref() {
+        None => None,
+        Some(node) => match resolve_bridge_script(app) {
             Ok(script) => {
                 let working_dir = script.parent().map(PathBuf::from);
-                let mut command = Command::new("node");
+                let mut command = Command::new(&node.command);
                 command
                     .arg(&script)
                     .env("PETDECK_BRIDGE_TOKEN", &config.token)
@@ -329,7 +492,9 @@ pub fn start_bridge(app: &AppHandle) -> BridgeState {
                         );
                         match (file.try_clone(), file.try_clone()) {
                             (Ok(stdout), Ok(stderr)) => {
-                                command.stdout(Stdio::from(stdout)).stderr(Stdio::from(stderr));
+                                command
+                                    .stdout(Stdio::from(stdout))
+                                    .stderr(Stdio::from(stderr));
                             }
                             _ => {
                                 command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
@@ -368,7 +533,7 @@ pub fn start_bridge(app: &AppHandle) -> BridgeState {
                 config.error = Some("应用缺少本地 bridge 组件，请重新安装 PetDeck。".to_string());
                 None
             }
-        }
+        },
     };
     BridgeState {
         config: Mutex::new(config),
@@ -447,5 +612,137 @@ mod tests {
         assert!(recent.exists());
         assert!(foreign.exists());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn temp_node_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("petdeck-node-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn bundled_node_candidates_prefer_executable_then_resources() {
+        let exe = Path::new("C:/App/target/debug/deps");
+        let resources = Path::new("C:/App/resources");
+        let name = node_binary_name();
+        let list = bundled_node_candidates(Some(exe), Some(resources));
+        assert_eq!(list[0], exe.join(name));
+        assert_eq!(list[1], exe.parent().unwrap().join(name));
+        assert_eq!(list[2], resources.join("nodejs").join(name));
+        assert_eq!(list[3], resources.join(name));
+    }
+
+    #[test]
+    fn bundled_node_candidates_dedupe_paths() {
+        let dir = Path::new("C:/App");
+        let list = bundled_node_candidates(Some(dir), Some(dir));
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0], dir.join(node_binary_name()));
+        assert_eq!(list[1], dir.join("nodejs").join(node_binary_name()));
+    }
+
+    #[test]
+    fn release_uses_bundled_node_before_anything_else() {
+        let dir = temp_node_dir("bundled");
+        let bundled = dir.join(node_binary_name());
+        fs::write(&bundled, b"").unwrap();
+        let runtime = select_node_runtime(false, Some(&dir), None, |path| {
+            if path == bundled {
+                Some("v24.18.0".to_string())
+            } else {
+                panic!("release must not probe PATH when a bundled runtime exists");
+            }
+        })
+        .unwrap();
+        assert_eq!(runtime.source, "bundled");
+        assert_eq!(runtime.version, "v24.18.0");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn release_never_falls_back_to_path() {
+        let dir = temp_node_dir("no-bundled");
+        let mut calls = 0;
+        let error = select_node_runtime(false, Some(&dir), None, |_| {
+            calls += 1;
+            Some("v24.18.0".to_string())
+        })
+        .unwrap_err();
+        assert_eq!(calls, 0);
+        assert!(error.contains("缺失"), "{error}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn release_reports_a_broken_bundled_runtime() {
+        let dir = temp_node_dir("broken");
+        fs::write(dir.join(node_binary_name()), b"").unwrap();
+        let error = select_node_runtime(false, Some(&dir), None, |_| None).unwrap_err();
+        assert!(error.contains("无法启动"), "{error}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn release_reports_an_outdated_bundled_runtime() {
+        let dir = temp_node_dir("outdated");
+        fs::write(dir.join(node_binary_name()), b"").unwrap();
+        let error = select_node_runtime(false, Some(&dir), None, |_| Some("v18.20.0".to_string()))
+            .unwrap_err();
+        assert!(error.contains("版本过低"), "{error}");
+        assert!(!error.contains("开发模式"), "{error}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn debug_falls_back_to_the_system_node() {
+        let dir = temp_node_dir("debug-path");
+        let runtime = select_node_runtime(true, Some(&dir), None, |path| {
+            if path == Path::new("node") {
+                Some("v24.18.0".to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+        assert_eq!(runtime.source, "system");
+        assert_eq!(runtime.command, PathBuf::from("node"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn debug_rejects_an_old_system_node() {
+        let dir = temp_node_dir("debug-old");
+        let error = select_node_runtime(true, Some(&dir), None, |path| {
+            if path == Path::new("node") {
+                Some("v20.11.0".to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_err();
+        assert!(error.contains("开发模式需要"), "{error}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bundled_node_is_found_in_the_resource_directory() {
+        let exe_dir = temp_node_dir("empty-exe");
+        let resources = temp_node_dir("resources");
+        let bundled = resources.join("nodejs").join(node_binary_name());
+        fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        fs::write(&bundled, b"").unwrap();
+        let runtime = select_node_runtime(false, Some(&exe_dir), Some(&resources), |path| {
+            if path == bundled {
+                Some("v24.18.0".to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+        assert_eq!(runtime.command, bundled);
+        assert_eq!(runtime.source, "bundled");
+        let _ = fs::remove_dir_all(&exe_dir);
+        let _ = fs::remove_dir_all(&resources);
     }
 }

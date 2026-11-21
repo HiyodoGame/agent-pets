@@ -12,7 +12,7 @@ npm ci
 npm run tauri:dev
 ```
 
-桌面版需要 Windows 10/11、WebView2、Node.js 24+；开发构建还需要 Rust 和 Visual Studio MSVC 工具链。完整环境说明见 [petdeck/README.md](petdeck/README.md)，安装与日常使用见 [用户手册](docs/用户手册.md)。
+桌面安装包自带 Node.js 24 运行时，只需 Windows 10/11 与 WebView2，装完即可使用；源码开发需要 Node.js 24+，开发构建还需要 Rust 和 Visual Studio MSVC 工具链。NSIS 安装包约 30 MB，安装后主占用约 107 MB（含约 88 MB 的 Node 运行时）。完整环境说明见 [petdeck/README.md](petdeck/README.md)，安装与日常使用见 [用户手册](docs/用户手册.md)。
 
 ## 文档入口
 

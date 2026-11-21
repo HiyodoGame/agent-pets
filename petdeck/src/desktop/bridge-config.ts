@@ -20,3 +20,8 @@ export async function restartBridge(): Promise<BridgeClientConfig> {
   configureBridgeClient(config)
   return config
 }
+
+/** Open the bundled Node.js license directory and return its path. */
+export async function openNodeLicenses(): Promise<string> {
+  return invoke<string>('open_node_licenses')
+}

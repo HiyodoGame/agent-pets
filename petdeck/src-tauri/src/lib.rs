@@ -361,6 +361,34 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+/// Open the folder that ships the bundled Node.js license texts. In development
+/// the resource bundle does not exist yet, so fall back to the source tree.
+#[tauri::command]
+fn open_node_licenses(app: AppHandle) -> Result<String, String> {
+    let bundled = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|dir| dir.join("third-party").join("nodejs"));
+    let fallback = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources")
+        .join("third-party")
+        .join("nodejs");
+    let dir = bundled.filter(|path| path.is_dir()).unwrap_or(fallback);
+    if !dir.is_dir() {
+        return Err("未找到 Node.js 许可文件目录，请重新安装 PetDeck。".to_string());
+    }
+    let display = dir.to_string_lossy().to_string();
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(&dir)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(display)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateInfo {
@@ -383,13 +411,21 @@ async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
     let update = app
         .updater()
         .map_err(|error| {
-            bridge::sidecar_note("error", "update.check_failed", serde_json::json!({ "reason": error.to_string() }));
+            bridge::sidecar_note(
+                "error",
+                "update.check_failed",
+                serde_json::json!({ "reason": error.to_string() }),
+            );
             error.to_string()
         })?
         .check()
         .await
         .map_err(|error| {
-            bridge::sidecar_note("error", "update.check_failed", serde_json::json!({ "reason": error.to_string() }));
+            bridge::sidecar_note(
+                "error",
+                "update.check_failed",
+                serde_json::json!({ "reason": error.to_string() }),
+            );
             error.to_string()
         })?;
     Ok(match update {
@@ -414,20 +450,32 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
     let update = app
         .updater()
         .map_err(|error| {
-            bridge::sidecar_note("error", "update.check_failed", serde_json::json!({ "reason": error.to_string() }));
+            bridge::sidecar_note(
+                "error",
+                "update.check_failed",
+                serde_json::json!({ "reason": error.to_string() }),
+            );
             error.to_string()
         })?
         .check()
         .await
         .map_err(|error| {
-            bridge::sidecar_note("error", "update.check_failed", serde_json::json!({ "reason": error.to_string() }));
+            bridge::sidecar_note(
+                "error",
+                "update.check_failed",
+                serde_json::json!({ "reason": error.to_string() }),
+            );
             error.to_string()
         })?;
     let Some(update) = update else {
         return Err("no update available".to_string());
     };
     let version = update.version.clone();
-    bridge::sidecar_note("info", "update.download_start", serde_json::json!({ "version": version }));
+    bridge::sidecar_note(
+        "info",
+        "update.download_start",
+        serde_json::json!({ "version": version }),
+    );
     let handle = app.clone();
     let mut downloaded: u64 = 0;
     let mut last_percent: i64 = -1;
@@ -449,12 +497,20 @@ async fn install_update(app: AppHandle) -> Result<(), String> {
         .await;
     match result {
         Ok(()) => {
-            bridge::sidecar_note("info", "update.install_ok", serde_json::json!({ "version": version }));
+            bridge::sidecar_note(
+                "info",
+                "update.install_ok",
+                serde_json::json!({ "version": version }),
+            );
             let _ = app.emit("update-installed", ());
             Ok(())
         }
         Err(error) => {
-            bridge::sidecar_note("error", "update.install_failed", serde_json::json!({ "version": version, "reason": error.to_string() }));
+            bridge::sidecar_note(
+                "error",
+                "update.install_failed",
+                serde_json::json!({ "version": version, "reason": error.to_string() }),
+            );
             Err(error.to_string())
         }
     }
@@ -502,12 +558,10 @@ pub fn run() {
                     .checked(autostart_enabled)
                     .build(app)?;
             let quit = MenuItemBuilder::with_id("quit", tr(locale, "quit")).build(app)?;
-            let service_status = MenuItemBuilder::with_id(
-                "service-status",
-                service_label(app.handle(), locale),
-            )
-            .enabled(false)
-            .build(app)?;
+            let service_status =
+                MenuItemBuilder::with_id("service-status", service_label(app.handle(), locale))
+                    .enabled(false)
+                    .build(app)?;
             let restart_service =
                 MenuItemBuilder::with_id("restart-service", tr(locale, "restart_service"))
                     .build(app)?;
@@ -584,6 +638,7 @@ pub fn run() {
             set_pet_layout,
             get_bridge_config,
             restart_bridge,
+            open_node_licenses,
             set_dnd,
             get_dnd,
             set_locale,

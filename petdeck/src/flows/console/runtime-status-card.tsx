@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, Check, Copy, HardDrive, Loader2, RefreshCw, RotateCw, Stethoscope } from 'lucide-react'
+import { AlertTriangle, Check, Copy, FileText, HardDrive, Loader2, RefreshCw, RotateCw, Stethoscope } from 'lucide-react'
 import { bridgeConfigError } from '../../adapters/bridge-client.ts'
 import {
   exportDiagnostics,
@@ -8,7 +8,7 @@ import {
   type RuntimeAdapterProbe,
   type RuntimeStatusSnapshot,
 } from '../../adapters/runtime-client.ts'
-import { restartBridge } from '../../desktop/bridge-config.ts'
+import { openNodeLicenses, restartBridge } from '../../desktop/bridge-config.ts'
 import { isTauri } from '../../desktop/window.ts'
 import { t, useLocale } from '../../i18n/index.ts'
 import { formatClock } from './format.ts'
@@ -48,6 +48,8 @@ export function RuntimeStatusCard() {
   const [exporting, setExporting] = useState(false)
   const [exported, setExported] = useState<DiagnosticsExport | null>(null)
   const [restarting, setRestarting] = useState(false)
+  const [licensePath, setLicensePath] = useState<string | null>(null)
+  const [licenseError, setLicenseError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -91,6 +93,15 @@ export function RuntimeStatusCard() {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       setExporting(false)
+    }
+  }
+
+  async function openLicenses() {
+    setLicenseError(null)
+    try {
+      setLicensePath(await openNodeLicenses())
+    } catch (cause) {
+      setLicenseError(cause instanceof Error ? cause.message : String(cause))
     }
   }
 
@@ -226,7 +237,13 @@ export function RuntimeStatusCard() {
               {restarting ? <Loader2 className="spin" aria-hidden="true" /> : <RotateCw aria-hidden="true" />}
               {restarting ? t('console.settings.restarting') : t('console.settings.restartBridge')}
             </button>
+            <button type="button" className="button ghost" disabled={!isTauri()} onClick={() => void openLicenses()} title={t('console.settings.nodeLicenseHint')}>
+              <FileText aria-hidden="true" />
+              {t('console.settings.nodeLicense')}
+            </button>
           </div>
+          {licensePath ? <p className="settings-note">{t('console.settings.nodeLicensePath', { path: licensePath })}</p> : null}
+          {licenseError ? <p className="console-banner error" role="alert"><AlertTriangle aria-hidden="true" />{licenseError}</p> : null}
           {exported ? (
             <div className="diag-result" role="status">
               <span>{t('console.settings.diagExported', { n: exported.files.length, size: formatBytes(exported.bytes) })}</span>

@@ -20,6 +20,25 @@ jobs:
       - name: Install
         working-directory: petdeck
         run: npm ci
+      - name: Cache bundled Node
+        uses: actions/cache@v4
+        with:
+          path: petdeck/.cache/node
+          key: node-runtime-${{ hashFiles('petdeck/node-runtime.json') }}
+      - name: Fetch bundled Node
+        working-directory: petdeck
+        run: npm run fetch-node
+      - name: Verify bundled Node
+        working-directory: petdeck
+        shell: pwsh
+        run: |
+          $exe = "src-tauri/binaries/node-x86_64-pc-windows-msvc.exe"
+          if (-not (Test-Path $exe)) { throw "missing bundled node executable" }
+          $version = & $exe --version
+          if ($version -ne "v24.18.0") { throw "unexpected bundled node version: $version" }
+          foreach ($file in @("src-tauri/resources/third-party/nodejs/LICENSE", "src-tauri/resources/third-party/nodejs/THIRD_PARTY_LICENSES")) {
+            if (-not (Test-Path $file)) { throw "missing $file" }
+          }
       - name: Typecheck
         working-directory: petdeck
         run: npm run typecheck
@@ -41,3 +60,12 @@ jobs:
       - name: Tauri release compile (without installer)
         working-directory: petdeck
         run: npm run tauri:build -- --no-bundle
+      - name: Verify packaged Node sidecar
+        working-directory: petdeck
+        shell: pwsh
+        run: |
+          $exe = "src-tauri/target/release/node.exe"
+          if (-not (Test-Path $exe)) { throw "bundled node was not copied into the release output" }
+          $version = & $exe --version
+          if ($version -ne "v24.18.0") { throw "unexpected packaged node version: $version" }
+          Write-Host "packaged node: $version"
