@@ -331,9 +331,9 @@ export function createRuntimeService({
           continue;
         }
         const project = db.getProject(task.project_id);
-        if (!project?.project_path || !fs.existsSync(project.project_path)) continue;
-        if (await isWorktreeRegistered(project.project_path, task.worktree_path)) continue;
-        await disposeWorktree({ repoPath: project.project_path, worktreePath: task.worktree_path });
+        if (!project?.path || !fs.existsSync(project.path)) continue;
+        if (await isWorktreeRegistered(project.path, task.worktree_path)) continue;
+        await disposeWorktree({ repoPath: project.path, worktreePath: task.worktree_path });
         db.updateTask(task.id, { worktree_path: null });
         recordEvent('task.leftover_cleaned', { worktree: task.worktree_path }, { taskId: task.id });
         swept += 1;

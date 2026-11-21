@@ -194,14 +194,26 @@ export async function cleanupWorktree({ repoPath, worktreePath }) {
   throw new Error('git worktree remove failed: ' + last);
 }
 
+function canonicalPath(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  let resolved;
+  try { resolved = fs.realpathSync.native(raw); } catch { resolved = path.resolve(raw); }
+  // Node's native realpath can return an extended-length path; git prints a plain
+  // drive path. Strip the prefix so the two forms compare equal.
+  resolved = resolved.replace(/^\\\\\?\\UNC\\/i, '\\\\').replace(/^\\\\\?\\/, '');
+  resolved = resolved.replace(/[\\/]+$/, '');
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
 /** True while git still lists worktreePath as a worktree of repoPath. */
 export async function isWorktreeRegistered(repoPath, worktreePath) {
   const out = await gitResult(['worktree', 'list', '--porcelain'], { cwd: repoPath });
   if (!out.ok) return false;
-  const wanted = path.resolve(worktreePath).toLowerCase();
+  const wanted = canonicalPath(worktreePath);
   return out.stdout.split(/\r?\n/).some((line) => {
     if (!line.startsWith('worktree ')) return false;
-    return path.resolve(line.slice('worktree '.length).trim()).toLowerCase() === wanted;
+    return canonicalPath(line.slice('worktree '.length).trim()) === wanted;
   });
 }
 

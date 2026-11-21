@@ -102,7 +102,14 @@ function createActionSupervisor(mode = 'done', action = null, result = 'done') {
   };
 }
 
-function makeService(t, { action = null, agents = ['claude-code'], mode = 'done', result = 'done' } = {}) {
+async function removeDir(dir) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); return; }
+    catch (e) { if (attempt === 49) throw e; await sleep(100); }
+  }
+}
+
+function makeService(t, { repo = null, action = null, agents = ['claude-code'], mode = 'done', result = 'done' } = {}) {
   const dataDir = tempDir('m3-data');
   const worktreesRoot = tempDir('m3-wt');
   const calls = [];
@@ -117,8 +124,9 @@ function makeService(t, { action = null, agents = ['claude-code'], mode = 'done'
   });
   t.after(async () => {
     await service.shutdown();
-    fs.rmSync(dataDir, { recursive: true, force: true });
-    fs.rmSync(worktreesRoot, { recursive: true, force: true });
+    if (repo) await removeDir(repo);
+    fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(worktreesRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
   return { service, calls, fake };
 }
@@ -133,8 +141,7 @@ async function startAndReview(service, project, task) {
 
 test('m3: git task collects artifacts, accepts, previews, merges with token, then cleans up', async (t) => {
   const repo = makeGitRepo();
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
-  const { service } = makeService(t, {
+  const { service } = makeService(t, { repo,
     action(cwd) {
       fs.writeFileSync(path.join(cwd, 'result.txt'), 'delivered\n');
       fs.writeFileSync(path.join(cwd, 'shot.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00]));
@@ -184,8 +191,7 @@ test('m3: git task collects artifacts, accepts, previews, merges with token, the
 
 test('m3: conflicting branches are reported and never merged', async (t) => {
   const repo = makeGitRepo();
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
-  const { service } = makeService(t, {
+  const { service } = makeService(t, { repo,
     action(cwd) {
       fs.writeFileSync(path.join(cwd, 'conflict.txt'), 'worktree\n');
       gitIn(cwd, 'add', '.');
@@ -221,8 +227,7 @@ test('m3: conflicting branches are reported and never merged', async (t) => {
 
 test('m3: rejecting onto another agent opens a new run without overwriting history', async (t) => {
   const repo = makeGitRepo();
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
-  const { service, calls } = makeService(t, {
+  const { service, calls } = makeService(t, { repo,
     agents: ['claude-code', 'kimi-code'],
     action(cwd, index) {
       fs.writeFileSync(path.join(cwd, 'run-' + index + '.txt'), String(index));
@@ -268,8 +273,7 @@ test('m3: rejecting onto another agent opens a new run without overwriting histo
 
 test('m3: merge can be re-authorized after a reload and the old token stops working', async (t) => {
   const repo = makeGitRepo();
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
-  const { service } = makeService(t, {
+  const { service } = makeService(t, { repo,
     action(cwd) {
       fs.writeFileSync(path.join(cwd, 'authorize.txt'), 'ok\n');
       gitIn(cwd, 'add', '.');
@@ -310,8 +314,7 @@ test('m3: merge can be re-authorized after a reload and the old token stops work
 
 test('m3: uncommitted agent output is committed before review and survives merge', async (t) => {
   const repo = makeGitRepo();
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
-  const { service } = makeService(t, {
+  const { service } = makeService(t, { repo,
     action(cwd) {
       fs.writeFileSync(path.join(cwd, 'deliver.txt'), 'uncommitted agent output\n');
       return ['deliver.txt'];
@@ -335,8 +338,7 @@ test('m3: uncommitted agent output is committed before review and survives merge
 
 test('m3: a Kimi resume hint is not used as the review summary', async (t) => {
   const repo = makeGitRepo();
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
-  const { service } = makeService(t, { result: 'To resume this session: kimi -r session_fake' });
+  const { service } = makeService(t, { repo, result: 'To resume this session: kimi -r session_fake' });
 
   const { project } = await service.registerProject({ projectPath: repo });
   const task = service.createTask({ projectId: project.id, title: 'M3 summary', prompt: 'summarize' });

@@ -65,7 +65,12 @@ export function resolveExecutable(cmd, { platform = process.platform, env = proc
 
 /** Expand a %dp0% / %~dp0 / %~dp0% reference into the shim's own directory. */
 function expandDp0(token, dir) {
-  return path.normalize(token.replace(/%dp0%/gi, dir).replace(/%~dp0/gi, dir).replace(/%$/, ''));
+  let expanded = token.replace(/%dp0%/gi, dir).replace(/%~dp0/gi, dir).replace(/%$/, '');
+  // Tests exercise Windows shims while the host process can be POSIX (CI). The
+  // shim's own separators are Windows-style, so translate them before the host
+  // path.normalize; on a real Windows host this is a no-op.
+  if (process.platform !== 'win32') expanded = expanded.replace(/\\/g, '/');
+  return path.normalize(expanded);
 }
 
 /**

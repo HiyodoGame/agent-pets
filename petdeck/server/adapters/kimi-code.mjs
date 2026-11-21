@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { latestFiles, tailLines, safeJson } from './shared.mjs';
+import { basenameAny, latestFiles, tailLines, safeJson } from './shared.mjs';
 
 export const id = 'kimi-code';
 export const name = 'Kimi Code';
@@ -115,7 +115,7 @@ function observeV2(root) {
       agent: id, source: 'kimi-code-wire', session: state.id || path.basename(dir),
       title: title.slice(0, 200), status: r.status,
       lastMessage: r.lastMessage.slice(0, 200), turn: '',
-      cwd, projectId: projectDir, projectName: cwd ? path.basename(cwd) : slug,
+      cwd, projectId: projectDir, projectName: cwd ? basenameAny(cwd) : slug,
       tokens: r.tokens, path: fs.existsSync(wire) ? wire : f, updatedAt: updatedAt || null,
     });
     if (out.length >= 5) break;

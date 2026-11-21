@@ -94,6 +94,38 @@ const quiet = (() => {
   return log;
 })();
 
+test('startup sweeps a leftover worktree that git no longer registers', async (t) => {
+  const dataDir = tempDir('sweep-data');
+  const worktreesRoot = tempDir('sweep-wt');
+  const repo = makeGitRepo();
+
+  const seed = createRuntimeService({
+    dataDir, worktreesRoot, adapters: { 'claude-code': makeAdapter() },
+    supervisor: createFakeSupervisor().factory, logger: quiet,
+  });
+  const { project } = await seed.registerProject({ projectPath: repo, name: 'P' });
+  const task = seed.createTask({ projectId: project.id, title: 'Leftover', prompt: 'x', agent: 'claude-code' });
+  const leftover = path.join(worktreesRoot, 'P-' + project.id.slice(0, 8), task.id);
+  fs.mkdirSync(leftover, { recursive: true });
+  fs.writeFileSync(path.join(leftover, 'left.txt'), 'left\n');
+  seed.db.updateTask(task.id, { worktree_path: leftover, branch: 'petdeck/' + task.id });
+  await seed.shutdown();
+
+  const service = createRuntimeService({
+    dataDir, worktreesRoot, adapters: { 'claude-code': makeAdapter() },
+    supervisor: createFakeSupervisor().factory, logger: quiet,
+  });
+  t.after(async () => {
+    await service.shutdown();
+    fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(worktreesRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  await waitFor(() => service.getTaskDetail(task.id).task.worktree_path === null, 6000, 'leftover sweep');
+  assert.equal(fs.existsSync(leftover), false);
+});
+
 test('startup recovery resumes queued work and marks the interrupted run', async (t) => {
   const dataDir = tempDir('rec-data');
   const worktreesRoot = tempDir('rec-wt');
@@ -120,9 +152,9 @@ test('startup recovery resumes queued work and marks the interrupted run', async
   });
   t.after(async () => {
     await service.shutdown();
-    fs.rmSync(dataDir, { recursive: true, force: true });
-    fs.rmSync(worktreesRoot, { recursive: true, force: true });
-    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(worktreesRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   const snapshot = service.statusSnapshot();

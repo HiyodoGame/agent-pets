@@ -20,8 +20,15 @@ export function crashFilePath(dataDir, ts = Date.now()) {
 export function writeCrashReport({ dataDir, reason, error, extra = {}, recentLines = [], now = Date.now() } = {}) {
   if (!dataDir) return null;
   try {
-    const at = typeof now === 'function' ? now() : Number(now);
-    const file = crashFilePath(dataDir, at);
+    let at = typeof now === 'function' ? now() : Number(now);
+    let file = crashFilePath(dataDir, at);
+    // Two crashes can land in the same millisecond (uncaught error followed by an
+    // unhandled rejection). Keep both reports by advancing to the next free stamp.
+    for (let bump = 0; bump < 1000 && fs.existsSync(file); bump += 1) {
+      at += 1;
+      file = crashFilePath(dataDir, at);
+    }
+    if (fs.existsSync(file)) return null;
     const payload = {
       at: new Date(at).toISOString(),
       reason: String(reason ?? 'unknown').slice(0, 120),

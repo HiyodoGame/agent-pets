@@ -215,5 +215,5 @@ test('service: non-git directory runs in place without a worktree', async (t) =>
   const detail = service.getTaskDetail(task.id);
   assert.equal(detail.task.status, 'completed');
   assert.equal(detail.task.worktree_path, null);
-  assert.equal(fake.record.starts[0].cwd, dir);
+  assert.equal(fake.record.starts[0].cwd, project.path);
 });

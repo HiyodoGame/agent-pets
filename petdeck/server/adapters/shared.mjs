@@ -137,3 +137,10 @@ export function latestFiles(dir, pred, limit = 20) {
 export function safeJson(line) {
   try { return JSON.parse(line); } catch { return null; }
 }
+
+/** Basename that understands both Windows and POSIX separators. Adapter records can
+ *  carry a Windows cwd while the test/CI process runs on POSIX (and vice versa), so
+ *  path.basename alone would return the whole string instead of the last segment. */
+export function basenameAny(value) {
+  return path.posix.basename(String(value ?? '').replace(/\\/g, '/'));
+}

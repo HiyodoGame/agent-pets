@@ -3,9 +3,8 @@
 // transcript preview. Nothing here can inject, accept, merge or feed the task board —
 // the runtime task tables stay the only source of truth for work.
 import fs from 'node:fs';
-import path from 'node:path';
 import { TIER } from './tiers.mjs';
-import { safeJson, tailLines } from './adapters/shared.mjs';
+import { basenameAny, safeJson, tailLines } from './adapters/shared.mjs';
 import { decodeDshEvents } from './adapters/dsh.mjs';
 import { cleanUserText } from './adapters/cursor.mjs';
 
@@ -41,7 +40,7 @@ export function observeProjectName(row) {
   const id = String(row?.projectId ?? '').trim();
   if (id) return id;
   const cwd = String(row?.cwd ?? '').trim();
-  return cwd ? path.basename(cwd) : '';
+  return cwd ? basenameAny(cwd) : '';
 }
 
 /** Plain-text preview only: transcripts are untrusted data, so strip markup (React

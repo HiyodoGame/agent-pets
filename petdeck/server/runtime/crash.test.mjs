@@ -52,6 +52,19 @@ test('writeCrashReport: a missing dataDir is a no-op', () => {
   assert.equal(writeCrashReport({ dataDir: '', reason: 'x' }), null);
 });
 
+test('writeCrashReport: two reports in the same millisecond do not overwrite each other', () => {
+  const dir = tempDir('crash-same-ms');
+  try {
+    const at = Date.UTC(2026, 10, 21, 7, 0, 0, 0);
+    writeCrashReport({ dataDir: dir, reason: 'first', now: at });
+    writeCrashReport({ dataDir: dir, reason: 'second', now: at });
+    const files = fs.readdirSync(dir).filter((n) => CRASH_FILE_RE.test(n)).sort();
+    assert.equal(files.length, 2);
+    const reasons = files.map((name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')).reason);
+    assert.deepEqual(reasons, ['first', 'second']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('consumeCrashReports: returns the newest report and renames every report to .seen', () => {
   const dir = tempDir('crash-consume');
   try {

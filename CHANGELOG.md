@@ -19,6 +19,7 @@
 
 ### 修复
 
+- **跨平台与崩溃恢复修复**：观察会话与 Kimi Code v2 的项目名在 Windows 路径被 POSIX 进程读取时仍取最后一级目录；Windows CLI shim 解析在非 Windows 主机（CI）上也能还原 `%dp0%` 路径；同一毫秒内的两次崩溃报告不再互相覆盖；崩溃恢复启动清理残留 worktree 改读 `projects.path`（此前读取不存在的 `project_path`，导致残留目录不会被清理）；判断 worktree 是否仍被 git 注册前先解析真实路径，兼容 Windows 8.3 短路径。
 - **真机验收修复**：诊断包脱敏不再把 `secrets`、`apiKeySet` 这类元数据键当成凭据（只按 `token/password/apikey/privatekey/secret` 等后缀与 `authorization/credential` 判断，对象不再取 `[object Object]` 末四位）；内置 Node 缺失时 `bridge_config` 不再自动反复重启，只有用户显式「重启本地服务」才重试；本地服务重启/重连后广播配置变更，数据层丢弃指向旧端口/旧 token 的 EventSource 并立即重订阅；设置页运行状态卡在重启后按 400 ms 重试 10 次，不再停在「Failed to fetch」；生产包通过 `PETDECK_APP_VERSION` 注入版本，`/api/health` 与 bridge 日志不再出现 `version:null`；「最早一份」存储文案不再显示字面量 `{when}`。
 - **W8 从零安装验收**：按用户手册用最新 NSIS（31,109,728 B）在隔离目录静默安装、独立 `APPDATA`/`LOCALAPPDATA` 首启，走通登记项目→新建任务→opencode 运行→验收→合并→清理→生成日报→导出诊断包；任务 21 s、产物 w8.txt 21 B、合并 commit `2a3f086`、清理后只剩 master，诊断包 6 文件且无密钥/prompt。期间修复界面反复离线：bridge 每 5 s 的观察扫描会同步占住事件循环 1.5–3.0 s，与 health tick 相位锁定，`fetchHealth` 超时由 1.5 s 放宽到 5 s，重建后 32 s 内 health 全部 200、顶栏保持「实时」。
 
