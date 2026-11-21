@@ -4,11 +4,20 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **Agent 控制台**：新增今日、任务板、任务页、汇报、设置五个页面；任务生命周期扩展为 11 个状态（待开始、排队、运行、暂停、需决策、待验收、待合并、已合并、已完成、已停止、失败），任务页含事件流、工具卡、产物画廊与右栏产物列表。
+- **多 Agent 调度**：并发上限、依赖顺序、队列与暂停/继续/停止；接入 claude-code、kimi-code、opencode 三个真实运行时适配器（opencode 运行改用 `--standalone`，跑完不留后台守护进程）。
+- **验收与合并**：审核本轮总结与产物后可验收或打回（打回意见写入下一轮提示词并续接同一会话）；合并需要一次性授权 token，预检 dirty / 分支 / 冲突，`git merge --no-ff` 合并后清理 worktree 与分支；Agent 未自行提交时以 PetDeck 身份自动提交。
+- **经理与日报**：设置页可配置 OpenAI 兼容 / Ollama / LM Studio / 自定义端点，支持对话拆解任务提案、确认派发、按天生成日报；经理不可用时回退本地汇总。
+- **数据层**：SQLite v4（manager_messages / proposals / reports），运行事件落盘为 `events.jsonl`，支持按任务回放。
+
 ### 修复
 
 - **打回意见被截断**：Windows 上从 npm 安装的 CLI 是 `.cmd` shim，经 `cmd.exe /d /s /c` 托管时命令行在第一个换行处断开，多行提示词只剩第一行（opencode 真机 E2E 中打回原因整段丢失，Agent 反问「打回原因是什么」后只改了原文件）。`exec.mjs` 现在解析 shim 文本找到真实可执行文件直接拉起（本机 opencode、codex、dsh 均命中），仍必须经过 cmd 的 shim 把 CR/LF 折成空格兜底。
 - **合并后清理失败（`CLEANUP_FAILED`）**：opencode 后台守护进程把任务 worktree 当作自己的工作目录，Windows 下被占用的目录删不掉，`git worktree remove` 报 `failed to delete ...: Permission denied`，分支已删但任务仍挂着 worktree 路径。运行改用 `opencode --standalone`（私有 server，跑完不留守护进程）；清理改为短暂重试，并以 `disposeWorktree` 处理「git 已摘除注册、只剩残留目录」的情况（记录 `leftover_removed`），确实仍注册时才报错。
 - 以 opencode 2.0.30 真机补齐「完成→验收→打回→重跑→验收→合并→清理」全链路验收：一次 49.45s 走通，打回后 run2 续接同一会话并收到完整意见，主仓库 hello/second 均落地。
+- 修复经理回复被 tool-call 流污染（智谱 glm-4-flash 会把 `finish_reason` 片段拼进正文）、提案卡被裁切、review 事件 `artifact_count` 恒为 0、Kimi 的 resume 提示被当成阶段总结等问题。
 
 ## [0.1.3] — 2026-11-20
 
