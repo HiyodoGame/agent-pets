@@ -6,6 +6,7 @@
 
 ### 新增
 
+- **只读观察**：新增 `GET /api/observe/sessions` 聚合 Cursor / DSH / ZCode / Gemini / Kimi 等 observe-only 会话（标题、项目、来源、最近活动、状态 running/idle/error）与 `GET /api/observe/sessions/:agent/:session/transcript` 只读转录；今日页新增「观察中的会话」区（最多 5 条 + 查看全部，抽屉展示最近 20 条脱敏转录），Agents 页观察型卡片显示最近写入、解析成功/失败计数与最近错误。观察会话不进任务板、验收、合并与汇报统计；隐藏推理与工具调用不进入转录。
 - **本地文件日志**：bridge 以结构化 JSON 行写入 `<数据目录>/logs/petdeck-YYYY-MM-DD.log`，按天与 5 MB 轮转、保留 7 天；记录启动/关闭、任务生命周期（发起、完成、失败、停止、验收、打回、合并、清理、决策）与进程退出码，写入前按键名脱敏，不含提示词全文、密钥与 token。生产包另把 sidecar 的 stdout/stderr 落到 `%APPDATA%/PetDeck/logs/sidecar-*.log`，「Node 未安装」「脚本缺失」「端口占用」等启动失败也有记录。
 - **运行状态与诊断包**：设置页新增「运行状态」卡（版本、Node、端口、数据库版本、运行时长、数据与日志目录可复制、Agent 探测表、重启本地服务）与「导出诊断包」（自写 ZIP，白名单字段 + 密钥掩码，含环境信息与最近 7 天日志）；新增 `GET /api/runtime/status` 深探测与 `POST /api/diagnostics/export`，托盘增加「本地服务」状态项与「重启本地服务」。
 - **性能与可访问性**：任务页事件流改为 2000 条内存窗口 + 服务端 `?before=` 分页，SSE 事件按 50 ms 合批并 `memo` 事件行，向历史滚动时保持视口位置、离开底部时新事件进入缓冲并提示条数；任务板与产物网格启用 `contain`，事件行 `content-visibility: auto`。新增焦点陷阱（新建项目/新建任务）、任务状态 `aria-live` 播报与减弱动效覆盖桌宠及面板动画；补《无障碍检查表》与 `scripts/seed-events.mjs` 体检脚本。

@@ -109,12 +109,14 @@ function observeV2(root) {
     // projectDir 形如 wd_<slug>_<hash>：去掉前缀与哈希后缀即人类可读的项目名。
     const projectDir = path.basename(path.dirname(dir));
     const slug = projectDir.replace(/^wd_/, '').replace(/_[0-9a-f]{12}$/, '');
+    let updatedAt = Number(state.updatedAt) || 0;
+    if (!updatedAt) { try { updatedAt = fs.statSync(f).mtimeMs; } catch { updatedAt = 0; } }
     out.push({
       agent: id, source: 'kimi-code-wire', session: state.id || path.basename(dir),
       title: title.slice(0, 200), status: r.status,
       lastMessage: r.lastMessage.slice(0, 200), turn: '',
       cwd, projectId: projectDir, projectName: cwd ? path.basename(cwd) : slug,
-      tokens: r.tokens,
+      tokens: r.tokens, path: fs.existsSync(wire) ? wire : f, updatedAt: updatedAt || null,
     });
     if (out.length >= 5) break;
   }
@@ -127,10 +129,12 @@ function observeLegacy(home, now) {
   const files = latestFiles(dir, (n) => n === 'context.jsonl', 5);
   const out = [];
   for (const f of files) {
-    const r = parseKimi(fs.readFileSync(f, 'utf8').split('\n'), now);
+    let text, st;
+    try { text = fs.readFileSync(f, 'utf8'); st = fs.statSync(f); } catch { continue; }
+    const r = parseKimi(text.split('\n'), now);
     if (r.status === 'unknown' && !r.lastMessage) continue;
     const project = path.basename(path.dirname(path.dirname(f)));
-    out.push({ agent: id, source: 'kimi-jsonl', session: path.basename(path.dirname(f)), title: r.title.slice(0, 200), projectId: project, projectName: project, status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: '', tokens: { total: r.tokens } });
+    out.push({ agent: id, source: 'kimi-jsonl', session: path.basename(path.dirname(f)), title: r.title.slice(0, 200), projectId: project, projectName: project, status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: '', tokens: { total: r.tokens }, path: f, updatedAt: st.mtimeMs });
   }
   return out;
 }

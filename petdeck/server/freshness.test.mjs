@@ -24,13 +24,13 @@ test('pollOnce: failure after success keeps last rows as stale', async () => {
   assert.equal(second.sessions[0].stale, true);
   assert.equal(second.sessions[0].lastSeen, 1000);
   assert.equal(second.sessions[0].status, 'done');
-  assert.deepEqual(second.sources.opencode, { ok: false, lastSeen: 1000 });
+  assert.deepEqual(second.sources.opencode, { ok: false, lastSeen: 1000, error: { code: '', message: 'source down' } });
 });
 
 test('pollOnce: failure without prior success yields no rows', async () => {
   const r = await pollOnce([down('kimi')], new Map(), 1000);
   assert.equal(r.sessions.length, 0);
-  assert.deepEqual(r.sources.kimi, { ok: false, lastSeen: null });
+  assert.deepEqual(r.sources.kimi, { ok: false, lastSeen: null, error: { code: '', message: 'source down' } });
 });
 
 test('pollOnce: partial failure keeps healthy source fresh', async () => {

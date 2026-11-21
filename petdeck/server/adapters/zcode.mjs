@@ -74,6 +74,7 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
         agent: id, source: 'zcode-sqlite', session: s.id, title: s.title ?? '', cwd,
         status: mapZcodeSession(s, now), lastMessage: String(lastMessage).slice(0, 200), turn: '',
         tokens: { input: usage.input, output: usage.output, cacheRead: usage.cacheRead },
+        path: path.join(dbDir, 'db.sqlite'), updatedAt: Number(s.time_updated) || null,
       });
     }
     db.close?.();

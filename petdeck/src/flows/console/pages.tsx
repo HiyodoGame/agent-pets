@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, Check, FolderGit2, FolderPlus, Loader2, Plus, Settings2, X } from 'lucide-react'
+import { Bot, Check, Eye, FolderGit2, FolderPlus, Loader2, Plus, Settings2, X } from 'lucide-react'
 import {
+  getObservedSessions,
   getSettings,
   listAgents,
   listProjects,
   updateSettings,
   type AgentCapabilities,
   type AgentInfo,
+  type ObserveAgentStat,
   type Project,
   type RuntimeSettings,
 } from '../../adapters/runtime-client.ts'
-import { t, useLocale } from '../../i18n/index.ts'
+import { t, useLocale, type Locale } from '../../i18n/index.ts'
 import { useRuntimeOverview } from './runtime-hooks.ts'
 import { formatRelative, isFinished } from './format.ts'
 import { EmptyState, TaskStatusBadge } from './task-bits.tsx'
@@ -154,8 +156,30 @@ const CAPABILITY_ROWS: { key: keyof AgentCapabilities; label: Parameters<typeof 
   { key: 'decisions', label: 'console.agents.cap.decisions' },
 ]
 
+function ObserveStats({ stat, locale }: { stat: ObserveAgentStat; locale: Locale }) {
+  return (
+    <div className="observe-stats">
+      <dl>
+        <div>
+          <dt>{t('console.agents.observe.recentWrite')}</dt>
+          <dd>{stat.lastWriteAt ? formatRelative(stat.lastWriteAt, locale) : '—'}</dd>
+        </div>
+        <div>
+          <dt>{t('console.agents.observe.successFail')}</dt>
+          <dd className="tabular-nums">{stat.okCount} / {stat.failCount}</dd>
+        </div>
+      </dl>
+      {stat.lastError
+        ? <p className="observe-error" title={stat.lastError.message}>{stat.lastError.code ? stat.lastError.code + ': ' : ''}{stat.lastError.message}</p>
+        : <p className="observe-ok">{t('console.agents.observe.ok')}</p>}
+    </div>
+  )
+}
+
 export function AgentsPage() {
+  const { locale } = useLocale()
   const [agents, setAgents] = useState<AgentInfo[]>([])
+  const [observeAgents, setObserveAgents] = useState<ObserveAgentStat[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -165,8 +189,16 @@ export function AgentsPage() {
       .then((next) => { if (!disposed) { setAgents(next); setError(null) } })
       .catch((cause) => { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)) })
       .finally(() => { if (!disposed) setLoading(false) })
+    // Observe stats are advisory: a bridge without observe sources still renders
+    // the runtime cards, so a failure here must not blank the page.
+    getObservedSessions(20)
+      .then((snapshot) => { if (!disposed) setObserveAgents(snapshot.agents) })
+      .catch(() => { if (!disposed) setObserveAgents([]) })
     return () => { disposed = true }
   }, [])
+
+  const runtimeIds = new Set(agents.map((agent) => agent.id))
+  const observeOnly = observeAgents.filter((stat) => !runtimeIds.has(stat.id))
 
   return (
     <section className="console-page">
@@ -180,25 +212,36 @@ export function AgentsPage() {
       {error && <p className="console-banner error" role="alert">{error}</p>}
       {loading ? <div className="page-loading"><Loader2 className="spin" aria-hidden="true" />{t('common.loading')}</div> : (
         <div className="agent-grid">
-          {agents.map((agent) => (
-            <article className="panel-card agent-card" key={agent.id} data-state="ready">
-              <header><div className="agent-icon"><Bot aria-hidden="true" /></div><div><h2>{agent.name}</h2><span>{agent.id} · {agent.command}</span></div></header>
-              <dl className="capability-grid">
-                {CAPABILITY_ROWS.map((row) => {
-                  const value = Boolean(agent.capabilities[row.key])
-                  return (
-                    <div key={row.key} data-on={value}>
-                      <dt>{t(row.label)}</dt>
-                      <dd>{value ? <Check aria-label={t('console.agents.cap.yes')} /> : <X aria-label={t('console.agents.cap.no')} />}</dd>
-                    </div>
-                  )
-                })}
-                <div data-on={agent.capabilities.permissionModes.length > 0}>
-                  <dt>{t('console.agents.cap.permissionModes')}</dt>
-                  <dd className="capability-modes">{agent.capabilities.permissionModes.join(' · ') || '—'}</dd>
-                </div>
-              </dl>
-              <footer><span className="agent-state">{t('console.agents.state.ready')}</span></footer>
+          {agents.map((agent) => {
+            const stat = observeAgents.find((entry) => entry.id === agent.id)
+            return (
+              <article className="panel-card agent-card" key={agent.id} data-state="ready">
+                <header><div className="agent-icon"><Bot aria-hidden="true" /></div><div><h2>{agent.name}</h2><span>{agent.id} · {agent.command}</span></div></header>
+                <dl className="capability-grid">
+                  {CAPABILITY_ROWS.map((row) => {
+                    const value = Boolean(agent.capabilities[row.key])
+                    return (
+                      <div key={row.key} data-on={value}>
+                        <dt>{t(row.label)}</dt>
+                        <dd>{value ? <Check aria-label={t('console.agents.cap.yes')} /> : <X aria-label={t('console.agents.cap.no')} />}</dd>
+                      </div>
+                    )
+                  })}
+                  <div data-on={agent.capabilities.permissionModes.length > 0}>
+                    <dt>{t('console.agents.cap.permissionModes')}</dt>
+                    <dd className="capability-modes">{agent.capabilities.permissionModes.join(' · ') || '—'}</dd>
+                  </div>
+                </dl>
+                {stat ? <ObserveStats stat={stat} locale={locale} /> : null}
+                <footer><span className="agent-state">{t('console.agents.state.ready')}</span></footer>
+              </article>
+            )
+          })}
+          {observeOnly.map((stat) => (
+            <article className="panel-card agent-card observe-card" key={stat.id} data-state={stat.ok ? 'ready' : 'blocked'}>
+              <header><div className="agent-icon"><Eye aria-hidden="true" /></div><div><h2>{stat.name}</h2><span>{stat.id} · {t('console.observe.readOnly')}</span></div></header>
+              <ObserveStats stat={stat} locale={locale} />
+              <footer><span className="agent-state">{stat.ok ? t('console.agents.observe.ok') : t('console.agents.state.blocked')}</span></footer>
             </article>
           ))}
           <article className="panel-card agent-card" data-state="blocked">

@@ -18,6 +18,7 @@ import { DecisionCard } from './decision-card.tsx'
 import { ManagerPanel } from './manager-panel.tsx'
 import { EmptyState, TaskRow, TaskStatusBadge } from './task-bits.tsx'
 import { InterruptBanner } from './interrupt-banner.tsx'
+import { ObservedSessionsPanel } from './observed-sessions.tsx'
 import { NewTaskDialog } from './new-task-dialog.tsx'
 import { AddProjectDialog } from './add-project-dialog.tsx'
 
@@ -172,6 +173,8 @@ export function TodayPage() {
         <div className="today-stat" role="listitem"><strong className="tabular-nums">{counts.paused}</strong><span>{t('console.status.paused')}</span></div>
         <div className="today-stat" role="listitem"><strong className="tabular-nums">{counts.done}</strong><span>{t('console.status.completed')}</span></div>
       </div>
+
+      <ObservedSessionsPanel />
 
       <div className="today-workbench">
         <ManagerPanel projects={projects} onDispatched={refreshAll} />

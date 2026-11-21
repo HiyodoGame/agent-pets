@@ -84,14 +84,14 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
   const files = latestFiles(dir, (n) => n === 'session.v4.jsonl.zstd', 5);
   const out = [];
   for (const f of files) {
-    let buf;
-    try { buf = fs.readFileSync(f); } catch { continue; }
+    let buf, st;
+    try { buf = fs.readFileSync(f); st = fs.statSync(f); } catch { continue; }
     let events;
     try { events = decodeDshEvents(buf); }
     catch { continue; } // 单文件损坏只跳过该会话，不让整个适配器故障（freshness 契约保留）
     const r = parseDshEvents(events, now);
     if (r.status === 'unknown' && !r.lastMessage && !r.title) continue;
-    out.push({ agent: id, source: 'dsh-zstd', session: r.session || path.basename(path.dirname(f)), title: r.title, status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: r.turn, cwd: r.cwd });
+    out.push({ agent: id, source: 'dsh-zstd', session: r.session || path.basename(path.dirname(f)), title: r.title, status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: r.turn, cwd: r.cwd, path: f, updatedAt: st.mtimeMs });
   }
   return out;
 }

@@ -723,3 +723,75 @@ export async function cleanupRunTranscripts(days = 30): Promise<StorageCleanupRe
   )
   return { days: body.days, removed: body.removed, bytes: body.bytes, kept: body.kept }
 }
+
+// --- M5 W6: observe-only sessions (Cursor / DSH / Gemini / Kimi transcripts) --
+
+export type ObservedState = 'running' | 'idle' | 'error'
+
+export interface ObservedSession {
+  agent: string
+  agentName: string
+  session: string
+  title: string
+  project: string
+  cwd?: string | null
+  host?: string | null
+  /** Raw adapter status (done / stuck / running / unknown...). */
+  status: string
+  state: ObservedState
+  lastMessage: string
+  updatedAt: number | null
+  lastSeen: number | null
+  path: string | null
+  stale: boolean
+  tokens?: { input?: number; output?: number; cacheRead?: number } | null
+}
+
+export interface ObserveAgentStat {
+  id: string
+  name: string
+  tier: string
+  ok: boolean
+  lastSeen: number | null
+  okCount: number
+  failCount: number
+  lastOkAt: number | null
+  lastErrorAt: number | null
+  lastError: { code: string; message: string } | null
+  rowCount: number
+  lastWriteAt: number | null
+}
+
+export interface ObserveSnapshot {
+  generatedAt: number
+  limit: number
+  sessions: ObservedSession[]
+  total: number
+  agents: ObserveAgentStat[]
+}
+
+export interface TranscriptLine {
+  role: 'user' | 'assistant' | 'system'
+  text: string
+}
+
+export interface ObservedTranscript {
+  agent: string
+  session: string
+  path: string | null
+  lines: TranscriptLine[]
+  /** True for sources we cannot read line-by-line (e.g. the zcode SQLite store). */
+  unsupported?: boolean
+}
+
+/** Read-only view of sessions run outside PetDeck (observe-only adapters). */
+export async function getObservedSessions(limit = 20): Promise<ObserveSnapshot> {
+  return request<ObserveSnapshot & { ok: true }>('/api/observe/sessions?limit=' + limit, {}, 15_000)
+}
+
+/** Sanitized tail of one observed transcript; never injects or accepts anything. */
+export async function getObservedTranscript(agent: string, session: string, limit = 20): Promise<ObservedTranscript> {
+  const path = '/api/observe/sessions/' + encodeURIComponent(agent) + '/' + encodeURIComponent(session) + '/transcript?limit=' + limit
+  return request<ObservedTranscript & { ok: true }>(path, {}, 15_000)
+}
+

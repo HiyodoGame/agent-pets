@@ -102,6 +102,7 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
       agent: id, source: 'cursor-transcript-jsonl', session,
       title: r.firstUserMessage, projectId: project, projectName: humanizeProject(project),
       status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: '',
+      path: f, updatedAt: st.mtimeMs,
     });
     if (out.length >= 5) break;
   }

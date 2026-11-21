@@ -6,7 +6,7 @@
  * @param {Array<{id: string, observe: () => any}>} adapters
  * @param {Map<string, {at: number, rows: any[]}>} lastGood
  * @param {number} now
- * @returns {Promise<{sessions: any[], sources: Record<string, {ok: boolean, lastSeen: number|null}>, lastGood: Map<string, {at: number, rows: any[]}>, key: string}>}
+ * @returns {Promise<{sessions: any[], sources: Record<string, {ok: boolean, lastSeen: number|null, error?: {code: string, message: string}}>, lastGood: Map<string, {at: number, rows: any[]}>, key: string}>}
  */
 export async function pollOnce(adapters, lastGood, now) {
   const sessions = [];
@@ -18,13 +18,19 @@ export async function pollOnce(adapters, lastGood, now) {
       lg.set(a.id, { at: now, rows });
       sources[a.id] = { ok: true, lastSeen: now };
       for (const r of rows) sessions.push({ ...r, stale: false, lastSeen: now });
-    } catch {
+    } catch (e) {
+      // Surface a bounded, secret-free reason so the Agents page can show why a
+      // source is stale without leaking its raw error object into the UI.
+      const error = {
+        code: e?.code ? String(e.code).slice(0, 40) : '',
+        message: String(e?.message ?? 'observe failed').slice(0, 160),
+      };
       const prev = lg.get(a.id);
       if (prev) {
-        sources[a.id] = { ok: false, lastSeen: prev.at };
+        sources[a.id] = { ok: false, lastSeen: prev.at, error };
         for (const r of prev.rows) sessions.push({ ...r, stale: true, lastSeen: prev.at });
       } else {
-        sources[a.id] = { ok: false, lastSeen: null };
+        sources[a.id] = { ok: false, lastSeen: null, error };
       }
     }
   }

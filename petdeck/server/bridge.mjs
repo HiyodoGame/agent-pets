@@ -29,6 +29,11 @@ import { createLogger } from './runtime/logger.mjs';
 import { installCrashHandlers } from './runtime/crash.mjs';
 import { pruneRunTranscripts, storageUsage } from './runtime/retention.mjs';
 import { AGENT_CLI, collectDiagnostics, createAgentProbe } from './diagnostics.mjs';
+import {
+  buildObserveSnapshot, buildTranscriptIndex, clampLimit,
+  OBSERVE_LIMIT_DEFAULT, OBSERVE_LIMIT_MAX, readTranscript,
+  TRANSCRIPT_LIMIT_DEFAULT, TRANSCRIPT_LIMIT_MAX, trackObservePoll,
+} from './observe.mjs';
 
 const REAL_ADAPTERS = [codex, claude, opencode, kimi, kimiCode, zcode, dsh, cursor, gemini, remote];
 // Reported by /api/health for the desktop status card. Read once: the file ships with
@@ -121,6 +126,10 @@ export function createApp({
   let statusBaselineReady = false;
   let inflight = 0;
   let pollInFlight = false;
+  // Observation-only surface: per-adapter health counters and the addressable
+  // transcript registry. Neither feeds the runtime task board.
+  const observeStats = new Map();
+  let transcriptIndex = new Map();
 
   // Re-entrancy guard: a tick that arrives while the previous poll is still
   // observing is skipped (slow adapters must never stack up overlapping walks).
@@ -134,6 +143,8 @@ export function createApp({
       // Group by repository root and flush relay scratch dirs before anything is
       // published: the UI, the event bus and /api/sessions must see the same rows.
       const rows = canonicalizeRows(res.sessions, { resolveRoot: resolveProjectRoot });
+      trackObservePoll(observeStats, res.sources, rows, Date.now());
+      transcriptIndex = buildTranscriptIndex(rows);
       const groupingKey = rows.map((r) => `${r.agent}:${r.session}:${r.cwd ?? ''}:${r.temp ? 1 : 0}`).join('|');
       const seenKeys = new Set();
       for (const r of rows) {
@@ -299,6 +310,30 @@ export function createApp({
     }
     if (url.pathname === '/api/agents') { if (readGuard()) return; return json(res, req, 200, adapters.filter((a) => a.id !== 'remote').map((a) => ({ id: a.id, name: a.name, form: 'cli', capability: TIER[a.id], status: 'idle', projectIds: [] }))); }
     if (url.pathname === '/api/sessions') { if (readGuard()) return; return json(res, req, 200, sessions); }
+    if (url.pathname === '/api/observe/sessions') {
+      if (readGuard()) return;
+      const limit = clampLimit(url.searchParams.get('limit'), OBSERVE_LIMIT_DEFAULT, OBSERVE_LIMIT_MAX);
+      return json(res, req, 200, {
+        ok: true,
+        ...buildObserveSnapshot({ adapters, sessions, sources, stats: observeStats, limit }),
+      });
+    }
+    const transcriptRoute = url.pathname.match(/^\/api\/observe\/sessions\/([^/]+)\/([^/]+)\/transcript$/);
+    if (transcriptRoute) {
+      if (readGuard()) return;
+      let agent, session;
+      try { agent = decodeURIComponent(transcriptRoute[1]); session = decodeURIComponent(transcriptRoute[2]); }
+      catch { return json(res, req, 400, { ok: false, error: 'invalid session id' }); }
+      const entry = transcriptIndex.get(`${agent}:${session}`);
+      if (!entry) return json(res, req, 404, { ok: false, error: 'session not found' });
+      const limit = clampLimit(url.searchParams.get('limit'), TRANSCRIPT_LIMIT_DEFAULT, TRANSCRIPT_LIMIT_MAX);
+      try {
+        return json(res, req, 200, { ok: true, ...readTranscript(entry, { limit }) });
+      } catch (e) {
+        logger.warn?.('observe.transcript_failed', { agent, errCode: e?.code ?? null });
+        return json(res, req, 500, { ok: false, error: 'transcript unreadable' });
+      }
+    }
     if (url.pathname === '/api/events') {
       if (readGuard(true)) return;
       cors(res, req);

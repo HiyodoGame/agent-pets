@@ -84,8 +84,8 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
   const out = [];
   for (const f of files) {
     if (path.basename(path.dirname(f)) !== 'chats') continue; // only <project>/chats/<file>
-    let text;
-    try { text = fs.readFileSync(f, 'utf8'); } catch { continue; }
+    let text, st;
+    try { text = fs.readFileSync(f, 'utf8'); st = fs.statSync(f); } catch { continue; }
     const r = parseGeminiSession(text);
     if (r.kind === 'subagent') continue;
     if (r.status === 'unknown' && !r.lastMessage && !r.title) continue;
@@ -95,6 +95,7 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
       session: r.session || path.basename(f).replace(/\.jsonl?$/, ''),
       title: r.title.slice(0, 200), projectId: project, projectName: project,
       status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: '',
+      path: f, updatedAt: st.mtimeMs,
     };
     if (r.tokens) row.tokens = r.tokens;
     out.push(row);
