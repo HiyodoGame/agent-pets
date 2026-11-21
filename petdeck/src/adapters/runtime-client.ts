@@ -592,3 +592,68 @@ export function subscribeTask(taskId: string, after: number, hooks: TaskSubscrip
   if (hooks.onError) source.onerror = hooks.onError
   return () => source.close()
 }
+// --- M5 W1: local service observability -------------------------------------
+
+export interface RuntimeCounts {
+  total: number
+  running: number
+  queued: number
+  review: number
+  pending_merge: number
+  needs_decision: number
+}
+
+export interface RuntimeAdapterProbe {
+  id: string
+  name: string
+  tier: string
+  command: string | null
+  /** null = not probed yet (the cheap health path never spawns a process). */
+  detected: boolean | null
+  version: string | null
+}
+
+export interface RuntimeStatusSnapshot {
+  ok: true
+  version: string
+  node: string
+  startedAt: string
+  port: number | null
+  authRequired: boolean
+  dataDir: string | null
+  logDir: string | null
+  dbVersion: number | null
+  runtime: {
+    startedAt: string
+    uptimeSec: number
+    dataDir: string
+    dbVersion: number
+    maxConcurrent: number
+    active: number
+    counts: RuntimeCounts
+  } | null
+  adapters: RuntimeAdapterProbe[]
+}
+
+export interface DiagnosticsExport {
+  path: string
+  bytes: number
+  files: string[]
+}
+
+/** Deep status of the local service. The bridge spawns each Agent CLI with
+ *  `--version` and caches the result for 60 s, so this is safe to call on mount. */
+export async function getRuntimeStatus(): Promise<RuntimeStatusSnapshot> {
+  return request<RuntimeStatusSnapshot>('/api/runtime/status', {}, 15_000)
+}
+
+/** Build a redacted diagnostics zip (summary/settings/agents/environment + recent logs).
+ *  Returns the absolute path on the machine so the card can offer it for copying. */
+export async function exportDiagnostics(): Promise<DiagnosticsExport> {
+  const body = await request<{ ok: true; path: string; bytes: number; files: string[] }>(
+    '/api/diagnostics/export',
+    jsonInit('POST', {}),
+    30_000,
+  )
+  return { path: body.path, bytes: body.bytes, files: body.files }
+}

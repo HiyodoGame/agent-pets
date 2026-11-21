@@ -19,6 +19,7 @@ import { AddProjectDialog } from './add-project-dialog.tsx'
 import { NewTaskDialog } from './new-task-dialog.tsx'
 import { ReportsView } from './reports-view.tsx'
 import { ManagerSettingsSection } from './manager-settings.tsx'
+import { RuntimeStatusCard } from './runtime-status-card.tsx'
 
 export function ProjectsPage() {
   const { locale } = useLocale()
@@ -275,14 +276,7 @@ export function SettingsPage() {
       </header>
       {error && <p className="console-banner error" role="alert">{error}</p>}
       <div className="settings-stack">
-        <section className="panel-card">
-          <header className="panel-card-head"><h2><Settings2 aria-hidden="true" />{t('console.settings.runtimeTitle')}</h2></header>
-          <dl className="meta-grid">
-            <div><dt>{t('console.settings.dataDir')}</dt><dd>%APPDATA%\PetDeck</dd></div>
-            <div><dt>{t('console.settings.worktreesDir')}</dt><dd>%LOCALAPPDATA%\PetDeck\worktrees</dd></div>
-            <div><dt>{t('console.settings.agent')}</dt><dd>Claude Code (acceptEdits)</dd></div>
-          </dl>
-        </section>
+        <RuntimeStatusCard />
         <section className="panel-card">
           <header className="panel-card-head"><h2><Settings2 aria-hidden="true" />{t('console.settings.schedulerTitle')}</h2></header>
           {loading || !draft ? <div className="page-loading"><Loader2 className="spin" aria-hidden="true" />{t('common.loading')}</div> : (

@@ -12,3 +12,11 @@ export async function initializeBridgeConfig(): Promise<BridgeClientConfig> {
   configureBridgeClient(config)
   return config
 }
+
+/** Restart the local bridge from the desktop shell. The port and token are regenerated,
+ *  so the returned config is applied to every client before the caller refreshes. */
+export async function restartBridge(): Promise<BridgeClientConfig> {
+  const config = await invoke<BridgeClientConfig>('restart_bridge')
+  configureBridgeClient(config)
+  return config
+}

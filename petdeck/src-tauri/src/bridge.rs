@@ -50,6 +50,16 @@ impl BridgeState {
             .clone()
     }
 
+    /// Loopback port of the live bridge (last known value after a failed start).
+    pub fn port(&self) -> String {
+        self.config().port()
+    }
+
+    /// True when the last start attempt reported a readable error (Node missing, etc.).
+    pub fn failed(&self) -> bool {
+        self.config().error.is_some()
+    }
+
     pub fn needs_restart(&self) -> bool {
         let mut guard = self.child.lock().unwrap_or_else(|error| error.into_inner());
         match guard.as_mut() {

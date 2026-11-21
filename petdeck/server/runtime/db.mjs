@@ -257,6 +257,11 @@ function createStore(db) {
   return {
     path: location,
     close() { try { db.close(); } catch { /* already closed */ } },
+    /** On-disk schema version (PRAGMA user_version) — surfaced by the status card/diagnostics. */
+    getSchemaVersion() {
+      const row = db.prepare('PRAGMA user_version').get();
+      return Number(row?.user_version ?? 0);
+    },
 
     addProject({ name, projectPath, kind = 'git', baseBranch = null }) {
       const id = makeId();

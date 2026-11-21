@@ -115,6 +115,7 @@ export function createRuntimeService({
   const launching = new Set();
   const preparedRuns = new Map(); // runId -> { summary, artifacts } already collected
   let draining = false;
+  const startedAt = Date.now();
 
   db.recoverInterrupted();
 
@@ -149,6 +150,33 @@ export function createRuntimeService({
   }
 
   // ---- settings -----------------------------------------------------------
+
+  /**
+   * M5 W1: read-only counts for the desktop status card. Deliberately cheap (one
+   * listTasks read) and never touches the filesystem — the card polls it while the
+   * UI is open, and a slow status probe must not look like a dead bridge.
+   */
+  function statusSnapshot() {
+    const tasks = db.listTasks();
+    const count = (statuses) => tasks.filter((task) => statuses.includes(task.status)).length;
+    const settings = getSettings();
+    return {
+      startedAt: new Date(startedAt).toISOString(),
+      uptimeSec: Math.max(0, Math.round((Date.now() - startedAt) / 1000)),
+      dataDir: dir,
+      dbVersion: typeof db.getSchemaVersion === 'function' ? db.getSchemaVersion() : null,
+      maxConcurrent: settings.maxConcurrent,
+      active: active.size,
+      counts: {
+        total: tasks.length,
+        running: count(['running']),
+        queued: count(['queued', 'ready']),
+        review: count(['review']),
+        pending_merge: count(['pending_merge']),
+        needs_decision: count(['waiting']),
+      },
+    };
+  }
 
   function getSettings() {
     const stored = db.listSettings();
@@ -1554,6 +1582,7 @@ export function createRuntimeService({
     generateDailyReport,
     listReports,
     getReport,
+    statusSnapshot,
     subscribe(fn) { return bus.subscribe(fn); },
     get activeCount() { return active.size; },
     shutdown,

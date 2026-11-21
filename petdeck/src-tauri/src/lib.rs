@@ -41,12 +41,35 @@ fn tr(locale: UiLocale, key: &str) -> &'static str {
         (UiLocale::En, "dnd") => "Do not disturb",
         (UiLocale::En, "autostart") => "Start with Windows",
         (UiLocale::En, "quit") => "Quit",
+        (UiLocale::En, "service_running") => "Local service: running",
+        (UiLocale::En, "service_failed") => "Local service: failed",
+        (UiLocale::En, "service_stopped") => "Local service: stopped",
+        (UiLocale::En, "restart_service") => "Restart local service",
         (_, "show_pet") => "显示宠物",
         (_, "open_panel") => "打开面板",
         (_, "dnd") => "免打扰",
         (_, "autostart") => "开机启动",
         (_, "quit") => "退出",
+        (_, "service_running") => "本地服务：运行中",
+        (_, "service_failed") => "本地服务：启动失败",
+        (_, "service_stopped") => "本地服务：未启动",
+        (_, "restart_service") => "重启本地服务",
         _ => "",
+    }
+}
+
+fn current_locale(app: &AppHandle) -> UiLocale {
+    app.try_state::<LocaleState>()
+        .map(|state| *state.0.lock().unwrap_or_else(|error| error.into_inner()))
+        .unwrap_or_else(|| load_locale(app))
+}
+
+/// Tray line for the local bridge: "本地服务：运行中 · :5199" (or the failure text).
+fn service_label(app: &AppHandle, locale: UiLocale) -> String {
+    match app.try_state::<BridgeState>() {
+        Some(state) if state.failed() => tr(locale, "service_failed").to_string(),
+        Some(state) => format!("{} · :{}", tr(locale, "service_running"), state.port()),
+        None => tr(locale, "service_stopped").to_string(),
     }
 }
 
@@ -65,6 +88,8 @@ struct LocaleState(Mutex<UiLocale>);
 struct TrayLabels {
     show_pet: MenuItem<Wry>,
     open_panel: MenuItem<Wry>,
+    service_status: MenuItem<Wry>,
+    restart_service: MenuItem<Wry>,
     quit: MenuItem<Wry>,
 }
 static BRIDGE_INIT: Mutex<()> = Mutex::new(());
@@ -168,6 +193,8 @@ fn set_locale(app: AppHandle, locale: String) -> Result<(), String> {
         if let Some(labels) = app.try_state::<TrayLabels>() {
             let _ = labels.show_pet.set_text(tr(next, "show_pet"));
             let _ = labels.open_panel.set_text(tr(next, "open_panel"));
+            let _ = labels.restart_service.set_text(tr(next, "restart_service"));
+            let _ = labels.service_status.set_text(service_label(app, next));
             let _ = labels.quit.set_text(tr(next, "quit"));
         }
         if let Some(item) = app.try_state::<DndMenuItem>() {
@@ -310,6 +337,25 @@ fn get_bridge_config(app: AppHandle) -> BridgeConfig {
     bridge_config(&app)
 }
 
+/// Restart the local Node bridge and return the fresh loopback config. The port and
+/// token change, so the frontend reconfigures before refreshing any state.
+#[tauri::command]
+fn restart_bridge(app: AppHandle) -> BridgeConfig {
+    let config = match app.try_state::<BridgeState>() {
+        Some(state) => {
+            state.restart(&app);
+            state.config()
+        }
+        None => bridge_config(&app),
+    };
+    if let Some(labels) = app.try_state::<TrayLabels>() {
+        let _ = labels
+            .service_status
+            .set_text(service_label(&app, current_locale(&app)));
+    }
+    config
+}
+
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
@@ -391,6 +437,10 @@ pub fn run() {
             let locale = load_locale(app.handle());
             app.manage(LocaleState(Mutex::new(locale)));
 
+            // Start the bridge during setup so the tray can report a real port and the
+            // "restart local service" item is available before the panel finishes booting.
+            let _ = bridge_config(app.handle());
+
             let show_pet =
                 MenuItemBuilder::with_id("show-pet", tr(locale, "show_pet")).build(app)?;
             let open_panel_item =
@@ -404,9 +454,20 @@ pub fn run() {
                     .checked(autostart_enabled)
                     .build(app)?;
             let quit = MenuItemBuilder::with_id("quit", tr(locale, "quit")).build(app)?;
+            let service_status = MenuItemBuilder::with_id(
+                "service-status",
+                service_label(app.handle(), locale),
+            )
+            .enabled(false)
+            .build(app)?;
+            let restart_service =
+                MenuItemBuilder::with_id("restart-service", tr(locale, "restart_service"))
+                    .build(app)?;
             let menu = MenuBuilder::new(app)
                 .item(&show_pet)
                 .item(&open_panel_item)
+                .item(&service_status)
+                .item(&restart_service)
                 .item(&dnd_item)
                 .item(&autostart_item)
                 .item(&quit)
@@ -416,6 +477,8 @@ pub fn run() {
             app.manage(TrayLabels {
                 show_pet,
                 open_panel: open_panel_item,
+                service_status,
+                restart_service,
                 quit,
             });
             TrayIconBuilder::new()
@@ -452,6 +515,16 @@ pub fn run() {
                             let _ = app.state::<AutostartMenuItem>().0.set_checked(!enabled);
                         }
                     }
+                    "restart-service" => {
+                        if let Some(state) = app.try_state::<BridgeState>() {
+                            state.restart(app);
+                        }
+                        if let Some(labels) = app.try_state::<TrayLabels>() {
+                            let _ = labels
+                                .service_status
+                                .set_text(service_label(app, current_locale(app)));
+                        }
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -462,6 +535,7 @@ pub fn run() {
             open_panel,
             set_pet_layout,
             get_bridge_config,
+            restart_bridge,
             set_dnd,
             get_dnd,
             set_locale,

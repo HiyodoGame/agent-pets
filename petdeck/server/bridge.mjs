@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import codex from './adapters/codex.mjs';
 import claude from './adapters/claude.mjs';
@@ -23,8 +24,15 @@ import { createBus, toPetEventType } from './bus.mjs';
 import { pollOnce } from './freshness.mjs';
 import { canonicalizeRows, createRootResolver } from './project-root.mjs';
 import { createRuntimeService, RuntimeError } from './runtime/service.mjs';
+import { AGENT_CLI, collectDiagnostics, createAgentProbe } from './diagnostics.mjs';
 
 const REAL_ADAPTERS = [codex, claude, opencode, kimi, kimiCode, zcode, dsh, cursor, gemini, remote];
+// Reported by /api/health for the desktop status card. Read once: the file ships with
+// the app, so a reload per request would be pure waste.
+const APP_VERSION = (() => {
+  try { return JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version ?? null; }
+  catch { return null; }
+})();
 const DEFAULT_ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '::1'];
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://tauri.localhost', 'http://localhost:5183'];
 
@@ -92,8 +100,13 @@ function readBody(req, max) {
 }
 
 /** Build the bridge HTTP server (not listening). Pure w.r.t. injected adapters/security/bus. */
-export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = createBus(100), logger = console, runtime = null } = {}) {
+export function createApp({
+  adapters = REAL_ADAPTERS, security = {}, bus = createBus(100), logger = console, runtime = null,
+  // Tests inject a fake so health never spawns real CLIs; production probes are cached 60s.
+  probe = createAgentProbe(),
+} = {}) {
   const sec = withDefaults(security);
+  const bootedAt = Date.now();
   let sessions = [];
   let sessionsKey = '';
   // One cache for the whole process: cwd -> git work tree root rarely changes.
@@ -191,6 +204,33 @@ export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = creat
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   }
 
+  /**
+   * M5 W1: health for the desktop status card. Non-deep is cheap by design — it only
+   * reads cached CLI probes (and warms them in the background), so the reconnect loop
+   * that pings /api/health never waits on a spawning process. Deep probes are served
+   * by the guarded /api/runtime/status route used by the settings card.
+   */
+  async function healthPayload({ deep = false } = {}) {
+    const runtimeStatus = typeof runtime?.statusSnapshot === 'function' ? runtime.statusSnapshot() : null;
+    const entries = adapters.map((a) => ({ id: a.id, name: a.name, tier: TIER[a.id] ?? 'observe-only', command: AGENT_CLI[a.id] ?? null }));
+    const probed = await probe.list(entries, { deep });
+    return {
+      ok: true,
+      version: APP_VERSION,
+      node: process.version,
+      startedAt: new Date(bootedAt).toISOString(),
+      port: server.address()?.port ?? null,
+      authRequired: Boolean(sec.token),
+      dataDir: runtimeStatus?.dataDir ?? null,
+      logDir: runtimeStatus?.dataDir ? path.join(runtimeStatus.dataDir, 'logs') : null,
+      dbVersion: runtimeStatus?.dbVersion ?? null,
+      runtime: runtimeStatus,
+      adapters: probed,
+      agents: adapters.map((a) => ({ id: a.id, name: a.name, tier: TIER[a.id] })),
+      sources,
+    };
+  }
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     if (req.method === 'OPTIONS') { cors(res, req); res.writeHead(204); res.end(); return; }
@@ -212,7 +252,28 @@ export function createApp({ adapters = REAL_ADAPTERS, security = {}, bus = creat
       return false;
     };
 
-    if (url.pathname === '/api/health') return json(res, req, 200, { ok: true, authRequired: Boolean(sec.token), agents: adapters.map((a) => ({ id: a.id, name: a.name, tier: TIER[a.id] })), sources });
+    if (url.pathname === '/api/health') return json(res, req, 200, await healthPayload());
+    if (url.pathname === '/api/runtime/status') {
+      if (readGuard()) return;
+      return json(res, req, 200, await healthPayload({ deep: true }));
+    }
+    if (url.pathname === '/api/diagnostics/export' && req.method === 'POST') {
+      const payload = await readJsonWrite(req, res);
+      if (!payload) return;
+      if (!runtime) return runtimeUnavailable(res, req);
+      try {
+        const entries = adapters.map((a) => ({ id: a.id, name: a.name, tier: TIER[a.id] ?? 'observe-only', command: AGENT_CLI[a.id] ?? null }));
+        const agents = await probe.list(entries, { deep: true });
+        const pkg = await collectDiagnostics({
+          version: APP_VERSION,
+          port: server.address()?.port ?? null,
+          authRequired: Boolean(sec.token),
+          runtime,
+          agents,
+        });
+        return json(res, req, 200, { ok: true, ...pkg });
+      } catch (e) { return runtimeFailure(res, req, e, logger); }
+    }
     if (url.pathname === '/api/agents') { if (readGuard()) return; return json(res, req, 200, adapters.filter((a) => a.id !== 'remote').map((a) => ({ id: a.id, name: a.name, form: 'cli', capability: TIER[a.id], status: 'idle', projectIds: [] }))); }
     if (url.pathname === '/api/sessions') { if (readGuard()) return; return json(res, req, 200, sessions); }
     if (url.pathname === '/api/events') {
