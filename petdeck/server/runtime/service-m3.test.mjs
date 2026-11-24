@@ -347,3 +347,78 @@ test('m3: a Kimi resume hint is not used as the review summary', async (t) => {
   assert.equal(detail.task.summary, 'hello from fake agent');
 });
 
+test('m3: auto-commit failure blocks review and preserves the uncommitted delivery', async (t) => {
+  const repo = makeGitRepo();
+  let indexLock;
+  const { service } = makeService(t, { repo,
+    action(cwd) {
+      fs.writeFileSync(path.join(cwd, 'locked-delivery.txt'), 'must survive\n');
+      const gitDir = path.resolve(cwd, gitIn(cwd, 'rev-parse', '--git-dir').trim());
+      indexLock = path.join(gitDir, 'index.lock');
+      fs.writeFileSync(indexLock, 'locked by test\n');
+      return ['locked-delivery.txt'];
+    },
+  });
+
+  const { project } = await service.registerProject({ projectPath: repo });
+  const task = service.createTask({ projectId: project.id, title: 'M3 commit failure', prompt: 'write locked-delivery.txt' });
+  await service.startTask(task.id);
+  const detail = await waitFor(() => {
+    const current = service.getTaskDetail(task.id);
+    return current.task.status === 'failed' ? current : null;
+  }, 8000, 'commit failure');
+
+  assert.ok(indexLock && fs.existsSync(indexLock));
+  assert.equal(fs.readFileSync(path.join(detail.task.worktree_path, 'locked-delivery.txt'), 'utf8'), 'must survive\n');
+  assert.equal(service.listEvents(task.id).some((event) => event.type === 'task.review_requested'), false);
+  assert.ok(service.listEvents(task.id).some((event) => event.type === 'task.delivery_blocked'));
+  await assert.rejects(() => service.acceptTask(task.id), (error) => error.code === 'TASK_NOT_IN_REVIEW');
+  fs.rmSync(indexLock, { force: true });
+});
+
+test('m3: acceptance rejects legacy review rows with uncommitted delivery', async (t) => {
+  const repo = makeGitRepo();
+  const { service } = makeService(t, { repo,
+    action(cwd) {
+      fs.writeFileSync(path.join(cwd, 'committed.txt'), 'committed\n');
+      return ['committed.txt'];
+    },
+  });
+  const { project } = await service.registerProject({ projectPath: repo });
+  const task = service.createTask({ projectId: project.id, title: 'M3 dirty review', prompt: 'write committed.txt' });
+  const detail = await startAndReview(service, project, task);
+  fs.writeFileSync(path.join(detail.task.worktree_path, 'late.txt'), 'not committed\n');
+
+  await assert.rejects(() => service.acceptTask(task.id), (error) => error.code === 'TASK_WORKTREE_DIRTY');
+  assert.equal(service.getTaskDetail(task.id).task.status, 'review');
+  assert.ok(fs.existsSync(path.join(detail.task.worktree_path, 'late.txt')));
+});
+
+test('m3: merge excludes concurrent rejection and cleanup preserves late uncommitted files', async (t) => {
+  const repo = makeGitRepo();
+  const { service } = makeService(t, { repo,
+    action(cwd) {
+      fs.writeFileSync(path.join(cwd, 'serialized.txt'), 'serialized\n');
+      return ['serialized.txt'];
+    },
+  });
+  const { project } = await service.registerProject({ projectPath: repo });
+  const task = service.createTask({ projectId: project.id, title: 'M3 serialized merge', prompt: 'write serialized.txt' });
+  const detail = await startAndReview(service, project, task);
+  const accepted = await service.acceptTask(task.id);
+
+  const merging = service.mergeTask(task.id, { token: accepted.merge_token });
+  await assert.rejects(
+    () => service.rejectTask(task.id, { feedback: 'must not race merge' }),
+    (error) => error.code === 'TASK_OPERATION_IN_PROGRESS',
+  );
+  const merged = await merging;
+  assert.equal(merged.task.status, 'merged');
+
+  const lateFile = path.join(detail.task.worktree_path, 'late-after-merge.txt');
+  fs.writeFileSync(lateFile, 'do not delete\n');
+  await assert.rejects(() => service.cleanupTask(task.id), (error) => error.code === 'CLEANUP_FAILED');
+  assert.equal(fs.readFileSync(lateFile, 'utf8'), 'do not delete\n');
+  assert.ok(service.getTaskDetail(task.id).task.worktree_path, 'failed cleanup keeps the worktree pointer');
+});
+

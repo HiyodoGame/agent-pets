@@ -57,3 +57,19 @@ test('disposeWorktree: an unregistered leftover directory is cleaned instead of 
     assert.equal(listed.includes(wt.path), false);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('disposeWorktree: a Git query failure preserves the directory and propagates the error', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'petdeck-wt-unknown-'));
+  try {
+    const notARepo = path.join(root, 'not-a-repo');
+    const delivery = path.join(root, 'delivery');
+    fs.mkdirSync(notARepo);
+    fs.mkdirSync(delivery);
+    fs.writeFileSync(path.join(delivery, 'result.txt'), 'must survive\n');
+    await assert.rejects(
+      () => disposeWorktree({ repoPath: notARepo, worktreePath: delivery }),
+      /git worktree list failed/,
+    );
+    assert.equal(fs.readFileSync(path.join(delivery, 'result.txt'), 'utf8'), 'must survive\n');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

@@ -175,3 +175,37 @@ test('startup recovery resumes queued work and marks the interrupted run', async
   await waitFor(() => ['review', 'completed'].includes(service.getTaskDetail(queued.id).task.status), 8000, 'queued task finish');
   assert.equal(service.getTaskDetail(queued.id).task.status, 'review');
 });
+
+test('startup recovery moves a completed latest run to review instead of stopped', async (t) => {
+  const dataDir = tempDir('rec-complete-data');
+  const worktreesRoot = tempDir('rec-complete-wt');
+  const projectDir = tempDir('rec-complete-project');
+  const seed = createRuntimeService({
+    dataDir, worktreesRoot, adapters: { 'claude-code': makeAdapter() },
+    supervisor: createFakeSupervisor().factory, logger: quiet,
+  });
+  const { project } = await seed.registerProject({ projectPath: projectDir, name: 'P' });
+  const task = seed.createTask({ projectId: project.id, title: 'Completed before exit', prompt: 'done', agent: 'claude-code' });
+  const run = seed.db.createRun({ taskId: task.id, status: 'running' });
+  seed.db.updateRun(run.id, { status: 'completed', ended_at: Date.now() });
+  seed.db.updateTask(task.id, { status: 'running', summary: 'completed output' });
+  seed.db.close();
+
+  const service = createRuntimeService({
+    dataDir, worktreesRoot, adapters: { 'claude-code': makeAdapter() },
+    supervisor: createFakeSupervisor().factory, logger: quiet,
+  });
+  t.after(async () => {
+    await service.shutdown();
+    for (const dir of [dataDir, worktreesRoot, projectDir]) {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+
+  const detail = service.getTaskDetail(task.id);
+  assert.equal(detail.task.status, 'review');
+  assert.equal(detail.runs[0].status, 'completed');
+  assert.equal(service.statusSnapshot().recovery.runsFailed, 0);
+  assert.equal(service.statusSnapshot().recovery.tasksReviewed, 1);
+  assert.equal(service.statusSnapshot().recovery.tasksStopped, 0);
+});

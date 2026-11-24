@@ -120,7 +120,7 @@ function autoSupervisor({ decisionFirstRun = false } = {}) {
     record,
     factory({ onEvent, onExit }) {
       return {
-        start({ runId, taskId, command, args, cwd }) {
+        start({ runId, taskId, command: _command, args, cwd }) {
           record.starts.push({ runId, taskId, args, cwd });
           record.runs += 1;
           const nth = record.runs;
@@ -205,6 +205,27 @@ test('decisions: a question becomes a pending card and the answer resumes with t
   assert.equal(calls.at(-1).sessionId, 'sess-m2');
   await waitFor(() => service.getTaskDetail(task.id).task.status === 'review', 3000, 'resumed review');
   assert.equal(service.getTaskDetail(task.id).decisions[0].status, 'answered');
+});
+
+test('decisions: an expired decision rejects late answers without launching a run', async (t) => {
+  const auto = autoSupervisor({ decisionFirstRun: true });
+  const { service, calls } = makeService(t, { supervisor: auto });
+  const { project } = await service.registerProject({ projectPath: tempDir('m2-expired-decision') });
+  const task = service.createTask({ projectId: project.id, title: 'Expired decision', prompt: 'work' });
+
+  await service.startTask(task.id);
+  await waitFor(() => service.getTaskDetail(task.id).task.status === 'waiting', 3000, 'waiting for decision');
+  await waitFor(() => service.activeCount === 0, 3000, 'process exit');
+  const decision = service.listDecisions()[0];
+  service.db.updateDecision(decision.id, { expires_at: Date.now() - 1 });
+
+  await assert.rejects(
+    () => service.answerDecision(decision.id, { optionIndex: 0 }),
+    (error) => error.code === 'DECISION_EXPIRED' && error.status === 409,
+  );
+  assert.equal(service.db.getDecision(decision.id).status, 'expired');
+  assert.equal(service.getTaskDetail(task.id).task.status, 'review');
+  assert.equal(calls.length, 1, 'late answer must not start another Agent run');
 });
 
 test('pause/resume: suspend and resume the live process', async (t) => {

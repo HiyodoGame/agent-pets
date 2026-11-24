@@ -43,7 +43,9 @@ export function isPreviewable(kind) {
   return kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'pdf';
 }
 
-/** Resolve a candidate inside root; returns null when it escapes the root. */
+/** Resolve a candidate inside root; returns null when it escapes the root.
+ *  Both lexical paths and real paths are checked so a symlink/junction inside the
+ *  workspace cannot copy an external file into the artifact store. */
 export function resolveInside(root, candidate) {
   if (!candidate || typeof candidate !== 'string') return null;
   const clean = candidate.trim().replace(/^["']|["']$/g, '');
@@ -51,7 +53,15 @@ export function resolveInside(root, candidate) {
   const absolute = path.resolve(root, clean);
   const normalizedRoot = path.resolve(root);
   if (absolute !== normalizedRoot && !absolute.startsWith(normalizedRoot + path.sep)) return null;
-  return absolute;
+  try {
+    const realRoot = fs.realpathSync.native(normalizedRoot);
+    const realCandidate = fs.realpathSync.native(absolute);
+    const relative = path.relative(realRoot, realCandidate);
+    if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) return null;
+    return absolute;
+  } catch {
+    return null;
+  }
 }
 
 function inputPath(input) {

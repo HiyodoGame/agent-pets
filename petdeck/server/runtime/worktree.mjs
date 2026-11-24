@@ -206,10 +206,13 @@ function canonicalPath(value) {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
-/** True while git still lists worktreePath as a worktree of repoPath. */
+/** True while git still lists worktreePath as a worktree of repoPath.
+ *  A failed query is unknown, not proof that the directory is unregistered: callers
+ *  must preserve the directory rather than treating a Git/PATH/permission error as
+ *  permission to recursively delete delivery. */
 export async function isWorktreeRegistered(repoPath, worktreePath) {
   const out = await gitResult(['worktree', 'list', '--porcelain'], { cwd: repoPath });
-  if (!out.ok) return false;
+  if (!out.ok) throw new Error('git worktree list failed: ' + (out.stderr || out.stdout).trim().slice(0, 500));
   const wanted = canonicalPath(worktreePath);
   return out.stdout.split(/\r?\n/).some((line) => {
     if (!line.startsWith('worktree ')) return false;

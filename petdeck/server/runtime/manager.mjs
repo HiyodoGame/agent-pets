@@ -56,7 +56,10 @@ export function resolveManagerConfig(stored = {}, env = process.env) {
   const baseUrl = text(stored.baseUrl, 500) || preset.baseUrl || MANAGER_DEFAULTS.baseUrl;
   const model = text(stored.model, 200);
   const storedKey = text(stored.apiKey, 4000);
-  const envKey = text(env.PETDECK_MANAGER_API_KEY, 4000) || text(env.OPENAI_API_KEY, 4000);
+  // OPENAI_API_KEY is provider-specific: never implicitly send it to a custom origin.
+  // PETDECK_MANAGER_API_KEY is the explicit generic fallback for OpenAI/custom providers.
+  const envKey = text(env.PETDECK_MANAGER_API_KEY, 4000)
+    || (provider === 'openai' ? text(env.OPENAI_API_KEY, 4000) : '');
   const apiKey = storedKey || (provider === 'openai' || provider === 'custom' ? envKey : '');
   const temperature = Number.isFinite(Number(stored.temperature))
     ? Math.max(0, Math.min(2, Number(stored.temperature)))

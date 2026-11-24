@@ -118,6 +118,7 @@ export function createRuntimeService({
   const adapterMap = adapters instanceof Map ? adapters : new Map(Object.entries(adapters));
   const active = new Map(); // taskId -> { runId, handle }
   const launching = new Set();
+  const taskOperations = new Set(); // taskId -> non-exclusive async Git operation
   const preparedRuns = new Map(); // runId -> { summary, artifacts } already collected
   let draining = false;
   let closed = false;
@@ -267,6 +268,7 @@ export function createRuntimeService({
         at: new Date(recovery.at).toISOString(),
         interrupted: recovery.interruptedRuns.length,
         runsFailed: recovery.runsFailed,
+        tasksReviewed: recovery.tasksReviewed ?? 0,
         tasksStopped: recovery.tasksStopped,
         queued: recovery.queued,
       },
@@ -444,9 +446,9 @@ export function createRuntimeService({
     return { task, summary, artifacts };
   }
 
-  /** A run only ends in review, and only after its process has exited.
-   *  Acceptance, merging and cleanup are explicit human decisions; a zero exit
-   *  code is not the same thing as delivered. */
+  /** A successfully committed run ends in review, and only after its process has
+   *  exited. A Git commit failure blocks delivery as failed instead. Acceptance,
+   *  merging and cleanup are explicit human decisions; exit 0 is not delivered. */
   function finishRunOutcome(taskId, runId, payload = {}, { prepared = false } = {}) {
     const task = db.getTask(taskId);
     if (!task) return null;
@@ -464,6 +466,12 @@ export function createRuntimeService({
       if (commit) recordEvent('git.committed', commit, { taskId, runId });
     } catch (e) {
       log.error?.('[petdeck-runtime] auto-commit failed:', e?.message ?? e);
+      // Uncommitted delivery must never become reviewable/mergeable. Keep the
+      // worktree intact so the user can fix Git and rerun without losing files.
+      db.updateTask(taskId, { status: 'failed', reviewed_at: null });
+      recordEvent('task.delivery_blocked', { reason: 'git-commit-failed' }, { taskId, runId });
+      lifecycle('error', 'task.delivery_blocked', { taskId, runId, reason: 'git-commit-failed' });
+      return false;
     }
     db.updateTask(taskId, { status: 'review', reviewed_at: null });
     recordEvent('task.review_requested', {
@@ -1442,6 +1450,21 @@ export function createRuntimeService({
     return project.base_branch || null;
   }
 
+  function assertTaskOperationFree(taskId) {
+    if (taskOperations.has(taskId)) {
+      throw new RuntimeError('TASK_OPERATION_IN_PROGRESS', 'another task operation is still running; retry after it finishes', 409);
+    }
+  }
+
+  async function assertWorktreeClean(task) {
+    if (!task.worktree_path || !fs.existsSync(task.worktree_path)) return;
+    const dirty = await statusPorcelain(task.worktree_path);
+    if (!dirty.length) return;
+    const error = new RuntimeError('TASK_WORKTREE_DIRTY', 'task worktree has uncommitted delivery; resolve it before acceptance, merge or cleanup', 409);
+    error.details = { files: dirty.slice(0, 20) };
+    throw error;
+  }
+
   async function acceptTask(taskId) {
     const task = requireTask(taskId);
     releaseFinishedActive(taskId);
@@ -1455,6 +1478,7 @@ export function createRuntimeService({
       lifecycle('info', 'task.accepted', { taskId, mergeRequired: false });
       return { task: getTaskView(taskId), merge_required: false, merge_token: null, merge_token_expires: null };
     }
+    await assertWorktreeClean(task);
     const token = randomBytes(16).toString('hex');
     const expiresAt = now + 10 * 60_000;
     db.updateTask(taskId, {
@@ -1474,6 +1498,7 @@ export function createRuntimeService({
   }
 
   async function rejectTask(taskId, { feedback, agent = null } = {}) {
+    assertTaskOperationFree(taskId);
     const task = requireTask(taskId);
     releaseFinishedActive(taskId);
     assertNotActive(taskId);
@@ -1532,6 +1557,7 @@ export function createRuntimeService({
   }
 
   async function authorizeMerge(taskId) {
+    assertTaskOperationFree(taskId);
     const task = requireTask(taskId);
     releaseFinishedActive(taskId);
     assertNotActive(taskId);
@@ -1570,40 +1596,57 @@ export function createRuntimeService({
     if (!task.branch) throw new RuntimeError('NO_BRANCH', 'task has no branch to merge', 409);
     const base = mergeBase(project);
     if (!base) throw new RuntimeError('NO_BASE_BRANCH', 'project base branch is not recorded', 409);
-    const dirty = await statusPorcelain(project.path);
-    if (dirty.length) {
-      const error = new RuntimeError('MERGE_DIRTY', 'main working tree has uncommitted changes', 409);
-      error.details = { files: dirty.slice(0, 20) };
-      throw error;
+    assertTaskOperationFree(taskId);
+    taskOperations.add(taskId);
+    try {
+      // Legacy rows may predate the auto-commit guard. Never merge or clean up a
+      // branch while its task worktree still contains uncommitted delivery.
+      await assertWorktreeClean(task);
+      const dirty = await statusPorcelain(project.path);
+      if (dirty.length) {
+        const error = new RuntimeError('MERGE_DIRTY', 'main working tree has uncommitted changes', 409);
+        error.details = { files: dirty.slice(0, 20) };
+        throw error;
+      }
+      const branchNow = await currentBranch(project.path);
+      if (branchNow !== base) {
+        const error = new RuntimeError('MERGE_WRONG_BRANCH', 'main working tree is not on the base branch', 409);
+        error.details = { current: branchNow, base };
+        throw error;
+      }
+      let check;
+      try { check = await mergeTreeCheck(project.path, base, task.branch); }
+      catch (e) { throw new RuntimeError('MERGE_PREFLIGHT_FAILED', e?.message ?? String(e), 409); }
+      if (!check.clean) {
+        const error = new RuntimeError('MERGE_CONFLICT', 'branch conflicts with the base branch', 409);
+        error.details = { conflicts: check.conflicts };
+        throw error;
+      }
+      try { await mergeBranch(project.path, task.branch, 'PetDeck: merge ' + task.title); }
+      catch (e) { throw new RuntimeError('MERGE_FAILED', e?.message ?? String(e), 409); }
+      // Supported state transitions are serialized by taskOperations. Re-check the
+      // persisted state before consuming the token so a future caller cannot turn a
+      // completed Git merge into an unconditional status overwrite.
+      const current = requireTask(taskId);
+      if (current.status !== 'pending_merge' || !tokenMatches(current.merge_token, token)) {
+        throw new RuntimeError('TASK_STATE_CHANGED', 'task state changed while merge was running', 409);
+      }
+      db.updateTask(taskId, {
+        status: 'merged',
+        merged_at: Date.now(),
+        merge_token: null,
+        merge_token_expires: null,
+      });
+      recordEvent('task.merged', { branch: task.branch, base }, { taskId, runId: null });
+      lifecycle('info', 'task.merged', { taskId, branch: task.branch, base });
+      return getTaskDetail(taskId);
+    } finally {
+      taskOperations.delete(taskId);
     }
-    const branchNow = await currentBranch(project.path);
-    if (branchNow !== base) {
-      const error = new RuntimeError('MERGE_WRONG_BRANCH', 'main working tree is not on the base branch', 409);
-      error.details = { current: branchNow, base };
-      throw error;
-    }
-    let check;
-    try { check = await mergeTreeCheck(project.path, base, task.branch); }
-    catch (e) { throw new RuntimeError('MERGE_PREFLIGHT_FAILED', e?.message ?? String(e), 409); }
-    if (!check.clean) {
-      const error = new RuntimeError('MERGE_CONFLICT', 'branch conflicts with the base branch', 409);
-      error.details = { conflicts: check.conflicts };
-      throw error;
-    }
-    try { await mergeBranch(project.path, task.branch, 'PetDeck: merge ' + task.title); }
-    catch (e) { throw new RuntimeError('MERGE_FAILED', e?.message ?? String(e), 409); }
-    db.updateTask(taskId, {
-      status: 'merged',
-      merged_at: Date.now(),
-      merge_token: null,
-      merge_token_expires: null,
-    });
-    recordEvent('task.merged', { branch: task.branch, base }, { taskId, runId: null });
-    lifecycle('info', 'task.merged', { taskId, branch: task.branch, base });
-    return getTaskDetail(taskId);
   }
 
   async function abandonMerge(taskId) {
+    assertTaskOperationFree(taskId);
     const task = requireTask(taskId);
     assertNotActive(taskId);
     if (task.status !== 'pending_merge') throw new RuntimeError('TASK_NOT_PENDING_MERGE', 'task is not waiting for merge', 409);
@@ -1628,9 +1671,12 @@ export function createRuntimeService({
     let worktreeCleaned = false;
     if (task.worktree_path) {
       if (fs.existsSync(task.worktree_path)) {
-        // disposeWorktree tolerates a leftover directory git already unregistered, so a
-        // half-removed worktree cannot pin cleanup at 409 forever.
-        try { worktreeCleaned = (await disposeWorktree({ repoPath: project.path, worktreePath: task.worktree_path })).cleaned; }
+        // A registered worktree with uncommitted files is delivery, not disposable
+        // leftovers. Unknown Git state also blocks deletion inside disposeWorktree.
+        try {
+          if (await isWorktreeRegistered(project.path, task.worktree_path)) await assertWorktreeClean(task);
+          worktreeCleaned = (await disposeWorktree({ repoPath: project.path, worktreePath: task.worktree_path })).cleaned;
+        }
         catch (e) { errors.push(e?.message ?? String(e)); }
       }
     }
@@ -1684,6 +1730,7 @@ export function createRuntimeService({
     const decision = db.getDecision(decisionId);
     if (!decision) throw new RuntimeError('DECISION_NOT_FOUND', 'decision not found', 404);
     if (decision.status === 'answered') throw new RuntimeError('DECISION_ANSWERED', 'decision already answered', 409);
+    if (decision.status !== 'pending') throw new RuntimeError('DECISION_EXPIRED', 'decision is no longer pending', 409);
     const task = requireTask(decision.task_id);
     if (!task.session_id) throw new RuntimeError('NO_SESSION', 'task has no session to write the answer back to', 409);
     const options = parseOptions(decision);

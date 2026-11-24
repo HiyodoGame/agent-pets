@@ -29,6 +29,22 @@ test('manager config: environment key is used but never exposed publicly', () =>
   assert.equal(publicConfig.model, 'gpt-test');
 });
 
+test('manager config: custom endpoints never inherit the OpenAI environment key', () => {
+  const custom = resolveManagerConfig(
+    { provider: 'custom', baseUrl: 'https://manager.example/v1', model: 'glm-test' },
+    { OPENAI_API_KEY: 'sk-openai-must-stay-local' },
+  );
+  assert.equal(custom.apiKey, '');
+  assert.equal(custom.apiKeySource, 'none');
+
+  const explicit = resolveManagerConfig(
+    { provider: 'custom', baseUrl: 'https://manager.example/v1', model: 'glm-test' },
+    { OPENAI_API_KEY: 'sk-openai-must-stay-local', PETDECK_MANAGER_API_KEY: 'custom-key' },
+  );
+  assert.equal(explicit.apiKey, 'custom-key');
+  assert.equal(explicit.apiKeySource, 'environment');
+});
+
 test('manager config: key-requiring provider is not ready without a key', () => {
   const config = resolveManagerConfig({ provider: 'openai', model: 'gpt-test' }, {});
   assert.equal(config.ready, false);

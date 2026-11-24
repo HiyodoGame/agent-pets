@@ -511,6 +511,13 @@ function createStore(db) {
       const runs = db
         .prepare("UPDATE runs SET status = 'failed', error = 'bridge-restarted', ended_at = ? WHERE status IN ('starting', 'running', 'paused')")
         .run(ts);
+      const reviewed = db
+        .prepare(`UPDATE tasks SET status = 'review', reviewed_at = NULL, updated_at = ?
+          WHERE status IN ('running', 'paused') AND EXISTS (
+            SELECT 1 FROM runs r WHERE r.task_id = tasks.id AND r.status = 'completed'
+              AND r.rowid = (SELECT rowid FROM runs latest WHERE latest.task_id = tasks.id ORDER BY latest.rowid DESC LIMIT 1)
+          )`)
+        .run(ts);
       const tasks = db
         .prepare("UPDATE tasks SET status = 'stopped', updated_at = ? WHERE status IN ('running', 'paused')")
         .run(ts);
@@ -519,6 +526,7 @@ function createStore(db) {
         at: ts,
         interruptedRuns,
         runsFailed: Number(runs.changes ?? 0),
+        tasksReviewed: Number(reviewed.changes ?? 0),
         tasksStopped: Number(tasks.changes ?? 0),
         queued: Number(queued?.n ?? 0),
       };
