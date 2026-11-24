@@ -209,3 +209,29 @@ test('startup recovery moves a completed latest run to review instead of stopped
   assert.equal(service.statusSnapshot().recovery.tasksReviewed, 1);
   assert.equal(service.statusSnapshot().recovery.tasksStopped, 0);
 });
+
+test('a sweep whose store was finalized reports instead of rejecting', async (t) => {
+  const dataDir = tempDir('rec-sweep-data');
+  const worktreesRoot = tempDir('rec-sweep-wt');
+  const repo = makeGitRepo();
+  const service = createRuntimeService({
+    dataDir, worktreesRoot, adapters: { 'claude-code': makeAdapter() },
+    supervisor: createFakeSupervisor().factory, logger: quiet,
+  });
+  const { project } = await service.registerProject({ projectPath: repo, name: 'P' });
+  const task = service.createTask({ projectId: project.id, title: 'Race', prompt: 'x', agent: 'claude-code' });
+  const leftover = path.join(worktreesRoot, 'P-' + project.id.slice(0, 8), task.id);
+  fs.mkdirSync(leftover, { recursive: true });
+  service.db.updateTask(task.id, { worktree_path: leftover, branch: 'petdeck/' + task.id });
+  t.after(() => {
+    for (const dir of [dataDir, worktreesRoot, repo]) {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+
+  // A crash drops the handle without shutdown(), so `closed` is still false while the
+  // statements are finalized. The delayed startup sweep must not turn that into an
+  // unhandled rejection — the bridge records those as a crash and exits.
+  service.db.close();
+  assert.equal(await service.sweepLeftoverWorktrees(), 0);
+});

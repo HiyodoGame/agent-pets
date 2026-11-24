@@ -27,6 +27,7 @@
 - **前端状态与交互**：任务详情、历史分页和轮询增加 task 代次与防重入，旧响应不能串入新任务；DND 同批多个拍板请求逐条补提示；当前注入契约不支持原会话 resume 时明确显示为「新接力」而不污染原线程；合并 preview 未就绪不可授权，任务切换隔离 token/preview；创建中的对话框不能伪装取消；面板隐藏/归档选择本地持久化，复制失败、清理确认与输入标签补齐。
 - **桌面与发布链路**：发布版 bridge 脚本缺失在 spawn 前明确报错，Windows verbatim UNC 路径正确转换，启动增加健康就绪检查，生产 WebView 启用严格 CSP；Release 改为版本门禁→本地 CLI 构建签名→安装包内容与 Minisign 验签→本地 manifest 校验→上传草稿，人工核对后才公开发布，Desktop CI 增加真实 NSIS 静默安装内容检查。
 - **依赖与首屏性能**：通过 lockfile override 将 `diff` / `katex` 提升到安全修补版本；控制台改为路由级按需加载，避免手工 vendor 分组造成的生产初始化回归。
+- **启动清扫不再误判为崩溃**：延迟 1.5 s 的残留 worktree 清扫在数据库已被关闭（statement finalized）时改为记一条 `worktree.sweep_failed` 并返回，调用点也不再 `void` 一个可能 reject 的 Promise。此前该竞态会产生 unhandledRejection，而 bridge 把它当崩溃写现场并退出；CI 上以 `service-recovery.test.mjs` 的异步活动断言暴露，已补回归用例。
 
 
 ### 文档

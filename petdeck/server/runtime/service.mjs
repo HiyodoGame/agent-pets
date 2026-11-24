@@ -151,7 +151,12 @@ export function createRuntimeService({
   // not race the first launches. Both are fire-and-forget: startup must never block.
   if (recovery.queued) scheduleDrain();
   {
-    const t = setTimeout(() => { if (!closed) void sweepLeftoverWorktrees(); }, 1500);
+    const t = setTimeout(() => {
+      if (closed) return;
+      // Fire-and-forget must never become an unhandled rejection: the bridge treats
+      // those as a crash. Losing the database mid-sweep is a shutdown race, not a fault.
+      void sweepLeftoverWorktrees().catch((e) => log.warn?.('worktree.sweep_failed', { reason: e?.name ?? 'unknown' }));
+    }, 1500);
     t.unref?.();
   }
 
@@ -324,7 +329,16 @@ export function createRuntimeService({
    */
   async function sweepLeftoverWorktrees() {
     let swept = 0;
-    for (const task of db.listTasks()) {
+    if (closed) return swept;
+    let tasks;
+    try { tasks = db.listTasks(); }
+    catch (e) {
+      // The store can be finalized underneath us during shutdown. Report and stop;
+      // an unhandled rejection here would be recorded as a bridge crash.
+      log.warn?.('worktree.sweep_failed', { reason: e?.name ?? 'unknown' });
+      return swept;
+    }
+    for (const task of tasks) {
       if (closed) return swept;
       if (!task.worktree_path || active.has(task.id) || launching.has(task.id)) continue;
       try {
@@ -1812,6 +1826,7 @@ export function createRuntimeService({
     getReport,
     statusSnapshot,
     activeTaskIds,
+    sweepLeftoverWorktrees,
     subscribe(fn) { return bus.subscribe(fn); },
     get activeCount() { return active.size; },
     shutdown,
