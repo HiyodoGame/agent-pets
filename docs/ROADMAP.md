@@ -45,6 +45,8 @@
 
 范围、验收与排期见 [M5 实施计划](重新设计/09-M5-实施计划.md)。出口：连续自用一周无阻断问题，发 v1.0-rc。
 
+进度（2026-11-24）：W0–W9 已完成；改写后的 Desktop CI 与 Release 干跑已在真实 runner 上跑通（见[真机实测矩阵](真机实测矩阵.md#2026-11-24-ci-实跑github-actions-windows-latest)）。rc 版本号定为 **1.0.0-rc.1**（四处已同步，NSIS 与 updater manifest 均验证支持预发布号）；尚未打 tag 发布。剩余缺口：真实 tag 的草稿发布与人工发布、真正无 Node 的干净机、W9 跨 Windows 用户负向、axe serious/moderate、错误 pubkey 负向。
+
 - [x] W0 0.2.0 快照与发布链路基线（M1–M4 写入 CHANGELOG、四处版本同步、tag v0.2.0 走 release.yml；2026-11-21 用户授权）
 - [x] W1 运行状态卡、诊断包导出与托盘状态项（2026-11-21 完成；健康检查/深探测、白名单脱敏 ZIP、托盘「本地服务 · 重启」）
 - [x] W2 崩溃恢复：中断横幅与同会话续跑、DB 损坏兜底、队列自愈、残留 worktree 清理（2026-11-21 完成；`crash-*.json` 现场留证、`quick_check` 失败备份重建、启动自动 drain、残留 worktree 清理；2026-11-22 真机 taskkill 两次与同会话续跑通过）

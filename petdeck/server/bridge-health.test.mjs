@@ -53,7 +53,7 @@ const AUTH = { 'X-Petdeck-Token': 'sekret' };
 
 test('app version prefers the version injected by the desktop shell', () => {
   assert.equal(resolveAppVersion({ PETDECK_APP_VERSION: ' 0.2.0 ' }), '0.2.0');
-  assert.match(resolveAppVersion({}), /^\d+\.\d+\.\d+$/);
+  assert.match(resolveAppVersion({}), /^\d+\.\d+\.\d+([-+].+)?$/);
 });
 
 test('health: version/node/adapters/status snapshot without deep probes', async (t) => {
@@ -62,7 +62,7 @@ test('health: version/node/adapters/status snapshot without deep probes', async 
   assert.equal(res.status, 200);
   const j = await res.json();
   assert.equal(j.ok, true);
-  assert.match(j.version, /^\d+\.\d+\.\d+$/);
+  assert.match(j.version, /^\d+\.\d+\.\d+([-+].+)?$/);
   assert.match(j.node, /^v\d+/);
   assert.ok(j.startedAt);
   assert.equal(j.port, Number(new URL(base).port));
