@@ -12,6 +12,26 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Require tag and package versions to match
+        working-directory: petdeck
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargoMatch = [regex]::Match((Get-Content src-tauri/Cargo.toml -Raw), '(?m)^version\s*=\s*"([^"]+)"\s*$')
+          $lockMatch = [regex]::Match((Get-Content src-tauri/Cargo.lock -Raw), '(?ms)\[\[package\]\]\s*\r?\nname = "petdeck"\s*\r?\nversion = "([^"]+)"')
+          if (-not $cargoMatch.Success -or -not $lockMatch.Success) { throw 'unable to read Cargo package versions' }
+          $versions = @($packageVersion, $cargoMatch.Groups[1].Value, $lockMatch.Groups[1].Value, $tauriVersion)
+          if (@($versions | Select-Object -Unique).Count -ne 1) {
+            throw "version mismatch: package/Cargo.lock/Cargo.toml/Tauri = $($versions -join ', ')"
+          }
+          if ($env:RELEASE_TAG -ne "v$packageVersion") {
+            throw "tag $env:RELEASE_TAG does not match package version $packageVersion"
+          }
+          Write-Host "release version gate: $packageVersion"
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -21,7 +41,7 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt
           rustup default stable
-      - name: Install
+      - name: Install locked dependencies
         working-directory: petdeck
         run: npm ci
       - name: Cache bundled Node
@@ -46,37 +66,101 @@ jobs:
       - name: Quality gates
         working-directory: petdeck
         run: |
+          npm run docs:check
           npm run typecheck
           npm test
           npm run lint
           npm run build
           cargo fmt --check --manifest-path src-tauri/Cargo.toml
           cargo test --manifest-path src-tauri/Cargo.toml
-      - name: Build, sign and publish
-        uses: tauri-apps/tauri-action@v1
+      # The private key is exposed only to the lockfile-pinned local Tauri CLI.
+      # Do not replace this with an unpinned third-party publishing action.
+      - name: Build and sign NSIS artifacts
+        working-directory: petdeck
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: petdeck
-          tagName: ${{ github.ref_name }}
-          releaseName: PetDeck ${{ github.ref_name }}
-          releaseBody: 'See the assets below to download and install PetDeck.'
-          releaseDraft: false
-          prerelease: false
-          args: --bundles nsis
-          uploadUpdaterJson: true
-          uploadUpdaterSignatures: true
-          updaterJsonPreferNsis: true
-      - name: Verify packaged Node sidecar and installer size
+        run: npm run tauri:build -- --bundles nsis
+      - name: Verify signed artifacts and local updater manifest
         working-directory: petdeck
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $exe = "src-tauri/target/release/node.exe"
-          if (-not (Test-Path $exe)) { throw "bundled node was not copied into the release output" }
-          $version = & $exe --version
-          if ($version -ne "v24.18.0") { throw "unexpected packaged node version: $version" }
-          Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter *.exe | ForEach-Object {
-            Write-Host ("installer: {0} ({1:N1} MB)" -f $_.Name, ($_.Length / 1MB))
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $bundle = (Resolve-Path 'src-tauri/target/release/bundle/nsis').Path
+          $installers = @(Get-ChildItem $bundle -Filter '*_x64-setup.exe' -File)
+          if ($installers.Count -ne 1) { throw "expected one NSIS installer, found $($installers.Count)" }
+          $installer = $installers[0]
+          if ($installer.Name -ne "PetDeck_${version}_x64-setup.exe") { throw "unexpected installer name: $($installer.Name)" }
+          if ($installer.Length -lt 1MB) { throw "NSIS installer is implausibly small: $($installer.Length)" }
+          $signatureFile = "$($installer.FullName).sig"
+          if (-not (Test-Path $signatureFile -PathType Leaf)) { throw 'missing updater signature; refusing to create a release' }
+          $signature = (Get-Content $signatureFile -Raw).Trim()
+          if ($signature.Length -lt 64) { throw 'updater signature is empty or implausibly short' }
+          $publicKey = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).plugins.updater.pubkey
+          cargo run --quiet --manifest-path src-tauri/Cargo.toml --example verify-updater -- "$($installer.FullName)" "$signatureFile" "$publicKey"
+          if ($LASTEXITCODE -ne 0) { throw 'updater signature verification failed; refusing to create a release' }
+
+          $node = 'src-tauri/target/release/node.exe'
+          if (-not (Test-Path $node -PathType Leaf)) { throw 'bundled node was not copied into the release output' }
+          $nodeVersion = & $node --version
+          if ($nodeVersion -ne 'v24.18.0') { throw "unexpected packaged node version: $nodeVersion" }
+
+          $installDir = Join-Path $env:RUNNER_TEMP 'petdeck-release-install-verify'
+          Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          $installed = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDir") -Wait -PassThru
+          if ($installed.ExitCode -ne 0) { throw "signed NSIS smoke install failed with exit code $($installed.ExitCode)" }
+          foreach ($relative in @('petdeck.exe', 'node.exe', 'server/bridge.mjs', 'third-party/nodejs/LICENSE', 'third-party/nodejs/THIRD_PARTY_LICENSES')) {
+            $path = Join-Path $installDir $relative
+            if (-not (Test-Path $path -PathType Leaf)) { throw "signed installer content is missing: $relative" }
           }
+          $installedNodeVersion = & (Join-Path $installDir 'node.exe') --version
+          if ($installedNodeVersion -ne 'v24.18.0') { throw "unexpected signed-install Node version: $installedNodeVersion" }
+
+          $assetName = [uri]::EscapeDataString($installer.Name)
+          $downloadUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:RELEASE_TAG/$assetName"
+          $platform = [ordered]@{ url = $downloadUrl; signature = $signature }
+          $manifest = [ordered]@{
+            version = $version
+            notes = 'See the assets below to download and install PetDeck.'
+            pub_date = [DateTimeOffset]::UtcNow.ToString('o')
+            platforms = [ordered]@{
+              'windows-x86_64' = $platform
+              'windows-x86_64-nsis' = $platform
+            }
+          }
+          $manifestFile = Join-Path $bundle 'latest.json'
+          $manifest | ConvertTo-Json -Depth 6 | Set-Content $manifestFile -Encoding utf8NoBOM
+          npm run release:check -- --file "$manifestFile" --expect "$version"
+          if ($LASTEXITCODE -ne 0) { throw 'local updater manifest validation failed' }
+          Write-Host ("verified installer: {0} ({1:N1} MB)" -f $installer.Name, ($installer.Length / 1MB))
+      # Nothing is publicly released above this step. A failed rerun can resume
+      # uploading to the same draft, but can never overwrite a public release.
+      - name: Create or update draft GitHub Release
+        working-directory: petdeck
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $bundle = (Resolve-Path 'src-tauri/target/release/bundle/nsis').Path
+          $installer = @(Get-ChildItem $bundle -Filter '*_x64-setup.exe' -File)
+          if ($installer.Count -ne 1) { throw 'verified NSIS installer is missing before draft upload' }
+          $assets = @($installer[0].FullName, "$($installer[0].FullName).sig", (Join-Path $bundle 'latest.json'))
+          foreach ($asset in $assets) {
+            if (-not (Test-Path $asset -PathType Leaf)) { throw "missing release asset: $asset" }
+          }
+          $existingJson = gh release view $env:RELEASE_TAG --json isDraft 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $existing = $existingJson | ConvertFrom-Json
+            if (-not $existing.isDraft) { throw "release $env:RELEASE_TAG is already public; refusing to replace its assets" }
+            gh release upload $env:RELEASE_TAG @assets --clobber
+          } else {
+            gh release create $env:RELEASE_TAG @assets --draft --title "PetDeck $env:RELEASE_TAG" --notes 'See the assets below to download and install PetDeck.'
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'draft release upload failed' }
+          Write-Host "Draft $env:RELEASE_TAG is ready for manual review and publication."

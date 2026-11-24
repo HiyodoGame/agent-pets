@@ -57,15 +57,29 @@ jobs:
       - name: Rust tests
         working-directory: petdeck
         run: cargo test --manifest-path src-tauri/Cargo.toml
-      - name: Tauri release compile (without installer)
+      - name: Build NSIS installer (unsigned CI smoke)
         working-directory: petdeck
-        run: npm run tauri:build -- --no-bundle
-      - name: Verify packaged Node sidecar
+        run: npm run tauri:build -- --bundles nsis --no-sign
+      - name: Verify silent NSIS install contents
         working-directory: petdeck
         shell: pwsh
         run: |
-          $exe = "src-tauri/target/release/node.exe"
-          if (-not (Test-Path $exe)) { throw "bundled node was not copied into the release output" }
-          $version = & $exe --version
-          if ($version -ne "v24.18.0") { throw "unexpected packaged node version: $version" }
-          Write-Host "packaged node: $version"
+          $ErrorActionPreference = 'Stop'
+          $node = 'src-tauri/target/release/node.exe'
+          if (-not (Test-Path $node -PathType Leaf)) { throw 'bundled node was not copied into the release output' }
+          $version = & $node --version
+          if ($version -ne 'v24.18.0') { throw "unexpected packaged node version: $version" }
+
+          $installers = @(Get-ChildItem 'src-tauri/target/release/bundle/nsis' -Filter '*_x64-setup.exe' -File)
+          if ($installers.Count -ne 1) { throw "expected one NSIS installer, found $($installers.Count)" }
+          $installDir = Join-Path $env:RUNNER_TEMP 'petdeck-nsis-ci'
+          Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          $process = Start-Process -FilePath $installers[0].FullName -ArgumentList @('/S', "/D=$installDir") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "silent NSIS install failed with exit code $($process.ExitCode)" }
+          foreach ($relative in @('petdeck.exe', 'node.exe', 'server/bridge.mjs', 'third-party/nodejs/LICENSE', 'third-party/nodejs/THIRD_PARTY_LICENSES')) {
+            $path = Join-Path $installDir $relative
+            if (-not (Test-Path $path -PathType Leaf)) { throw "installed content is missing: $relative" }
+          }
+          $installedNodeVersion = & (Join-Path $installDir 'node.exe') --version
+          if ($installedNodeVersion -ne 'v24.18.0') { throw "unexpected installed node version: $installedNodeVersion" }
+          Write-Host "silent NSIS install content check passed: $installDir"
