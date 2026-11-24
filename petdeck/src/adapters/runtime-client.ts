@@ -475,8 +475,10 @@ export async function abandonMerge(taskId: string): Promise<TaskDetail> {
   return request<TaskDetail>('/api/runtime/tasks/' + encodeURIComponent(taskId) + '/abandon-merge', jsonInit('POST', {}))
 }
 
-export async function cleanupTask(taskId: string): Promise<TaskDetail> {
-  return request<TaskDetail>('/api/runtime/tasks/' + encodeURIComponent(taskId) + '/cleanup', jsonInit('POST', {}))
+/** `discard` is only sent after the user has seen the unmerged-commit warning;
+ *  without it the runtime refuses to delete a branch that still owns commits. */
+export async function cleanupTask(taskId: string, { discard = false }: { discard?: boolean } = {}): Promise<TaskDetail> {
+  return request<TaskDetail>('/api/runtime/tasks/' + encodeURIComponent(taskId) + '/cleanup', jsonInit('POST', discard ? { discard: true } : {}))
 }
 
 export async function getMergePreview(taskId: string): Promise<MergePreview> {

@@ -331,6 +331,27 @@ test('runtime writes: JSON null is a completed 400 response, not an error sentin
   });
 });
 
+test('runtime cleanup: the discard flag reaches the runtime and defaults to false', async () => {
+  const calls = [];
+  const runtime = {
+    cleanupTask(taskId, options) {
+      calls.push({ taskId, options });
+      return { task: { id: taskId } };
+    },
+  };
+  await withApp({ runtime }, async ({ base }) => {
+    const post = (body) => fetch(`${base}/api/runtime/tasks/t1/cleanup`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    assert.equal((await post({})).status, 200);
+    assert.equal((await post({ discard: true })).status, 200);
+  });
+  assert.deepEqual(calls, [
+    { taskId: 't1', options: { discard: false } },
+    { taskId: 't1', options: { discard: true } },
+  ]);
+});
+
 test('request boundary: an unexpected async route failure resolves as 500', async () => {
   await withApp({ probe: { list: async () => { throw new Error('probe exploded'); } }, logger: { error() {} } }, async ({ base }) => {
     const res = await fetch(`${base}/api/health`);

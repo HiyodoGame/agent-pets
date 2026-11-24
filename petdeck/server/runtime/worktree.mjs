@@ -165,15 +165,45 @@ export async function mergePreview(repoPath, baseBranch, branch) {
   };
 }
 
+/** Tri-state containment check used by cleanup: true = the branch is already part
+ *  of base, false = it has commits of its own, null = Git could not answer (missing
+ *  base, broken repo). Only a definite false may block a destructive delete; an
+ *  unknown answer degrades to `git branch -d`, which refuses unmerged branches. */
+export async function branchMergeStatus(repoPath, branch, base) {
+  if (!branch) return { merged: true, commits: [] };
+  const ref = await gitResult(['show-ref', '--verify', '--quiet', 'refs/heads/' + branch], { cwd: repoPath });
+  if (ref.ok) {
+    if (!base) return { merged: null, commits: [] };
+  } else if (ref.code === 1 && !String(ref.stderr).trim()) {
+    return { merged: true, commits: [] }; // Git answered: the ref no longer exists
+  } else {
+    return { merged: null, commits: [] }; // Git could not answer; never assume "gone"
+  }
+  const out = await gitResult(['merge-base', '--is-ancestor', branch, base], { cwd: repoPath });
+  if (out.ok) return { merged: true, commits: [] };
+  // `--is-ancestor` answers "no" with a silent exit 1; anything else is an error
+  // and must not be mistaken for "unmerged".
+  if (out.code !== 1 || String(out.stderr).trim()) return { merged: null, commits: [] };
+  const log = await gitResult(['log', '--oneline', '--no-decorate', base + '..' + branch], { cwd: repoPath });
+  const commits = log.ok
+    ? log.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 20)
+    : [];
+  return { merged: false, commits };
+}
+
 export async function mergeBranch(repoPath, branch, message) {
   const out = await gitResult(['merge', '--no-ff', branch, '-m', message], { cwd: repoPath });
   if (!out.ok) throw new Error((out.stderr || out.stdout || 'git merge failed').trim().slice(0, 800));
   return { stdout: out.stdout.trim() };
 }
 
-export async function deleteBranch(repoPath, branch) {
-  const out = await gitResult(['branch', '-D', branch], { cwd: repoPath });
-  if (!out.ok) throw new Error('git branch -D failed: ' + (out.stderr || out.stdout).trim());
+/** Delete a task branch. `force` is reserved for a branch cleanup has proven to be
+ *  merged, or for a user who explicitly confirmed discarding unmerged commits:
+ *  without it Git's own `-d` refuses and the commits stay on disk. */
+export async function deleteBranch(repoPath, branch, { force = false } = {}) {
+  const flag = force ? '-D' : '-d';
+  const out = await gitResult(['branch', flag, branch], { cwd: repoPath });
+  if (!out.ok) throw new Error('git branch ' + flag + ' failed: ' + (out.stderr || out.stdout).trim());
   return true;
 }
 

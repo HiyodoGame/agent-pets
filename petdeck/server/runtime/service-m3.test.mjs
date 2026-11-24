@@ -221,8 +221,20 @@ test('m3: conflicting branches are reported and never merged', async (t) => {
   assert.equal(abandoned.task.status, 'completed');
   assert.equal(service.getTaskDetail(task.id).task.status, 'completed');
   assert.equal(fs.readFileSync(path.join(repo, 'conflict.txt'), 'utf8'), 'base\n');
-  await service.cleanupTask(task.id);
+  // Abandoning keeps the branch's own commit; cleanup must refuse to delete it and
+  // must leave both the worktree and the branch in place for a later merge/inspect.
+  await assert.rejects(
+    () => service.cleanupTask(task.id),
+    (error) => error.code === 'TASK_BRANCH_UNMERGED'
+      && error.status === 409
+      && error.details.branch === detail.task.branch
+      && error.details.commits.length === 1,
+  );
+  assert.equal(fs.existsSync(detail.task.worktree_path), true);
+  assert.notEqual(gitIn(repo, 'branch', '--list', detail.task.branch).trim(), '');
+  await service.cleanupTask(task.id, { discard: true });
   assert.equal(fs.existsSync(detail.task.worktree_path), false);
+  assert.equal(gitIn(repo, 'branch', '--list', detail.task.branch).trim(), '');
 });
 
 test('m3: rejecting onto another agent opens a new run without overwriting history', async (t) => {

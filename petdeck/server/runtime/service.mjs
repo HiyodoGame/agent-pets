@@ -13,7 +13,7 @@ import { createRuntimeEventBus } from './event-bus.mjs';
 import { createSupervisor } from './supervisor.mjs';
 import {
   createWorktree, currentBranch, statusPorcelain, statusPorcelainSync, commitAllSync, mergeTreeCheck,
-  mergePreview as buildMergePreview, mergeBranch, deleteBranch,
+  mergePreview as buildMergePreview, mergeBranch, deleteBranch, branchMergeStatus,
   disposeWorktree, isWorktreeRegistered,
 } from './worktree.mjs';
 import { detectDecision } from './decision-detector.mjs';
@@ -1674,13 +1674,28 @@ export function createRuntimeService({
     return getTaskDetail(taskId);
   }
 
-  async function cleanupTask(taskId) {
+  async function cleanupTask(taskId, { discard = false } = {}) {
     const task = requireTask(taskId);
     assertNotActive(taskId);
     if (!['merged', 'completed', 'stopped'].includes(task.status)) {
       throw new RuntimeError('TASK_NOT_CLEANABLE', 'task must be merged, completed or stopped before cleanup', 409);
     }
     const project = requireProject(task.project_id);
+    // Deleting a branch is destructive. Prove it is already contained in the base
+    // branch before removing anything; a refusal must leave the worktree and every
+    // commit untouched so the user can merge or inspect them. An abandoned merge or
+    // a stopped run still owns its commits, so only an explicit discard may drop them.
+    let mergeState = { merged: null, commits: [] };
+    let base = null;
+    if (task.branch && project.kind === 'git') {
+      base = mergeBase(project) || await currentBranch(project.path);
+      mergeState = await branchMergeStatus(project.path, task.branch, base);
+      if (mergeState.merged === false && discard !== true) {
+        const error = new RuntimeError('TASK_BRANCH_UNMERGED', 'branch has commits that are not merged into the base branch; pass discard to delete them', 409);
+        error.details = { branch: task.branch, base, commits: mergeState.commits };
+        throw error;
+      }
+    }
     const errors = [];
     let worktreeCleaned = false;
     if (task.worktree_path) {
@@ -1695,7 +1710,8 @@ export function createRuntimeService({
       }
     }
     if (task.branch) {
-      try { await deleteBranch(project.path, task.branch); }
+      const force = mergeState.merged === true || discard === true;
+      try { await deleteBranch(project.path, task.branch, { force }); }
       catch (e) {
         const message = e?.message ?? String(e);
         if (!/not found|no branch/i.test(message)) errors.push(message);

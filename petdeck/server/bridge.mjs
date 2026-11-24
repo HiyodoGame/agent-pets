@@ -762,7 +762,7 @@ export function createApp({
           if (action === 'authorize-merge') return json(res, req, 200, { ok: true, ...(await runtime.authorizeMerge(taskId)) });
           if (action === 'merge') return json(res, req, 200, { ok: true, ...(await runtime.mergeTask(taskId, { token: payload.token })) });
           if (action === 'abandon-merge') return json(res, req, 200, { ok: true, ...(await runtime.abandonMerge(taskId)) });
-          return json(res, req, 200, { ok: true, ...(await runtime.cleanupTask(taskId)) });
+          return json(res, req, 200, { ok: true, ...(await runtime.cleanupTask(taskId, { discard: payload.discard === true })) });
         } catch (e) { return runtimeFailure(res, req, e, logger); }
       }
       if (req.method === 'POST' && ['start', 'stop', 'resume', 'pause', 'continue'].includes(action)) {

@@ -8,6 +8,7 @@ import {
   listEvents,
   pauseTask,
   resumeTask,
+  RuntimeClientError,
   startTask,
   stopTask,
   subscribeTask,
@@ -239,6 +240,30 @@ export function TaskPage() {
     setMergeAuthorization(null)
   }
 
+  async function runCleanup(discard: boolean, request: TaskRequestStamp) {
+    try {
+      const next = await cleanupTask(taskId, { discard })
+      if (currentRequest(request)) applyDetail(next)
+    } catch (cause) {
+      if (!currentRequest(request)) return
+      // The runtime refuses to delete a branch that still owns unmerged commits.
+      // Show what would be lost and retry only after a second, explicit confirmation.
+      if (!discard && cause instanceof RuntimeClientError && cause.code === 'TASK_BRANCH_UNMERGED') {
+        const details = cause.details as { branch?: string; base?: string | null; commits?: string[] } | null
+        const commits = Array.isArray(details?.commits) ? details.commits : []
+        const proceed = window.confirm(t('console.cleanup.unmergedConfirm', {
+          branch: details?.branch ?? '',
+          base: details?.base ?? '—',
+          n: commits.length,
+          commits: commits.slice(0, 5).join('\n') || '—',
+        }))
+        if (proceed) return runCleanup(true, request)
+        return // cancelled: keep the worktree, branch and commits, report nothing
+      }
+      setActionError(t('console.cleanup.failed', { message: cause instanceof Error ? cause.message : String(cause) }))
+    }
+  }
+
   async function cleanup() {
     if (cleanupBusy || !canCleanup) return
     if (!window.confirm(t('console.cleanup.confirm'))) return
@@ -246,10 +271,7 @@ export function TaskPage() {
     setCleanupBusy(true)
     setActionError(null)
     try {
-      const next = await cleanupTask(taskId)
-      if (currentRequest(request)) applyDetail(next)
-    } catch (cause) {
-      if (currentRequest(request)) setActionError(t('console.cleanup.failed', { message: cause instanceof Error ? cause.message : String(cause) }))
+      await runCleanup(false, request)
     } finally {
       if (currentRequest(request)) setCleanupBusy(false)
     }

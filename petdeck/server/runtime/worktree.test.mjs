@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { cleanupWorktree, createWorktree, disposeWorktree, isWorktreeRegistered } from './worktree.mjs';
+import { branchMergeStatus, cleanupWorktree, createWorktree, deleteBranch, disposeWorktree, isWorktreeRegistered } from './worktree.mjs';
 
 function gitSync(args, cwd) {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
@@ -71,5 +71,44 @@ test('disposeWorktree: a Git query failure preserves the directory and propagate
       /git worktree list failed/,
     );
     assert.equal(fs.readFileSync(path.join(delivery, 'result.txt'), 'utf8'), 'must survive\n');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('branchMergeStatus: merged, unmerged and unknown bases stay distinguishable', async () => {
+  const { root, repo, worktrees } = makeRepo();
+  try {
+    const wt = await createWorktree({ repoPath: repo, projectName: 'p', taskId: 't3', baseRef: 'main', root: worktrees });
+    fs.writeFileSync(path.join(wt.path, 'b.txt'), 'b\n');
+    gitSync(['add', '.'], wt.path);
+    gitSync(['commit', '-m', 'work'], wt.path);
+
+    const unmerged = await branchMergeStatus(repo, wt.branch, 'main');
+    assert.equal(unmerged.merged, false);
+    assert.equal(unmerged.commits.length, 1);
+    // A missing base is unknown, never treated as "safe to delete".
+    assert.equal((await branchMergeStatus(repo, wt.branch, 'no-such-base')).merged, null);
+    // A branch Git cannot show is already gone; a broken query is unknown.
+    assert.equal((await branchMergeStatus(repo, 'no-such-branch', 'main')).merged, true);
+
+    gitSync(['merge', '--no-ff', wt.branch, '-m', 'merge'], repo);
+    assert.equal((await branchMergeStatus(repo, wt.branch, 'main')).merged, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('deleteBranch: safe delete refuses unmerged commits, force removes them', async () => {
+  const { root, repo, worktrees } = makeRepo();
+  try {
+    const wt = await createWorktree({ repoPath: repo, projectName: 'p', taskId: 't4', baseRef: 'main', root: worktrees });
+    fs.writeFileSync(path.join(wt.path, 'b.txt'), 'b\n');
+    gitSync(['add', '.'], wt.path);
+    gitSync(['commit', '-m', 'work'], wt.path);
+    await disposeWorktree({ repoPath: repo, worktreePath: wt.path });
+
+    const exists = () => spawnSync('git', ['show-ref', '--verify', '--quiet', 'refs/heads/' + wt.branch], { cwd: repo }).status === 0;
+    await assert.rejects(() => deleteBranch(repo, wt.branch));
+    assert.equal(exists(), true, 'safe delete must keep an unmerged branch');
+
+    await deleteBranch(repo, wt.branch, { force: true });
+    assert.equal(exists(), false);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
