@@ -23,3 +23,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-window-state = "2"
+
+[dev-dependencies]
+base64 = "0.23.1"
+minisign-verify = "0.3.0"

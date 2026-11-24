@@ -1,14 +1,14 @@
 use serde::Serialize;
 use serde_json::json;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
-use std::net::TcpListener;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
@@ -41,9 +41,133 @@ impl BridgeConfig {
     }
 }
 
+fn health_response_ok(response: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(response);
+    (text.starts_with("HTTP/1.1 200 ") || text.starts_with("HTTP/1.0 200 "))
+        && text.contains("\"ok\":true")
+}
+
+/// A successful spawn only proves Node started, not that the selected port is our
+/// bridge. Probe the unauthenticated health shape without sending the bearer token;
+/// on conflict/early exit the frontend receives an explicit error instead of a URL
+/// that could belong to another local process.
+fn wait_for_bridge_ready(config: &BridgeConfig, child: &mut Child) -> Result<(), String> {
+    let address = format!("127.0.0.1:{}", config.port())
+        .parse()
+        .map_err(|error| format!("invalid bridge address: {error}"))?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Err(format!("bridge exited before ready: {status}")),
+            Ok(None) => {}
+            Err(error) => return Err(format!("bridge status check failed: {error}")),
+        }
+        if let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(100)) {
+            let _ = stream.set_read_timeout(Some(Duration::from_millis(300)));
+            let _ = stream.set_write_timeout(Some(Duration::from_millis(300)));
+            let request = format!(
+                "GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+                config.port()
+            );
+            if stream.write_all(request.as_bytes()).is_ok() {
+                let mut response = Vec::new();
+                if stream.take(16 * 1024).read_to_end(&mut response).is_ok()
+                    && health_response_ok(&response)
+                {
+                    return Ok(());
+                }
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err("bridge health check timed out".to_string());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 pub struct BridgeState {
     config: Mutex<BridgeConfig>,
     child: Mutex<Option<Child>>,
+}
+
+#[cfg(windows)]
+fn windows_taskkill_command(pid: u32) -> Command {
+    let mut command = Command::new("taskkill");
+    command
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+fn wait_for_child(child: &mut Child, event: &str) {
+    if let Err(error) = child.wait() {
+        sidecar_note("error", event, json!({ "reason": error.to_string() }));
+    }
+}
+
+#[cfg(windows)]
+fn terminate_process_tree(child: &mut Child) {
+    let pid = child.id();
+    match child.try_wait() {
+        Ok(Some(_)) => return,
+        Ok(None) => {}
+        Err(error) => {
+            sidecar_note(
+                "warn",
+                "bridge.shutdown_status_failed",
+                json!({ "pid": pid, "reason": error.to_string() }),
+            );
+        }
+    }
+
+    match windows_taskkill_command(pid).output() {
+        Ok(output) if output.status.success() => {
+            // taskkill waits for its own work; wait() also reaps the Node handle.
+            wait_for_child(child, "bridge.shutdown_wait_failed");
+        }
+        result => {
+            // A process can exit between try_wait and taskkill. That is success,
+            // not a reason to report a tree-cleanup failure.
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            let (reason, stderr) = match result {
+                Ok(output) => (
+                    format!("taskkill exited with status {}", output.status),
+                    String::from_utf8_lossy(&output.stderr).trim().to_string(),
+                ),
+                Err(error) => (error.to_string(), String::new()),
+            };
+            sidecar_note(
+                "error",
+                "bridge.shutdown_tree_failed",
+                json!({ "pid": pid, "reason": reason, "stderr": stderr }),
+            );
+            // Preserve the old safety net if taskkill itself is unavailable.
+            if let Err(error) = child.kill() {
+                sidecar_note(
+                    "error",
+                    "bridge.shutdown_kill_failed",
+                    json!({ "pid": pid, "reason": error.to_string() }),
+                );
+            }
+            wait_for_child(child, "bridge.shutdown_wait_failed");
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn terminate_process_tree(child: &mut Child) {
+    // Children are not detached into a new process group, so killing only the
+    // direct child is the safe portable fallback (never kill the app's group).
+    if let Err(error) = child.kill() {
+        sidecar_note(
+            "error",
+            "bridge.shutdown_kill_failed",
+            json!({ "pid": child.id(), "reason": error.to_string() }),
+        );
+    }
+    wait_for_child(child, "bridge.shutdown_wait_failed");
 }
 
 impl BridgeState {
@@ -93,8 +217,7 @@ impl BridgeState {
         let mut guard = self.child.lock().unwrap_or_else(|error| error.into_inner());
         if let Some(mut child) = guard.take() {
             sidecar_note("info", "bridge.shutdown", json!({ "pid": child.id() }));
-            let _ = child.kill();
-            let _ = child.wait();
+            terminate_process_tree(&mut child);
         }
     }
 }
@@ -114,20 +237,37 @@ pub fn bridge_script_path() -> PathBuf {
 
 fn node_compatible_path(path: PathBuf) -> PathBuf {
     #[cfg(windows)]
-    if let Some(path) = path.to_string_lossy().strip_prefix("\\\\?\\") {
-        return PathBuf::from(path);
+    if let Some(path) = path.to_str() {
+        if let Some(unc) = path.strip_prefix("\\\\?\\UNC\\") {
+            return PathBuf::from(format!("\\\\{unc}"));
+        }
+        if let Some(local) = path.strip_prefix("\\\\?\\") {
+            return PathBuf::from(local);
+        }
     }
     path
 }
 
+fn checked_bridge_script(path: PathBuf) -> Result<PathBuf, String> {
+    let path = node_compatible_path(path);
+    let metadata = fs::metadata(&path)
+        .map_err(|error| format!("bridge script {}: {error}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("bridge script {} is not a file", path.display()));
+    }
+    File::open(&path)
+        .map_err(|error| format!("bridge script {} is not readable: {error}", path.display()))?;
+    Ok(path)
+}
+
 fn resolve_bridge_script(app: &AppHandle) -> Result<PathBuf, String> {
     if cfg!(debug_assertions) {
-        return Ok(node_compatible_path(bridge_script_path()));
+        return checked_bridge_script(bridge_script_path());
     }
     app.path()
         .resource_dir()
-        .map(|path| node_compatible_path(path.join("server").join("bridge.mjs")))
         .map_err(|error| error.to_string())
+        .and_then(|path| checked_bridge_script(path.join("server").join("bridge.mjs")))
 }
 
 fn node_version_supported(version: &str) -> bool {
@@ -517,9 +657,30 @@ pub fn start_bridge(app: &AppHandle) -> BridgeState {
                 #[cfg(windows)]
                 command.creation_flags(CREATE_NO_WINDOW);
                 match command.spawn() {
-                    Ok(child) => {
+                    Ok(mut child) => {
                         sidecar_note("info", "bridge.spawned", json!({ "pid": child.id() }));
-                        Some(child)
+                        match wait_for_bridge_ready(&config, &mut child) {
+                            Ok(()) => {
+                                sidecar_note("info", "bridge.ready", json!({ "pid": child.id() }));
+                                Some(child)
+                            }
+                            Err(reason) => {
+                                sidecar_note(
+                                    "error",
+                                    "bridge.ready_failed",
+                                    json!({ "reason": reason }),
+                                );
+                                config.error = Some(
+                                    "本地 bridge 未能通过启动检查，请查看日志后重启本地服务。"
+                                        .to_string(),
+                                );
+                                // Do not let the frontend send the fresh token to a process
+                                // that won the ephemeral-port race.
+                                config.url = "http://127.0.0.1:0".to_string();
+                                terminate_process_tree(&mut child);
+                                None
+                            }
+                        }
                     }
                     Err(error) => {
                         sidecar_note(
@@ -563,9 +724,86 @@ mod tests {
     }
 
     #[test]
+    fn bridge_ready_requires_http_success_and_health_payload() {
+        assert!(health_response_ok(
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"ok\":true}"
+        ));
+        assert!(!health_response_ok(
+            b"HTTP/1.1 503 Service Unavailable\r\n\r\n{\"ok\":true}"
+        ));
+        assert!(!health_response_ok(
+            b"HTTP/1.1 200 OK\r\n\r\n{\"ok\":false}"
+        ));
+        assert!(!health_response_ok(b"HTTP/1.1 200 OK\r\n\r\nnot json"));
+    }
+
+    #[test]
+    #[cfg(windows)]
     fn node_script_path_does_not_use_windows_verbatim_prefix() {
         let path = node_compatible_path(PathBuf::from("\\\\?\\F:\\project\\server\\bridge.mjs"));
         assert_eq!(path, PathBuf::from("F:\\project\\server\\bridge.mjs"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn node_script_path_converts_verbatim_unc_to_standard_unc() {
+        let path = node_compatible_path(PathBuf::from(
+            "\\\\?\\UNC\\server\\share\\project\\server\\bridge.mjs",
+        ));
+        assert_eq!(
+            path,
+            PathBuf::from("\\\\server\\share\\project\\server\\bridge.mjs")
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn node_script_path_leaves_normal_paths_unchanged() {
+        let local = PathBuf::from("F:\\project\\server\\bridge.mjs");
+        let unc = PathBuf::from("\\\\server\\share\\bridge.mjs");
+        assert_eq!(node_compatible_path(local.clone()), local);
+        assert_eq!(node_compatible_path(unc.clone()), unc);
+    }
+
+    #[test]
+    fn bridge_script_must_exist_and_be_a_readable_file() {
+        let dir = temp_node_dir("bridge-script");
+        let script = dir.join("bridge.mjs");
+        let missing = checked_bridge_script(script.clone()).unwrap_err();
+        assert!(missing.contains("bridge script"), "{missing}");
+
+        fs::write(&script, "// test bridge").unwrap();
+        assert_eq!(
+            checked_bridge_script(script).unwrap(),
+            dir.join("bridge.mjs")
+        );
+        let directory = checked_bridge_script(dir.clone()).unwrap_err();
+        assert!(directory.contains("is not a file"), "{directory}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_shutdown_kills_the_entire_process_tree() {
+        let command = windows_taskkill_command(4242);
+        assert_eq!(command.get_program(), "taskkill");
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args, ["/PID", "4242", "/T", "/F"]);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_shutdown_waits_for_the_direct_child() {
+        let mut child = Command::new("cmd")
+            .args(["/C", "ping 127.0.0.1 -n 30 > nul"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .unwrap();
+        terminate_process_tree(&mut child);
+        assert!(child.try_wait().unwrap().is_some());
     }
 
     #[test]
