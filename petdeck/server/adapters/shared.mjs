@@ -75,22 +75,31 @@ export function headLines(file, n = 8, maxBytes = 1024 * 1024) {
 }
 
 /**
- * Directory-entry cache: dir path -> { mtimeMs, files, subdirs }.
- * A directory whose mtime is unchanged skips readdirSync; its cached subdir list
- * still drives descent so every level is mtime-validated (a new file in a leaf
- * dir bumps that leaf's mtime even when ancestors are unchanged). Candidate files
+ * Directory-entry cache: dir path -> { mtimeMs, files, subdirs, checkedAt }.
+ * Unchanged mtime skips readdir only inside a short 2s coalescing window. NTFS can
+ * leave directory mtime in the same time slice after file creation, so an immortal
+ * mtime-only cache would hide a new session forever; the next 5s poll revalidates.
+ * Cached subdirs still drive descent inside that short window. Candidate files
  * are ALWAYS stat-ed below, so content/mtime changes and vanishes remain visible
  * even when no directory mtime moved. Bounded: cleared wholesale past the cap.
  */
 const dirCache = new Map();
 const DIR_CACHE_MAX = 2000;
+const DIR_CACHE_TTL_MS = 2000;
+const SOURCE_READ_FAULTS = new Set(['EACCES', 'EPERM', 'EIO', 'EBUSY', 'EMFILE', 'ENFILE']);
+
+/** Corrupt session content may be skipped; real filesystem/I/O failures must reach
+ *  freshness.mjs so last-good is marked stale instead of replaced by an empty list. */
+export function rethrowReadFault(error) {
+  if (SOURCE_READ_FAULTS.has(error?.code)) throw error;
+}
 
 /**
  * Walk dir, collect files matching pred, newest-first, up to limit.
  * Base dir missing (ENOENT) => [] (adapter source not installed — legit empty);
  * a real fault (EACCES/ENOTDIR/...) => throw so the source is marked stale, not empty.
  */
-export function latestFiles(dir, pred, limit = 20) {
+export function latestFiles(dir, pred, limit = 20, now = Date.now()) {
   if (dirCache.size > DIR_CACHE_MAX) dirCache.clear();
   const candidates = [];
   const walk = (d) => {
@@ -103,7 +112,8 @@ export function latestFiles(dir, pred, limit = 20) {
       throw e; // EACCES/ENOTDIR/etc => genuine failure, must surface
     }
     const cached = dirCache.get(d);
-    if (cached && cached.mtimeMs === st.mtimeMs) {
+    const cacheAge = cached ? now - cached.checkedAt : Infinity;
+    if (cached && cached.mtimeMs === st.mtimeMs && cacheAge >= 0 && cacheAge < DIR_CACHE_TTL_MS) {
       candidates.push(...cached.files);
       for (const sub of cached.subdirs) walk(sub);
       return;
@@ -122,12 +132,16 @@ export function latestFiles(dir, pred, limit = 20) {
       if (en.isDirectory()) { subdirs.push(p); walk(p); }
       else if (pred(en.name)) { files.push(p); candidates.push(p); }
     }
-    dirCache.set(d, { mtimeMs: st.mtimeMs, files, subdirs });
+    dirCache.set(d, { mtimeMs: st.mtimeMs, files, subdirs, checkedAt: now });
   };
   walk(dir);
   const found = [];
   for (const p of candidates) {
-    try { found.push({ p, mtime: fs.statSync(p).mtimeMs }); } catch { /* vanished mid-walk */ }
+    try { found.push({ p, mtime: fs.statSync(p).mtimeMs }); }
+    catch (error) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
+      // Vanished mid-walk: a normal filesystem race, not a fresh empty source.
+    }
   }
   // newest-first；mtime 打平时按路径升序 tiebreak——排序必须跨平台确定（CI 的 ext4
   // 与本地 NTFS 的 mtime 粒度不同，靠「恰好打平 + 稳定排序」的断言会抖）。

@@ -20,8 +20,44 @@
 import { spawn } from 'node:child_process';
 import { accessSync, constants as FS, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 const MAX_OUTPUT = 1024 * 1024; // keep the tail of each stream, drop older bytes
+
+// Cap bytes before decoding, then use StringDecoder so neither transport chunk
+// boundaries nor the tail cut can split a UTF-8 sequence into mojibake. A cut that
+// starts on continuation bytes drops only that incomplete leading character.
+function utf8Tail() {
+  let chunks = [];
+  let size = 0;
+  return {
+    push(value) {
+      const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+      if (!chunk.length) return;
+      chunks.push(chunk);
+      size += chunk.length;
+      while (size > MAX_OUTPUT && chunks.length) {
+        const excess = size - MAX_OUTPUT;
+        const first = chunks[0];
+        if (first.length <= excess) {
+          chunks.shift();
+          size -= first.length;
+        } else {
+          chunks[0] = first.subarray(excess);
+          size = MAX_OUTPUT;
+        }
+      }
+    },
+    read() {
+      if (!size) return '';
+      const bytes = chunks.length === 1 ? chunks[0] : Buffer.concat(chunks, size);
+      let start = 0;
+      while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
+      const decoder = new StringDecoder('utf8');
+      return decoder.write(bytes.subarray(start)) + decoder.end();
+    },
+  };
+}
 const WIN_CMD_EXTS = new Set(['.cmd', '.bat']);
 const SHIM_MAX_BYTES = 64 * 1024;
 const DP0_REF = /%[~]?dp0%?/i;
@@ -139,17 +175,17 @@ export function runCli(cmd, args = [], opts = {}) {
     } catch (e) {
       return finish({ status: -1, stdout: '', stderr: String(e?.message ?? e), error: true, summary: spawnSummary(e) });
     }
-    let stdout = '';
-    let stderr = '';
+    const stdout = utf8Tail();
+    const stderr = utf8Tail();
     timer = setTimeout(() => {
       try { child.kill('SIGKILL'); } catch { /* ignore */ }
-      finish({ status: -1, stdout, stderr, error: true, summary: 'timeout' });
+      finish({ status: -1, stdout: stdout.read(), stderr: stderr.read(), error: true, summary: 'timeout' });
     }, timeout);
-    child.stdout?.on('data', (d) => { stdout = (stdout + d).slice(-MAX_OUTPUT); });
-    child.stderr?.on('data', (d) => { stderr = (stderr + d).slice(-MAX_OUTPUT); });
-    child.on('error', (e) => finish({ status: -1, stdout, stderr, error: true, summary: spawnSummary(e) }));
+    child.stdout?.on('data', (d) => stdout.push(d));
+    child.stderr?.on('data', (d) => stderr.push(d));
+    child.on('error', (e) => finish({ status: -1, stdout: stdout.read(), stderr: stderr.read(), error: true, summary: spawnSummary(e) }));
     child.on('close', (code) => finish({
-      status: code ?? -1, stdout, stderr, error: false,
+      status: code ?? -1, stdout: stdout.read(), stderr: stderr.read(), error: false,
       summary: code === 0 ? '' : 'exit:' + (code ?? -1),
     }));
     if (child.stdin) {

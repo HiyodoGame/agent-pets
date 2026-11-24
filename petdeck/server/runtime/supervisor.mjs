@@ -10,13 +10,20 @@ import { suspendProcessTree, resumeProcessTree } from './process-control.mjs';
 const MAX_PENDING_LINE = 2 * 1024 * 1024;
 const MAX_STDERR = 32 * 1024;
 
-export function createSupervisor({ onEvent = () => {}, onExit = () => {}, platform = process.platform, spawnImpl = spawn, env = process.env, killTimeoutMs = 5000, logger = console, suspendImpl = suspendProcessTree, resumeImpl = resumeProcessTree } = {}) {
+export function createSupervisor({ onEvent = () => {}, onExit = () => {}, platform = process.platform, spawnImpl = spawn, env = process.env, killTimeoutMs = 5000, logger = console, suspendImpl = suspendProcessTree, resumeImpl = resumeProcessTree, killGroupImpl = (pid, signal) => process.kill(-pid, signal) } = {}) {
   const handles = new Map();
 
   function killTree(pid, child) {
     return new Promise((resolve) => {
       if (!pid || platform !== 'win32') {
-        try { child.kill('SIGTERM'); } catch { /* already gone */ }
+        // POSIX children are started in their own process group. Signal the group
+        // so Agent-spawned tools cannot outlive the direct CLI process.
+        if (pid && platform !== 'win32') {
+          try { killGroupImpl(pid, 'SIGTERM'); }
+          catch { try { child.kill('SIGTERM'); } catch { /* already gone */ } }
+        } else {
+          try { child.kill('SIGTERM'); } catch { /* already gone */ }
+        }
         resolve();
         return;
       }
@@ -36,7 +43,10 @@ export function createSupervisor({ onEvent = () => {}, onExit = () => {}, platfo
 
   function start({ runId, taskId, command, args = [], cwd, env: extraEnv = {}, parseLine }) {
     if (handles.has(runId)) throw new Error('run already started');
-    const mergedEnv = { ...env, ...extraEnv };
+    // spawn(cwd) changes the OS working directory but does not rewrite inherited
+    // shell variables. OpenCode on Windows trusts PWD; a stale value from the shell
+    // that launched PetDeck otherwise redirects tools into that shell's repository.
+    const mergedEnv = { ...env, ...extraEnv, PWD: cwd, OLDPWD: cwd };
     const target = resolveExecutable(command, { platform, env: mergedEnv });
     // preface is the shim's own argument (a node-script entry), never user text.
     const preface = target.preface ?? [];
@@ -49,7 +59,13 @@ export function createSupervisor({ onEvent = () => {}, onExit = () => {}, platfo
 
     let child;
     try {
-      child = spawnImpl(spawnCmd, spawnArgs, { cwd, env: mergedEnv, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawnImpl(spawnCmd, spawnArgs, {
+        cwd, env: mergedEnv, shell: false, windowsHide: true,
+        // A POSIX process group gives stopAll/timeout one boundary for the CLI and
+        // every tool descendant. Windows uses taskkill /T below instead.
+        detached: platform !== 'win32',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
     } catch (e) {
       const code = typeof e?.code === 'string' ? e.code : 'spawn-error';
       logger.warn?.('proc.spawn_failed', { runId, taskId, errCode: code });
@@ -212,6 +228,9 @@ export function createSupervisor({ onEvent = () => {}, onExit = () => {}, platfo
         stopResolve = resolve;
         killTree(h.pid, child).catch(() => {});
         const timer = setTimeout(() => {
+          if (platform !== 'win32' && h.pid) {
+            try { killGroupImpl(h.pid, 'SIGKILL'); } catch { /* group already gone */ }
+          }
           try { child.kill('SIGKILL'); } catch { /* ignore */ }
           resolve();
         }, killTimeoutMs);

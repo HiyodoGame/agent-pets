@@ -107,7 +107,7 @@ async function waitFor(fn, timeoutMs = 3000) {
 
 test('runtime bridge: register -> task -> start -> stream -> complete -> resume', async (t) => {
   const calls = [];
-  const { api, runtime, projectDir, dataDir } = await withBridge(t, {
+  const { api, projectDir, dataDir } = await withBridge(t, {
     script({ hooks, runId, taskId, args }) {
       calls.push({ runId, taskId, args });
       setTimeout(() => {
@@ -314,6 +314,7 @@ test('runtime bridge: CORS preflight advertises every method the console writes 
     assert.ok(methods.includes(method), 'preflight must allow ' + method + ', got ' + methods.join(','));
   }
   assert.match(preflight.headers.get('access-control-allow-headers') || '', /x-petdeck-token/i);
+  assert.match(preflight.headers.get('access-control-allow-headers') || '', /last-event-id/i);
 });
 
 test('runtime bridge: auth, unknown ids, and unavailable runtime stay explicit', async (t) => {

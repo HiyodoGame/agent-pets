@@ -8,6 +8,8 @@ const STRONG_HINT = /(?:[?\uFF1F]|\u8BF7\u9009\u62E9|\u8BF7\u786E\u8BA4|\u9700\u
 
 function cleanFragment(line) {
   return String(line)
+    // Intentional: remove terminal ANSI color controls from Agent output.
+    // oxlint-disable-next-line no-control-regex
     .replace(/\u001b\[[0-9;]*m/g, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/`([^`]+)`/g, '$1')
@@ -60,7 +62,7 @@ export function detectDecision(text) {
     if (isOption.has(i)) continue;
     const line = stripTrailing(cleanLine(tail[i]));
     if (!line || line.length < 2 || line.length > 500) continue;
-    if (/^[{}\[\]]$/.test(line)) continue;
+    if (line.length === 1 && '{}[]'.includes(line)) continue;
     if (QUESTION_HINT.test(line)) candidates.push({ i, line });
   }
   if (!candidates.length) return null;

@@ -5,12 +5,30 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { parseRollout, inject as codexInject } from './adapters/codex.mjs';
 import { parseClaude, inject as claudeInject } from './adapters/claude.mjs';
-import { parseRun, mapServeStatus, parseServePayload, observe as opencodeObserve, inject as opencodeInject, applyExecutionEvent, resetOpenCodeRuntime } from './adapters/opencode.mjs';
+import { parseRun, mapServeStatus, parseServePayload, observe as opencodeObserve, inject as opencodeInject, applyExecutionEvent, resetOpenCodeRuntime, startEventWatcher, stopEventWatcher } from './adapters/opencode.mjs';
 import { TIER, canInject, injectDecision, handoffPackage } from './tiers.mjs';
 import { createBus, toPetEventType } from './bus.mjs';
-import { createApp } from './bridge.mjs';
+import { createApp, writeSseFrame } from './bridge.mjs';
 
 const J = (o) => JSON.stringify(o);
+
+test('SSE slow consumers are disconnected at the bounded response queue', () => {
+  const response = {
+    writableLength: 0,
+    writableEnded: false,
+    destroyed: false,
+    writes: 0,
+    write() { this.writes++; this.writableLength += 128; return true; },
+    destroy() { this.destroyed = true; },
+  };
+  assert.equal(writeSseFrame(response, 'data: ok\n\n', 64), false);
+  assert.equal(response.destroyed, true);
+  assert.equal(response.writes, 1);
+
+  const healthy = { writableLength: 0, writableEnded: false, destroyed: false, write() { return false; }, destroy() { this.destroyed = true; } };
+  assert.equal(writeSseFrame(healthy, ': keep-alive\n\n', 1024), true, 'write backpressure alone is not an error while the queue remains bounded');
+  assert.equal(healthy.destroyed, false);
+});
 
 // 真实 rollout 形状（2026-11-20 本机实测）：用户提问不是 {type:'user_message'}，
 // 而是 event_msg/item_completed/item.type==='UserMessage'；旧的 fixture 按想象写，
@@ -217,6 +235,37 @@ test('opencode execution events: explicit terminal outcome wins over stale runni
   applyExecutionEvent({ type: 'session.execution.started', data: { sessionID: 'ses_x' } });
   assert.equal(mapServeStatus({ id: 'ses_x', outcome: 'succeeded' }), 'done');
   resetOpenCodeRuntime();
+});
+
+test('opencode watcher: stop aborts the active SSE read and leaves no retry pending', async (t) => {
+  resetOpenCodeRuntime();
+  t.after(resetOpenCodeRuntime);
+  let markStarted;
+  const started = new Promise((resolve) => { markStarted = resolve; });
+  let streamSignal;
+  const run = async (_cmd, args) => ({
+    status: 0,
+    stdout: args[1] === 'status' ? 'http://127.0.0.1:4096' : 'password',
+  });
+  const fetchImpl = async (_url, { signal }) => {
+    streamSignal = signal;
+    markStarted();
+    return {
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: () => new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+          }),
+        }),
+      },
+    };
+  };
+  startEventWatcher({ run, fetchImpl, retryMs: 60000 });
+  await started;
+  stopEventWatcher();
+  assert.equal(streamSignal.aborted, true);
+  await new Promise((resolve) => setImmediate(resolve));
 });
 
 test('opencode v2 observe: unwraps {data}, maps outcome, uses CLI discovery', async () => {

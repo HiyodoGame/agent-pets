@@ -92,6 +92,33 @@ test('runCli: stdout and stderr each retain only the last 1 MiB', async () => {
   assert.equal(r.stdout.length, 1024 * 1024);
   assert.equal(r.stderr.length, 1024 * 1024);
 });
+test('runCli: UTF-8 characters split across chunks decode without mojibake', async () => {
+  const { impl, calls } = fakeSpawn({ keepOpen: true });
+  const p = runCli('codex', ['exec'], { spawnImpl: impl });
+  const child = calls[0].child;
+  const bytes = Buffer.from('前汉后');
+  for (const byte of bytes) child.stdout.emit('data', Buffer.from([byte]));
+  child.emit('close', 0);
+  const r = await p;
+  assert.equal(r.stdout, '前汉后');
+  assert.equal(r.stdout.includes('�'), false);
+});
+
+test('runCli: byte-cap truncation drops an incomplete leading UTF-8 character', async () => {
+  const { impl, calls } = fakeSpawn({ keepOpen: true });
+  const p = runCli('codex', ['exec'], { spawnImpl: impl });
+  const child = calls[0].child;
+  const bytes = Buffer.from('界'.repeat(400000));
+  for (let offset = 0; offset < bytes.length; offset += 1021) {
+    child.stdout.emit('data', bytes.subarray(offset, Math.min(bytes.length, offset + 1021)));
+  }
+  child.emit('close', 0);
+  const r = await p;
+  assert.ok(Buffer.byteLength(r.stdout, 'utf8') <= 1024 * 1024);
+  assert.equal(r.stdout.includes('�'), false);
+  assert.equal(r.stdout, '界'.repeat(r.stdout.length));
+  assert.equal(r.stdout.length, 349525);
+});
 
 
 // --- Task 7 (review fix): summary is a STRUCTURED outcome code only ---
