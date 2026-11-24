@@ -22,6 +22,11 @@
 - **跨平台与崩溃恢复修复**：观察会话与 Kimi Code v2 的项目名在 Windows 路径被 POSIX 进程读取时仍取最后一级目录；Windows CLI shim 解析在非 Windows 主机（CI）上也能还原 `%dp0%` 路径；同一毫秒内的两次崩溃报告不再互相覆盖；崩溃恢复启动清理残留 worktree 改读 `projects.path`（此前读取不存在的 `project_path`，导致残留目录不会被清理）；判断 worktree 是否仍被 git 注册前先解析真实路径，兼容 Windows 8.3 短路径。
 - **真机验收修复**：诊断包脱敏不再把 `secrets`、`apiKeySet` 这类元数据键当成凭据（只按 `token/password/apikey/privatekey/secret` 等后缀与 `authorization/credential` 判断，对象不再取 `[object Object]` 末四位）；内置 Node 缺失时 `bridge_config` 不再自动反复重启，只有用户显式「重启本地服务」才重试；本地服务重启/重连后广播配置变更，数据层丢弃指向旧端口/旧 token 的 EventSource 并立即重订阅；设置页运行状态卡在重启后按 400 ms 重试 10 次，不再停在「Failed to fetch」；生产包通过 `PETDECK_APP_VERSION` 注入版本，`/api/health` 与 bridge 日志不再出现 `version:null`；「最早一份」存储文案不再显示字面量 `{when}`。
 - **W8 从零安装验收**：按用户手册用最新 NSIS（31,109,728 B）在隔离目录静默安装、独立 `APPDATA`/`LOCALAPPDATA` 首启，走通登记项目→新建任务→opencode 运行→验收→合并→清理→生成日报→导出诊断包；任务 21 s、产物 w8.txt 21 B、合并 commit `2a3f086`、清理后只剩 master，诊断包 6 文件且无密钥/prompt。期间修复界面反复离线：bridge 每 5 s 的观察扫描会同步占住事件循环 1.5–3.0 s，与 health tick 相位锁定，`fetchHealth` 超时由 1.5 s 放宽到 5 s，重建后 32 s 内 health 全部 200、顶栏保持「实时」。
+- **密钥与交付保护**：自定义经理端点不再隐式继承并外发 `OPENAI_API_KEY`；Git worktree 查询失败不再被当作未注册目录递归删除；自动提交失败会阻断验收并保留交付，含未提交文件的任务不能验收、合并或清理；merge 与 reject/重新授权/放弃合并串行化；工件路径增加 realpath 边界，阻止符号链接或 junction 指向工作区外。
+- **运行时与 bridge 可靠性**：过期决策不再接受迟到答案并启动新 run；最新 run 已完成但进程退出前崩溃的任务恢复为待验收而非已停止；Windows 退出/重启清理完整进程树，POSIX supervisor 使用进程组终止；bridge 正确关闭 SSE、轮询和 OpenCode watcher，任务 SSE 支持多页追赶、`Last-Event-ID` 与慢消费者上限；非对象 JSON 返回 400，CLI 输出跨 chunk UTF-8 不再乱码；远程 SSH 按主机保留 stale，远程会话重新进入只读观察面板。生产真机还发现 OpenCode 在 Windows 会信任继承的 `PWD` 而非仅使用 spawn `cwd`：从仓库目录启动 PetDeck 时工具可能写回该仓库；supervisor 现在统一同步 `PWD/OLDPWD` 到任务 worktree，并用真实 CLI 只读 `pwd` 探针验证修复前后目录。
+- **前端状态与交互**：任务详情、历史分页和轮询增加 task 代次与防重入，旧响应不能串入新任务；DND 同批多个拍板请求逐条补提示；当前注入契约不支持原会话 resume 时明确显示为「新接力」而不污染原线程；合并 preview 未就绪不可授权，任务切换隔离 token/preview；创建中的对话框不能伪装取消；面板隐藏/归档选择本地持久化，复制失败、清理确认与输入标签补齐。
+- **桌面与发布链路**：发布版 bridge 脚本缺失在 spawn 前明确报错，Windows verbatim UNC 路径正确转换，启动增加健康就绪检查，生产 WebView 启用严格 CSP；Release 改为版本门禁→本地 CLI 构建签名→安装包内容与 Minisign 验签→本地 manifest 校验→上传草稿，人工核对后才公开发布，Desktop CI 增加真实 NSIS 静默安装内容检查。
+- **依赖与首屏性能**：通过 lockfile override 将 `diff` / `katex` 提升到安全修补版本；控制台改为路由级按需加载，避免手工 vendor 分组造成的生产初始化回归。
 
 
 ### 文档
