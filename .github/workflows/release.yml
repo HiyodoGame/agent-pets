@@ -3,6 +3,9 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Manual dry run: exercises the whole build/sign/verify chain on a branch without
+  # creating or touching any GitHub Release. Only a v* tag push can publish a draft.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -17,6 +20,7 @@ jobs:
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+          IS_TAG_PUSH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
         run: |
           $ErrorActionPreference = 'Stop'
           $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
@@ -28,8 +32,12 @@ jobs:
           if (@($versions | Select-Object -Unique).Count -ne 1) {
             throw "version mismatch: package/Cargo.lock/Cargo.toml/Tauri = $($versions -join ', ')"
           }
-          if ($env:RELEASE_TAG -ne "v$packageVersion") {
-            throw "tag $env:RELEASE_TAG does not match package version $packageVersion"
+          if ($env:IS_TAG_PUSH -eq 'true') {
+            if ($env:RELEASE_TAG -ne "v$packageVersion") {
+              throw "tag $env:RELEASE_TAG does not match package version $packageVersion"
+            }
+          } else {
+            Write-Host "dry run on $env:RELEASE_TAG: four-way version agreement checked, tag comparison skipped"
           }
           Write-Host "release version gate: $packageVersion"
       - uses: actions/setup-node@v4
@@ -86,6 +94,7 @@ jobs:
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+          IS_TAG_PUSH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
         run: |
           $ErrorActionPreference = 'Stop'
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
@@ -120,7 +129,10 @@ jobs:
           if ($installedNodeVersion -ne 'v24.18.0') { throw "unexpected signed-install Node version: $installedNodeVersion" }
 
           $assetName = [uri]::EscapeDataString($installer.Name)
-          $downloadUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:RELEASE_TAG/$assetName"
+          # A dry run has no tag; use the tag this version would be released under so
+          # the manifest is byte-for-byte the shape a real release produces.
+          $tag = if ($env:IS_TAG_PUSH -eq 'true') { $env:RELEASE_TAG } else { "v$version" }
+          $downloadUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$assetName"
           $platform = [ordered]@{ url = $downloadUrl; signature = $signature }
           $manifest = [ordered]@{
             version = $version
@@ -139,6 +151,7 @@ jobs:
       # Nothing is publicly released above this step. A failed rerun can resume
       # uploading to the same draft, but can never overwrite a public release.
       - name: Create or update draft GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         working-directory: petdeck
         shell: pwsh
         env:
