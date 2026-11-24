@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { latestFiles, safeJson } from './shared.mjs';
+import { latestFiles, rethrowReadFault, safeJson } from './shared.mjs';
 
 export const id = 'gemini';
 export const name = 'Gemini CLI';
@@ -85,7 +85,8 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
   for (const f of files) {
     if (path.basename(path.dirname(f)) !== 'chats') continue; // only <project>/chats/<file>
     let text, st;
-    try { text = fs.readFileSync(f, 'utf8'); st = fs.statSync(f); } catch { continue; }
+    try { text = fs.readFileSync(f, 'utf8'); st = fs.statSync(f); }
+    catch (error) { rethrowReadFault(error); continue; }
     const r = parseGeminiSession(text);
     if (r.kind === 'subagent') continue;
     if (r.status === 'unknown' && !r.lastMessage && !r.title) continue;

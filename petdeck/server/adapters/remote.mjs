@@ -41,27 +41,47 @@ export function parseProbeRows(stdout, host) {
     }))
 }
 
-/** Observe all configured hosts. One unreachable host only drops that host's rows;
- *  if every host fails, throw so the bridge keeps the previous stale snapshot. */
+/** Observe all configured hosts. Partial failures carry the successful rows and host
+ *  partitions to freshness.mjs: healthy hosts advance, failed hosts keep their own
+ *  last-good rows as stale. Only a total failure throws an ordinary source error. */
 export async function observe({ hosts = parseHosts(), run = runCli } = {}) {
   if (hosts.length === 0) return []
   const rows = []
-  let ok = 0
+  const okHosts = []
+  const failedHosts = []
   for (const host of hosts) {
-    const result = await run('ssh', [
-      '-T',
-      '-o', 'BatchMode=yes',
-      '-o', 'ConnectTimeout=8',
-      '-o', 'StrictHostKeyChecking=yes',
-      '-o', 'LogLevel=ERROR',
-      host, 'node', '-',
-    ], { input: PROBE, timeout: 25000 })
-    if (result.status !== 0) continue
-    ok++
-    rows.push(...parseProbeRows(result.stdout, host))
+    try {
+      const result = await run('ssh', [
+        '-T',
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=8',
+        '-o', 'StrictHostKeyChecking=yes',
+        '-o', 'LogLevel=ERROR',
+        host, 'node', '-',
+      ], { input: PROBE, timeout: 25000 })
+      if (result.status !== 0) { failedHosts.push(host); continue }
+      // A successful SSH transport with malformed probe output is not a healthy
+      // empty observation; treating it as [] would erase that host's last-good rows.
+      let payload
+      try { payload = JSON.parse(result.stdout) } catch { payload = null }
+      if (!Array.isArray(payload)) { failedHosts.push(host); continue }
+      okHosts.push(host)
+      rows.push(...parseProbeRows(result.stdout, host))
+    } catch {
+      failedHosts.push(host)
+    }
   }
-  if (ok === 0) throw new Error('remote observe failed')
-  return rows.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_ROWS)
+  if (okHosts.length === 0) throw new Error('remote observe failed')
+  const freshRows = rows.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_ROWS)
+  if (failedHosts.length) {
+    const error = new Error('remote observe partially failed')
+    error.code = 'REMOTE_PARTIAL_FAILURE'
+    error.partialRows = freshRows
+    error.okHosts = okHosts
+    error.failedHosts = failedHosts
+    throw error
+  }
+  return freshRows
 }
 
 export function inject() {

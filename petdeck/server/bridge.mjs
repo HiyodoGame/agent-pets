@@ -47,6 +47,21 @@ export function resolveAppVersion(env = process.env) {
 const APP_VERSION = resolveAppVersion();
 const DEFAULT_ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '::1'];
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://tauri.localhost', 'http://localhost:5183'];
+// A parsed JSON value is never also the error sentinel. In particular, JSON null is
+// rejected as a non-object body rather than being mistaken for an already-sent error.
+const JSON_WRITE_ERROR = Symbol('json-write-error');
+export const MAX_SSE_BUFFER_BYTES = 1024 * 1024;
+
+/** Bounded slow-consumer policy: persisted task events can be replayed from the
+ *  last delivered id after reconnect, so disconnect instead of growing Node's
+ *  response queue without limit. A false return requires caller-side cleanup. */
+export function writeSseFrame(res, frame, maxBytes = MAX_SSE_BUFFER_BYTES) {
+  if (res.destroyed || res.writableEnded) return false;
+  if (Number(res.writableLength || 0) > maxBytes) { res.destroy(); return false; }
+  try { res.write(frame); } catch { return false; }
+  if (Number(res.writableLength || 0) > maxBytes) { res.destroy(); return false; }
+  return true;
+}
 
 function withDefaults(security = {}) {
   return {
@@ -180,7 +195,7 @@ export function createApp({
     const origin = req?.headers.origin;
     res.setHeader('Access-Control-Allow-Origin', origin && sec.allowedOrigins.includes(origin) ? origin : sec.allowedOrigins[0]);
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-Petdeck-Token');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-Petdeck-Token,Last-Event-ID');
     res.setHeader('Vary', 'Origin');
   }
   function json(res, req, code, obj) {
@@ -193,15 +208,19 @@ export function createApp({
   // bounded size. Kept as one helper so a new endpoint cannot silently skip a check.
   async function readJsonWrite(req, res) {
     const origin = req.headers.origin;
-    if (origin && !sec.allowedOrigins.includes(origin)) { json(res, req, 403, { ok: false, error: 'forbidden origin' }); return null; }
-    if (!String(req.headers['content-type'] || '').includes('application/json')) { json(res, req, 415, { ok: false, error: 'json required' }); return null; }
-    if (sec.token && req.headers['x-petdeck-token'] !== sec.token) { json(res, req, 401, { ok: false, error: 'unauthorised' }); return null; }
+    if (origin && !sec.allowedOrigins.includes(origin)) { json(res, req, 403, { ok: false, error: 'forbidden origin' }); return JSON_WRITE_ERROR; }
+    if (!String(req.headers['content-type'] || '').includes('application/json')) { json(res, req, 415, { ok: false, error: 'json required' }); return JSON_WRITE_ERROR; }
+    if (sec.token && req.headers['x-petdeck-token'] !== sec.token) { json(res, req, 401, { ok: false, error: 'unauthorised' }); return JSON_WRITE_ERROR; }
     let body;
     try { body = await readBody(req, sec.maxBodyBytes); }
-    catch (e) { json(res, req, e.code === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'unreadable body' }); return null; }
-    let payload = {};
+    catch (e) { json(res, req, e.code === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'unreadable body' }); return JSON_WRITE_ERROR; }
+    let payload;
     try { payload = body.trim() ? JSON.parse(body) : {}; }
-    catch { json(res, req, 400, { ok: false, error: 'invalid json' }); return null; }
+    catch { json(res, req, 400, { ok: false, error: 'invalid json' }); return JSON_WRITE_ERROR; }
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+      json(res, req, 400, { ok: false, error: 'json object required' });
+      return JSON_WRITE_ERROR;
+    }
     return payload;
   }
 
@@ -218,8 +237,7 @@ export function createApp({
   }
 
   function sendEvent(res, event) {
-    res.write(`id: ${event.id}\n`);
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    return writeSseFrame(res, `id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`);
   }
 
   /**
@@ -249,7 +267,22 @@ export function createApp({
     };
   }
 
+  const activeEventStreams = new Map();
+  function trackEventStream(req, res, cleanup) {
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      activeEventStreams.delete(close);
+      cleanup();
+    };
+    activeEventStreams.set(close, res);
+    req.once('close', close);
+    return close;
+  }
+
   const server = http.createServer(async (req, res) => {
+    try {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     if (req.method === 'OPTIONS') { cors(res, req); res.writeHead(204); res.end(); return; }
 
@@ -277,7 +310,7 @@ export function createApp({
     }
     if (url.pathname === '/api/diagnostics/export' && req.method === 'POST') {
       const payload = await readJsonWrite(req, res);
-      if (!payload) return;
+      if (payload === JSON_WRITE_ERROR) return;
       if (!runtime) return runtimeUnavailable(res, req);
       try {
         const entries = adapters.map((a) => ({ id: a.id, name: a.name, tier: TIER[a.id] ?? 'observe-only', command: AGENT_CLI[a.id] ?? null }));
@@ -301,7 +334,7 @@ export function createApp({
     }
     if (url.pathname === '/api/storage/cleanup' && req.method === 'POST') {
       const payload = await readJsonWrite(req, res);
-      if (!payload) return;
+      if (payload === JSON_WRITE_ERROR) return;
       const dir = runtime?.statusSnapshot?.().dataDir;
       if (!dir) return runtimeUnavailable(res, req);
       try {
@@ -343,22 +376,18 @@ export function createApp({
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
       // Flush headers immediately (an SSE comment line) so clients observe connection
       // success before the first event; without it the response headers are buffered.
-      res.write(': sse connected\n\n');
-      const un = bus.subscribe((e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
-      req.on('close', un);
+      if (!writeSseFrame(res, ': sse connected\n\n')) return;
+      let closeStream;
+      const un = bus.subscribe((e) => {
+        if (!writeSseFrame(res, `data: ${JSON.stringify(e)}\n\n`)) closeStream?.();
+      });
+      closeStream = trackEventStream(req, res, un);
       return;
     }
     if (url.pathname === '/api/inject' && req.method === 'POST') {
-      const origin = req.headers.origin;
-      if (origin && !sec.allowedOrigins.includes(origin)) return json(res, req, 403, { ok: false, error: 'forbidden origin' });
-      if (!String(req.headers['content-type'] || '').includes('application/json')) return json(res, req, 415, { ok: false, error: 'json required' });
-      if (sec.token && req.headers['x-petdeck-token'] !== sec.token) return json(res, req, 401, { ok: false, error: 'unauthorised' });
       if (inflight >= sec.maxInject) return json(res, req, 429, { ok: false, error: 'too many in-flight injections' });
-      let body;
-      try { body = await readBody(req, sec.maxBodyBytes); }
-      catch (e) { return json(res, req, e.code === 'BODY_TOO_LARGE' ? 413 : 400, { ok: false, error: 'unreadable body' }); }
-      let payload = {};
-      try { payload = JSON.parse(body); } catch { return json(res, req, 400, { ok: false, error: 'invalid json' }); }
+      const payload = await readJsonWrite(req, res);
+      if (payload === JSON_WRITE_ERROR) return;
       const target = adapters.find((a) => a.id === payload.to);
       if (!target) return json(res, req, 400, { ok: false, error: 'unknown target' });
       inflight++;
@@ -385,7 +414,7 @@ export function createApp({
       if (req.method === 'GET') return json(res, req, 200, { ok: true, projects: runtime.listProjects() });
       if (req.method === 'POST') {
         const payload = await readJsonWrite(req, res);
-        if (!payload) return;
+        if (payload === JSON_WRITE_ERROR) return;
         try {
           const result = await runtime.registerProject({ projectPath: payload.path, name: payload.name ?? null });
           return json(res, req, result.created ? 201 : 200, { ok: true, ...result });
@@ -407,7 +436,7 @@ export function createApp({
       if (req.method === 'GET') return json(res, req, 200, { ok: true, settings: runtime.getSettings() });
       if (req.method === 'PUT') {
         const payload = await readJsonWrite(req, res);
-        if (!payload) return;
+        if (payload === JSON_WRITE_ERROR) return;
         try { return json(res, req, 200, { ok: true, settings: runtime.updateSettings(payload) }); }
         catch (e) { return runtimeFailure(res, req, e, logger); }
       }
@@ -420,7 +449,7 @@ export function createApp({
       if (req.method === 'GET') return json(res, req, 200, { ok: true, manager: runtime.getManagerSettings() });
       if (req.method === 'PUT') {
         const payload = await readJsonWrite(req, res);
-        if (!payload) return;
+        if (payload === JSON_WRITE_ERROR) return;
         try { return json(res, req, 200, { ok: true, manager: runtime.updateManagerSettings(payload) }); }
         catch (e) { return runtimeFailure(res, req, e, logger); }
       }
@@ -429,7 +458,7 @@ export function createApp({
 
     if (url.pathname === '/api/runtime/manager/test' && req.method === 'POST') {
       const payload = await readJsonWrite(req, res);
-      if (!payload) return;
+      if (payload === JSON_WRITE_ERROR) return;
       if (!runtime) return runtimeUnavailable(res, req);
       try { return json(res, req, 200, { ok: true, ...(await runtime.testManager()) }); }
       catch (e) { return runtimeFailure(res, req, e, logger); }
@@ -444,7 +473,7 @@ export function createApp({
       }
       if (req.method === 'POST') {
         const payload = await readJsonWrite(req, res);
-        if (!payload) return;
+        if (payload === JSON_WRITE_ERROR) return;
         try {
           const result = await runtime.sendManagerMessage({ content: payload.content ?? '', projectId: payload.projectId ?? null });
           return json(res, req, 200, { ok: true, ...result });
@@ -466,7 +495,7 @@ export function createApp({
     if (proposalRoute) {
       if (req.method !== 'POST') return json(res, req, 405, { ok: false, error: 'method not allowed' });
       const payload = await readJsonWrite(req, res);
-      if (!payload) return;
+      if (payload === JSON_WRITE_ERROR) return;
       if (!runtime) return runtimeUnavailable(res, req);
       try {
         let proposalId;
@@ -485,7 +514,7 @@ export function createApp({
 
     if (url.pathname === '/api/runtime/reports/generate' && req.method === 'POST') {
       const payload = await readJsonWrite(req, res);
-      if (!payload) return;
+      if (payload === JSON_WRITE_ERROR) return;
       if (!runtime) return runtimeUnavailable(res, req);
       try {
         const report = await runtime.generateDailyReport({ date: payload.date ?? null, projectId: payload.projectId ?? null });
@@ -533,7 +562,7 @@ export function createApp({
       if (!runtime) return runtimeUnavailable(res, req);
       if (req.method !== 'POST') return json(res, req, 405, { ok: false, error: 'method not allowed' });
       const payload = await readJsonWrite(req, res);
-      if (!payload) return;
+      if (payload === JSON_WRITE_ERROR) return;
       try {
         let decisionId;
         try { decisionId = decodeURIComponent(decisionRoute[1]); } catch { return json(res, req, 400, { ok: false, error: 'invalid decision id' }); }
@@ -551,7 +580,7 @@ export function createApp({
       }
       if (req.method === 'POST') {
         const payload = await readJsonWrite(req, res);
-        if (!payload) return;
+        if (payload === JSON_WRITE_ERROR) return;
         try {
           const task = runtime.createTask({
             projectId: payload.projectId,
@@ -625,7 +654,7 @@ export function createApp({
       }
       if (req.method === 'DELETE') {
         const payload = await readJsonWrite(req, res);
-        if (payload === null) return;
+        if (payload === JSON_WRITE_ERROR) return;
         let artifactId;
         try { artifactId = decodeURIComponent(artifactRoute[1]); } catch { return json(res, req, 400, { ok: false, error: 'invalid artifact id' }); }
         try { return json(res, req, 200, { ok: true, ...runtime.removeArtifact(payload.taskId, artifactId) }); }
@@ -650,28 +679,44 @@ export function createApp({
           Connection: 'keep-alive',
           'X-Accel-Buffering': 'no',
         });
-        res.write(': sse connected\n\n');
-        let lastId = Number(url.searchParams.get('after') || 0) || 0;
+        if (!writeSseFrame(res, ': sse connected\n\n')) return;
+        const queryAfter = Number(url.searchParams.get('after') || 0);
+        const headerAfter = Number(req.headers['last-event-id']);
+        let lastId = Number.isFinite(headerAfter) && headerAfter > 0
+          ? Math.floor(headerAfter)
+          : (Number.isFinite(queryAfter) && queryAfter > 0 ? Math.floor(queryAfter) : 0);
+        let closeStream;
         const unsubscribe = runtime.subscribe((event) => {
           if (event.taskId !== taskId || event.id <= lastId) return;
           lastId = event.id;
-          sendEvent(res, event);
+          if (!sendEvent(res, event)) closeStream?.();
+        });
+        let keepAlive = null;
+        closeStream = trackEventStream(req, res, () => {
+          if (keepAlive) clearInterval(keepAlive);
+          unsubscribe();
         });
         try {
-          for (const event of runtime.listEvents(taskId, { after: lastId, limit: 5000 })) {
-            if (event.id <= lastId) continue;
-            lastId = event.id;
-            sendEvent(res, event);
+          // Subscribe before replay to avoid a gap, then drain every page. EventSource
+          // reconnects with Last-Event-ID; both replay and live delivery share lastId
+          // so an event already observed by the subscription is never written twice.
+          for (;;) {
+            const page = runtime.listEvents(taskId, { after: lastId, limit: 5000 });
+            for (const event of page) {
+              if (event.id <= lastId) continue;
+              lastId = event.id;
+              if (!sendEvent(res, event)) { closeStream(); return; }
+            }
+            if (page.length < 5000) break;
           }
         } catch {
-          unsubscribe();
+          closeStream();
           res.write('event: error\ndata: ' + JSON.stringify({ error: 'task not found' }) + '\n\n');
           res.end();
           return;
         }
-        const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 15000);
+        keepAlive = setInterval(() => { if (!writeSseFrame(res, ': keep-alive\n\n')) closeStream(); }, 15000);
         keepAlive.unref?.();
-        req.on('close', () => { clearInterval(keepAlive); unsubscribe(); });
         return;
       }
 
@@ -702,7 +747,7 @@ export function createApp({
         }
         if (req.method === 'POST') {
           const payload = await readJsonWrite(req, res);
-          if (!payload) return;
+          if (payload === JSON_WRITE_ERROR) return;
           try { return json(res, req, 201, { ok: true, artifact: runtime.addArtifact(taskId, { path: payload.path }) }); }
           catch (e) { return runtimeFailure(res, req, e, logger); }
         }
@@ -710,7 +755,7 @@ export function createApp({
       }
       if (req.method === 'POST' && ['accept', 'reject', 'merge', 'authorize-merge', 'abandon-merge', 'cleanup'].includes(action)) {
         const payload = await readJsonWrite(req, res);
-        if (!payload) return;
+        if (payload === JSON_WRITE_ERROR) return;
         try {
           if (action === 'accept') return json(res, req, 200, { ok: true, ...(await runtime.acceptTask(taskId)) });
           if (action === 'reject') return json(res, req, 200, { ok: true, ...(await runtime.rejectTask(taskId, { feedback: payload.feedback, agent: payload.agent ?? null })) });
@@ -722,7 +767,7 @@ export function createApp({
       }
       if (req.method === 'POST' && ['start', 'stop', 'resume', 'pause', 'continue'].includes(action)) {
         const payload = await readJsonWrite(req, res);
-        if (!payload) return;
+        if (payload === JSON_WRITE_ERROR) return;
         try {
           if (action === 'start') return json(res, req, 202, { ok: true, run: await runtime.startTask(taskId, { permissionMode: payload.permissionMode ?? null }) });
           if (action === 'resume') return json(res, req, 202, { ok: true, run: await runtime.resumeTask(taskId, { prompt: payload.prompt ?? null, permissionMode: payload.permissionMode ?? null }) });
@@ -735,8 +780,22 @@ export function createApp({
     }
 
     return json(res, req, 404, { ok: false, error: 'not found' });
+    } catch (e) {
+      // http.Server does not consume rejected async request listeners. Keep one final
+      // boundary so malformed input or an adapter/runtime surprise cannot become an
+      // unhandled rejection; partial/streamed responses are closed, not double-written.
+      logger.error?.('[petdeck-bridge] request failed', { name: SAFE_ERR_NAME.test(String(e?.name ?? '')) ? e.name : 'unknown' });
+      if (res.headersSent) { res.destroy(); return; }
+      return json(res, req, 500, { ok: false, error: 'request failed' });
+    }
   });
 
+  server.closeEventStreams = () => {
+    for (const [close, res] of [...activeEventStreams]) {
+      close();
+      res.end();
+    }
+  };
   server.poll = poll;
   return server;
 }
@@ -786,19 +845,32 @@ export function main({ adapters = REAL_ADAPTERS, startPoll = true, runtime } = {
     getExtra: () => ({ activeTasks: rt?.activeTaskIds?.() ?? [], counts: rt?.statusSnapshot?.().counts ?? null }),
   });
   const server = createApp({ adapters, security, runtime: rt, logger });
-  const shutdown = async (signal) => {
-    logger.info('bridge.shutdown', { signal });
-    console.log('[petdeck-bridge] shutting down (' + signal + ')');
-    server.close();
-    try { await rt?.shutdown(); } catch (e) { logger.error('bridge.shutdown_failed', { reason: e?.name ?? 'unknown' }); }
+  let pollTimer = null;
+  let shutdownPromise = null;
+  const shutdown = (signal) => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      logger.info('bridge.shutdown', { signal });
+      console.log('[petdeck-bridge] shutting down (' + signal + ')');
+      // Stop producers before closing the listener: open SSE responses otherwise keep
+      // server.close() pending, while the opencode fetch/retry timer keeps Node alive.
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      opencode.stopEventWatcher();
+      server.closeEventStreams?.();
+      server.close();
+      server.closeIdleConnections?.();
+      try { await rt?.shutdown(); } catch (e) { logger.error('bridge.shutdown_failed', { reason: e?.name ?? 'unknown' }); }
+    })();
+    return shutdownPromise;
   };
-  process.once('SIGINT', () => { shutdown('SIGINT'); });
-  process.once('SIGTERM', () => { shutdown('SIGTERM'); });
+  server.shutdown = shutdown;
+  process.once('SIGINT', () => { void shutdown('SIGINT'); });
+  process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
   server.listen(PORT, '127.0.0.1', () => {
     logger.info('bridge.listening', { port: PORT, home: os.homedir() });
     console.log(`[petdeck-bridge] listening on http://127.0.0.1:${PORT} (home=${os.homedir()}) auth=token`);
     if (startPoll) {
-      startPolling(server, 5000, logger.child('poll'));
+      pollTimer = startPolling(server, 5000, logger.child('poll'));
       // Live "running" status for opencode v2 comes from its SSE execution events.
       // Only the long-lived bridge starts the watcher (tests/verify-local stay short-lived).
       if (adapters.some((a) => a.id === 'opencode')) opencode.startEventWatcher();

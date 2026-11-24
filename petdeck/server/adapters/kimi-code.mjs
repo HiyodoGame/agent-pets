@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { basenameAny, latestFiles, tailLines, safeJson } from './shared.mjs';
+import { basenameAny, latestFiles, rethrowReadFault, tailLines, safeJson } from './shared.mjs';
 
 export const id = 'kimi-code';
 export const name = 'Kimi Code';
@@ -95,13 +95,15 @@ function observeV2(root) {
   const out = [];
   for (const f of files) {
     let state;
-    try { state = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { continue; }
+    try { state = JSON.parse(fs.readFileSync(f, 'utf8')); }
+    catch (error) { rethrowReadFault(error); continue; }
     if (!state || state.archived === true) continue;
     const dir = path.dirname(f);
     const wire = path.join(dir, 'agents', 'main', 'wire.jsonl');
     let r = { status: 'unknown', lastMessage: '', tokens: { input: 0, output: 0, cacheRead: 0 } };
     if (fs.existsSync(wire)) {
-      try { r = parseKimiWire(tailLines(wire, 600)); } catch { /* 单个会话损坏只跳过它 */ }
+      try { r = parseKimiWire(tailLines(wire, 600)); }
+      catch (error) { rethrowReadFault(error); /* malformed session content keeps its state.json fallback */ }
     }
     const title = String(state.title ?? '').trim() || String(state.lastPrompt ?? '').trim();
     if (r.status === 'unknown' && !r.lastMessage && !title) continue;

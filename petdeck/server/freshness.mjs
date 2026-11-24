@@ -26,9 +26,24 @@ export async function pollOnce(adapters, lastGood, now) {
         message: String(e?.message ?? 'observe failed').slice(0, 160),
       };
       const prev = lg.get(a.id);
-      if (prev) {
+      // remote can succeed on some SSH hosts and fail on others. Merge only the
+      // successful partition into cache; failed hosts retain their own timestamps.
+      if (Array.isArray(e?.partialRows) && Array.isArray(e?.failedHosts)) {
+        const failed = new Set(e.failedHosts.map(String));
+        const freshRows = e.partialRows.filter((r) => r && !failed.has(String(r.host ?? '')));
+        const hostAts = { ...(prev?.hostAts ?? {}) };
+        if (prev && !prev.hostAts) {
+          for (const r of prev.rows) if (r.host) hostAts[r.host] = prev.at;
+        }
+        for (const host of e.okHosts ?? []) hostAts[String(host)] = now;
+        const staleRows = prev ? prev.rows.filter((r) => failed.has(String(r.host ?? ''))) : [];
+        for (const r of freshRows) sessions.push({ ...r, stale: false, lastSeen: now });
+        for (const r of staleRows) sessions.push({ ...r, stale: true, lastSeen: hostAts[r.host] ?? prev.at });
+        lg.set(a.id, { at: now, rows: [...freshRows, ...staleRows], hostAts });
+        sources[a.id] = { ok: false, lastSeen: now, error };
+      } else if (prev) {
         sources[a.id] = { ok: false, lastSeen: prev.at, error };
-        for (const r of prev.rows) sessions.push({ ...r, stale: true, lastSeen: prev.at });
+        for (const r of prev.rows) sessions.push({ ...r, stale: true, lastSeen: prev.hostAts?.[r.host] ?? prev.at });
       } else {
         sources[a.id] = { ok: false, lastSeen: null, error };
       }

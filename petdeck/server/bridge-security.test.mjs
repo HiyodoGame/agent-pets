@@ -261,6 +261,29 @@ test('GET /api/health stays reachable without token (pre-auth connectivity probe
   });
 });
 
+test('main shutdown: closes active SSE, stops listener/polling and shuts down runtime', async (t) => {
+  withEnv(t, { PETDECK_BRIDGE_TOKEN: 'sekret', PETDECK_BRIDGE_PORT: '0' });
+  let runtimeStops = 0;
+  const runtime = {
+    statusSnapshot: () => ({ counts: {} }),
+    shutdown: async () => { runtimeStops++; },
+  };
+  const server = main({ adapters: [], startPoll: true, runtime });
+  t.after(() => { if (server.listening) { server.closeEventStreams?.(); server.closeAllConnections?.(); server.close(); } });
+  await once(server, 'listening');
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/events?token=sekret`);
+  assert.equal(response.status, 200);
+  const closed = once(server, 'close');
+  await server.shutdown('SIGTERM-test');
+  await closed;
+  const reader = response.body.getReader();
+  while (!(await reader.read()).done) { /* drain */ }
+  assert.equal(runtimeStops, 1);
+  assert.equal(server.listening, false);
+  await server.shutdown('SIGINT-test');
+  assert.equal(runtimeStops, 1, 'shutdown is idempotent');
+});
+
 test('main: desktop WebView origins accept correct token and reject wrong token', async (t) => {
   withEnv(t, {
     PETDECK_BRIDGE_TOKEN: 'sekret',

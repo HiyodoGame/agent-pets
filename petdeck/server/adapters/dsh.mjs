@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { latestFiles } from './shared.mjs';
+import { latestFiles, rethrowReadFault } from './shared.mjs';
 
 export const id = 'dsh';
 export const name = 'DeepSeek Harness';
@@ -85,7 +85,8 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
   const out = [];
   for (const f of files) {
     let buf, st;
-    try { buf = fs.readFileSync(f); st = fs.statSync(f); } catch { continue; }
+    try { buf = fs.readFileSync(f); st = fs.statSync(f); }
+    catch (error) { rethrowReadFault(error); continue; }
     let events;
     try { events = decodeDshEvents(buf); }
     catch { continue; } // 单文件损坏只跳过该会话，不让整个适配器故障（freshness 契约保留）

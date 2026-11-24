@@ -141,6 +141,29 @@ test('buildObserveSnapshot: observe-only rows only, newest first, project fallba
   assert.equal(snap.agents.some((a) => a.id === 'opencode'), false);
 });
 
+test('buildObserveSnapshot: remote claude/codex rows stay visible and Remote health counts them', () => {
+  const sessions = [
+    { agent: 'claude', source: 'ssh-probe', session: 'remote-c', host: 'build', status: 'running', updatedAt: 300 },
+    { agent: 'codex', source: 'ssh-probe', session: 'remote-x', host: 'builder', status: 'done', updatedAt: 200 },
+    { agent: 'claude', source: 'local', session: 'local-c', status: 'running', updatedAt: 400 },
+  ];
+  const stats = new Map();
+  trackObservePoll(stats, { remote: { ok: true, lastSeen: 500 } }, sessions, 500);
+  const snap = buildObserveSnapshot({
+    adapters: [{ id: 'claude', name: 'Claude Code' }, { id: 'codex', name: 'Codex' }, { id: 'remote', name: 'Remote SSH' }],
+    sessions, sources: { remote: { ok: true, lastSeen: 500 } }, stats,
+  });
+  assert.deepEqual(snap.sessions.map((row) => row.session), ['remote-c', 'remote-x']);
+  assert.equal(snap.sessions[0].host, 'build');
+  const remote = snap.agents.find((agent) => agent.id === 'remote');
+  assert.equal(remote.rowCount, 2);
+  assert.equal(remote.lastWriteAt, 300);
+  assert.equal(remote.okCount, 1);
+  assert.equal(snap.agents.some((agent) => agent.id === 'claude'), false, 'read-only remote rows do not make Claude an observe source');
+  const index = buildTranscriptIndex([{ ...sessions[0], path: '/must/not/read' }]);
+  assert.equal(index.size, 0, 'remote paths are never local transcript targets');
+});
+
 test('trackObservePoll: counts successes/failures and captures row write times', () => {
   const stats = new Map();
   const rows = [

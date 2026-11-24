@@ -54,6 +54,8 @@ export function sanitizeTranscriptText(text, maxChars = 500) {
   value = value.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, '');
   value = value.replace(/^[ \t]*[-*+][ \t]+/gm, '');
   value = value.replace(/[*_`~]/g, '');
+  // Intentional: transcripts must not emit non-printable control characters.
+  // oxlint-disable-next-line no-control-regex
   value = value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, ' ');
   value = value.replace(/\s+/g, ' ').trim();
   if (value.length > maxChars) value = value.slice(0, Math.max(0, maxChars - 1)) + '…';
@@ -159,11 +161,17 @@ export function readTranscript(entry, { limit = TRANSCRIPT_LIMIT_DEFAULT, maxCha
   return { ...base, lines };
 }
 
+function isConsoleObservation(row) {
+  // Remote probes report the real agent (claude/codex), but the SSH adapter itself is
+  // observe-only. Filtering by agent tier alone incorrectly hid those read-only rows.
+  return isObserveOnly(row?.agent) || row?.source === 'ssh-probe';
+}
+
 /** Build the addressable transcript registry from the rows of one poll. */
 export function buildTranscriptIndex(rows) {
   const index = new Map();
   for (const row of rows) {
-    if (!row || !row.path || !isObserveOnly(row.agent)) continue;
+    if (!row || !row.path || row.source === 'ssh-probe' || !isConsoleObservation(row)) continue;
     index.set(`${row.agent}:${row.session}`, {
       agent: row.agent,
       session: row.session,
@@ -190,7 +198,7 @@ export function trackObservePoll(stats, sources, rows, now = Date.now()) {
       current.lastErrorAt = now;
       if (source.error) current.lastError = source.error;
     }
-    const mine = rows.filter((row) => row.agent === id);
+    const mine = rows.filter((row) => id === 'remote' ? row.source === 'ssh-probe' : row.agent === id);
     current.rowCount = mine.length;
     let latest = 0;
     for (const row of mine) if (Number(row.updatedAt) > latest) latest = Number(row.updatedAt);
@@ -208,7 +216,7 @@ export function buildObserveSnapshot({
 } = {}) {
   const nameOf = new Map(adapters.map((adapter) => [adapter.id, adapter.name ?? adapter.id]));
   const rows = sessions
-    .filter((row) => row && isObserveOnly(row.agent))
+    .filter((row) => row && isConsoleObservation(row))
     .map((row) => ({
       agent: row.agent,
       agentName: nameOf.get(row.agent) ?? row.agent,

@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { latestFiles, safeJson } from './shared.mjs';
+import { latestFiles, rethrowReadFault, safeJson } from './shared.mjs';
 
 export const id = 'cursor';
 export const name = 'Cursor';
@@ -94,7 +94,7 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
     try {
       st = fs.statSync(f);
       lines = fs.readFileSync(f, 'utf8').split('\n');
-    } catch { continue; }
+    } catch (error) { rethrowReadFault(error); continue; }
     const r = parseCursorTranscript(lines, { mtimeMs: st.mtimeMs, now });
     if (r.status === 'unknown' && !r.lastMessage) continue;
     const project = parts[at - 1] ?? '';

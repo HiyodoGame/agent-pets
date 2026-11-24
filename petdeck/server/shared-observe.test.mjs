@@ -5,11 +5,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { tailLines, headLines, latestFiles } from './adapters/shared.mjs';
+import { tailLines, headLines, latestFiles, rethrowReadFault } from './adapters/shared.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'petdeck-observe-'));
 const aFile = path.join(tmp, 'rollout-a.jsonl');
 fs.writeFileSync(aFile, '{"payload":{"type":"task_complete"}}\n');
+
+test('read faults: I/O and permission failures surface while corrupt content stays skippable', () => {
+  for (const code of ['EACCES', 'EPERM', 'EIO', 'EBUSY']) {
+    assert.throws(() => rethrowReadFault({ code }), (error) => error.code === code);
+  }
+  assert.doesNotThrow(() => rethrowReadFault(new SyntaxError('corrupt session')));
+  assert.doesNotThrow(() => rethrowReadFault({ code: 'ENOENT' }));
+});
 
 test('latestFiles: missing base dir => [] (source not installed, legit empty)', () => {
   const r = latestFiles(path.join(tmp, 'nope-does-not-exist'), () => true, 5);
@@ -106,6 +114,20 @@ test('latestFiles: a new file appears once the directory mtime moves', () => {
   const r = latestFiles(dir, pred, 5);
   assert.ok(r.includes(c), 'cache must invalidate when the directory mtime changes');
   assert.ok(r.includes(a) && r.includes(b));
+});
+
+test('latestFiles: unchanged NTFS directory mtime is revalidated after the cache window', () => {
+  const { dir } = makeTree();
+  const pred = (n) => n.endsWith('.jsonl');
+  const fixedSeconds = 1_600_000_000;
+  fs.utimesSync(dir, fixedSeconds, fixedSeconds);
+  latestFiles(dir, pred, 5, 1000); // warm the cache at an exactly reproducible mtime
+  const created = path.join(dir, 'same-time-slice.jsonl');
+  fs.writeFileSync(created, 'new session');
+  fs.utimesSync(dir, fixedSeconds, fixedSeconds); // deliberately hide creation from mtime
+
+  assert.equal(latestFiles(dir, pred, 5, 1500).includes(created), false, 'short cache coalesces same-tick scans');
+  assert.ok(latestFiles(dir, pred, 5, 3001).includes(created), 'the next polling window must rediscover the file');
 });
 
 test('latestFiles: cached directory deleted afterwards => [] (ENOENT semantics kept)', () => {

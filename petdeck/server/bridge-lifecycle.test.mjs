@@ -306,6 +306,39 @@ test('inject: a free-text summary echoing the payload is never logged (not conte
   assert.ok(!line.includes('usage: codex exec'), 'arbitrary summary text is dropped, not truncated');
 });
 
+test('inject: JSON null and other non-object bodies return 400 without hanging or injecting', async () => {
+  let injections = 0;
+  const adapters = [{ id: 'codex', name: 'Codex', observe: () => [], inject: () => { injections++; return { ok: true }; } }];
+  await withApp({ adapters, logger: { error() {} } }, async ({ base }) => {
+    for (const body of ['null', '[]', '"text"', '42', 'true']) {
+      const res = await fetch(`${base}/api/inject`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
+      });
+      assert.equal(res.status, 400, body);
+      assert.deepEqual(await res.json(), { ok: false, error: 'json object required' });
+    }
+    assert.equal(injections, 0);
+  });
+});
+
+test('runtime writes: JSON null is a completed 400 response, not an error sentinel', async () => {
+  await withApp({ runtime: { registerProject() { throw new Error('must not run'); } }, logger: { error() {} } }, async ({ base }) => {
+    const res = await fetch(`${base}/api/runtime/projects`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'null',
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'json object required');
+  });
+});
+
+test('request boundary: an unexpected async route failure resolves as 500', async () => {
+  await withApp({ probe: { list: async () => { throw new Error('probe exploded'); } }, logger: { error() {} } }, async ({ base }) => {
+    const res = await fetch(`${base}/api/health`);
+    assert.equal(res.status, 500);
+    assert.deepEqual(await res.json(), { ok: false, error: 'request failed' });
+  });
+});
+
 test('inject: tier fallback decision carries fallbackReason tier and logs nothing sensitive', async () => {
   const adapters = [{
     id: 'kimi', name: 'kimi work', tier: 'observe-only',

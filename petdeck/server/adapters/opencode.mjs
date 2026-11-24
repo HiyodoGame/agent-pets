@@ -46,11 +46,17 @@ export function applyExecutionEvent(evt) {
   ) runningSessions.delete(sid);
 }
 
+/** Stop only the long-lived watcher; observed execution state is retained for tests
+ *  that intentionally inspect it after disconnect. */
+export function stopEventWatcher() {
+  watcherLive = false;
+  if (watcher) watcher.stop();
+}
+
 /** Test/lifecycle helper: clear runtime state and stop the watcher. */
 export function resetOpenCodeRuntime() {
   runningSessions.clear();
-  watcherLive = false;
-  if (watcher) { watcher.stop(); watcher = null; }
+  stopEventWatcher();
 }
 
 /** Pure: map a serve/API session row to a normalized status.
@@ -190,4 +196,4 @@ export async function inject(payload, { run = runCli } = {}) {
   return { ok: false, response: '', summary: r.summary ?? '' };
 }
 
-export default { id, name, tier, observe, inject, startEventWatcher };
+export default { id, name, tier, observe, inject, startEventWatcher, stopEventWatcher };

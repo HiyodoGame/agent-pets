@@ -68,6 +68,24 @@ test('observe: missing db dir => throws (source fault, freshness keeps stale)', 
 
 // zcode 会把部分会话复制进自己的沙箱工作区（实测 E:\ZCodeData\.zcode\workspace\<ts>-<uuid>）。
 // 那是 zcode 的私有目录，当成用户项目会把会话挂到一个用户不认识的路径下。
+test('observe: closes an opened DB when a query throws and still removes the temp copy', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'petdeck-zcode-close-'));
+  const zdir = path.join(home, '.zcode', 'cli', 'db');
+  fs.mkdirSync(zdir, { recursive: true });
+  fs.writeFileSync(path.join(zdir, 'db.sqlite'), 'fixture');
+  let closed = false;
+  const opener = () => ({
+    prepare() { throw new Error('query failed'); },
+    close() { closed = true; },
+  });
+  try {
+    await assert.rejects(observe({ home, now: NOW, opener }), /query failed/);
+    assert.equal(closed, true);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test('isSandboxDirectory: only zcode workspace paths count as sandbox', () => {
   assert.equal(isSandboxDirectory('E:\\ZCodeData\\.zcode\\workspace\\1794927028429-1aab'), true);
   assert.equal(isSandboxDirectory('/home/u/.zcode/workspace/123-x'), true);

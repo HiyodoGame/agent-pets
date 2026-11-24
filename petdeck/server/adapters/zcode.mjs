@@ -48,8 +48,9 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
   fs.accessSync(dbDir); // throws ENOENT = real fault (freshness keeps stale)
   const copy = await copyDbToTemp(dbDir);
   let rows = [];
+  let db;
   try {
-    const db = opener(copy);
+    db = opener(copy);
     const sessions = db.prepare(`SELECT id, title, directory, time_updated, last_outcome FROM session
       WHERE time_deleted IS NULL AND parent_id IS NULL ORDER BY time_updated DESC LIMIT 5`).all();
     const usageStmt = db.prepare(`SELECT
@@ -77,9 +78,10 @@ export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.ho
         path: path.join(dbDir, 'db.sqlite'), updatedAt: Number(s.time_updated) || null,
       });
     }
-    db.close?.();
   } finally {
-    fs.rmSync(path.dirname(copy), { recursive: true, force: true });
+    try { db?.close?.(); } finally {
+      fs.rmSync(path.dirname(copy), { recursive: true, force: true });
+    }
   }
   return rows;
 }
