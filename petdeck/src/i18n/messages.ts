@@ -645,7 +645,7 @@ export const zh = {
   // console: cleanup
   'console.cleanup.action': '清理 worktree',
   'console.cleanup.confirm': '删除这个任务的 worktree 和分支？未合并的提交会被保留，并需要再次确认后才会删除。确定吗？',
-  'console.cleanup.unmergedConfirm': '分支 {branch} 上有 {n} 个提交尚未合并到 {base}：\n{commits}\n\n继续清理会永久删除这些提交，之后只能从 Git reflog 找回。确定丢弃？',
+  'console.cleanup.unmergedConfirm': '分支 {branch} 上有 {n} 个提交尚未合并到 {base}：\n{commits}\n\n继续清理会删除该分支，这些提交将不再被任何分支引用，只能借助 Git 底层工具（如 git fsck --lost-found）尝试找回。确定丢弃？',
   'console.cleanup.failed': '清理失败：{message}',
 
   // console: new task
@@ -1527,7 +1527,7 @@ export const en: Record<MessageKey, string> = {
   // console: cleanup
   'console.cleanup.action': 'Clean worktree',
   'console.cleanup.confirm': 'Delete this task’s worktree and branch? Unmerged commits are kept and only removed after a second confirmation. Continue?',
-  'console.cleanup.unmergedConfirm': 'Branch {branch} has {n} commit(s) not merged into {base}:\n{commits}\n\nCleaning up will permanently delete them; they can only be recovered from Git reflog. Discard them?',
+  'console.cleanup.unmergedConfirm': 'Branch {branch} has {n} commit(s) not merged into {base}:\n{commits}\n\nCleaning up deletes the branch; these commits will no longer be referenced by any branch and can only be recovered with low-level Git tools such as git fsck --lost-found. Discard them?',
   'console.cleanup.failed': 'Cleanup failed: {message}',
 
   // console: new task
