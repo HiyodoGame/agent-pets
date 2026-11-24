@@ -21,6 +21,11 @@ petdeck/.tmp-observe/
 .worktrees/
 .playwright-cli/
 
+# local secrets (keep only the placeholder example)
+.env
+.env.*
+!.env.example
+
 # os
 .DS_Store
 Thumbs.db
