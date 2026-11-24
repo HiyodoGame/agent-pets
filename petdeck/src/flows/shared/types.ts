@@ -22,8 +22,6 @@ export type ArtifactKind = 'image' | 'file' | 'text' | 'code'
 /** 宠物轻拍事件类型 */
 export type EventType = 'started' | 'done' | 'stuck' | 'decision' | 'relay-ready'
 
-export type RelayStatus = 'draft' | 'sending' | 'sent' | 'failed'
-
 export interface Agent {
   id: string
   name: string
@@ -105,25 +103,4 @@ export interface PetEvent {
   text: string
   timestamp: string
   handled: boolean
-}
-
-/** 接力交接草稿：宠物自动打包的上下文+产物+指令 */
-export interface RelayDraft {
-  id: string
-  sourceSessionId: string
-  targetAgentId: string
-  contextSummary: string
-  instruction: string
-  artifactIds: string[]
-  status: RelayStatus
-}
-
-/** 接入 flow 的 Agent 目录条目 */
-export interface AgentCatalogEntry {
-  id: string
-  name: string
-  form: AgentForm
-  capability: CapabilityTier
-  detectHint: string
-  supported: boolean
 }

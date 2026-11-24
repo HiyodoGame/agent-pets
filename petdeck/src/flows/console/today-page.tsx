@@ -12,6 +12,7 @@ import {
   type Task,
 } from '../../adapters/runtime-client.ts'
 import { t, useLocale } from '../../i18n/index.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 import { usePendingDecisions, useRuntimeOverview } from './runtime-hooks.ts'
 import { formatRelative, groupTasks, eventText } from './format.ts'
 import { DecisionCard } from './decision-card.tsx'
@@ -89,7 +90,7 @@ export function TodayPage() {
       else await continueTask(task.id)
       refreshAll()
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : String(cause))
+      setActionError(runtimeErrorText(cause))
     } finally {
       setBusy(null)
     }

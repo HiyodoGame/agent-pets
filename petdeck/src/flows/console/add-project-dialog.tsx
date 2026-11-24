@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Loader2, X } from 'lucide-react'
 import { registerProject, type Project } from '../../adapters/runtime-client.ts'
 import { t } from '../../i18n/index.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 import { useFocusTrap } from './focus-trap.ts'
 
 export function AddProjectDialog({ onClose, onRegistered }: {
@@ -33,7 +34,7 @@ export function AddProjectDialog({ onClose, onRegistered }: {
       const result = await registerProject(path.trim(), name.trim() || undefined)
       onRegistered(result.project, result.created)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setBusy(false)
     }

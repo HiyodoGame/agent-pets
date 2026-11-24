@@ -8,6 +8,7 @@ import {
   type StorageUsage,
 } from '../../adapters/runtime-client.ts'
 import { t } from '../../i18n/index.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return bytes + ' B'
@@ -35,7 +36,7 @@ export function StorageCard() {
       setError(null)
     } catch (cause) {
       setUsage(null)
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     }
   }, [])
 
@@ -62,7 +63,7 @@ export function StorageCard() {
       setCleaned(result)
       await load()
     } catch (cause) {
-      setError(t('console.settings.storageCleanFailed') + '：' + (cause instanceof Error ? cause.message : String(cause)))
+      setError(t('console.settings.storageCleanFailed') + '：' + (runtimeErrorText(cause)))
     } finally {
       setCleaning(false)
     }

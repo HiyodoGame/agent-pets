@@ -146,7 +146,7 @@ export function saveGrowth(state: GrowthState, storageImpl: GrowthStorage | unde
   return state
 }
 
-/** Award XP from a completed task/relay run and persist it. */
+/** Award XP from a completed task run and persist it. */
 export function awardTaskGrowth(count = 1, now = Date.now()): GrowthState {
   return saveGrowth(awardTask(loadGrowth(), count, now))
 }

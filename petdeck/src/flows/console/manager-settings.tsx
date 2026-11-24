@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Bot, KeyRound, Loader2, PlugZap, Save } from 'lucide-react'
+import { AlertTriangle, Bot, KeyRound, Loader2, PlugZap, Save } from 'lucide-react'
 import {
   getManagerSettings,
   testManager,
@@ -8,6 +8,7 @@ import {
   type ManagerSettingsPatch,
 } from '../../adapters/runtime-client.ts'
 import { t } from '../../i18n/index.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 
 type Draft = {
   provider: string
@@ -39,10 +40,14 @@ export function ManagerSettingsSection() {
   const [testing, setTesting] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadTick, setLoadTick] = useState(0)
   const [testResult, setTestResult] = useState<string | null>(null)
 
   useEffect(() => {
     let disposed = false
+    setLoading(true)
+    setLoadError(null)
     getManagerSettings()
       .then((next) => {
         if (disposed) return
@@ -50,10 +55,10 @@ export function ManagerSettingsSection() {
         setDraft(toDraft(next))
         setError(null)
       })
-      .catch((cause) => { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)) })
+      .catch((cause) => { if (!disposed) setLoadError(runtimeErrorText(cause)) })
       .finally(() => { if (!disposed) setLoading(false) })
     return () => { disposed = true }
-  }, [])
+  }, [loadTick])
 
   const current = manager
   const dirty = Boolean(draft && current && (
@@ -96,7 +101,7 @@ export function ManagerSettingsSection() {
       setSaved(true)
       setTestResult(null)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setBusy(false)
     }
@@ -111,7 +116,7 @@ export function ManagerSettingsSection() {
       const result = await testManager()
       setTestResult(t('console.settings.managerTestOk', { model: result.model, reply: result.reply }))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setTesting(false)
     }
@@ -128,8 +133,13 @@ export function ManagerSettingsSection() {
         ) : null}
       </header>
       <p className="settings-note">{t('console.settings.managerHint')}</p>
-      {loading || !draft || !current ? (
+      {loading && !loadError ? (
         <div className="page-loading"><Loader2 className="spin" aria-hidden="true" />{t('common.loading')}</div>
+      ) : !draft || !current ? (
+        <div className="settings-load-failed">
+          <p className="console-banner error" role="alert"><AlertTriangle aria-hidden="true" />{loadError ?? t('console.error.unknown')}</p>
+          <button type="button" className="button ghost" onClick={() => setLoadTick((value) => value + 1)}>{t('common.retry')}</button>
+        </div>
       ) : (
         <div className="settings-form manager-settings-form">
           <label className="field">
@@ -207,6 +217,7 @@ export function ManagerSettingsSection() {
           {current.apiKeySet || apiKey ? (
             <label className="toggle-row">
               <input
+                className="pd-switch"
                 type="checkbox"
                 checked={clearApiKey}
                 onChange={(event) => { setClearApiKey(event.target.checked); setSaved(false) }}

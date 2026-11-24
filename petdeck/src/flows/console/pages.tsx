@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bot, Check, Eye, FolderGit2, FolderPlus, Loader2, Plus, Settings2, X } from 'lucide-react'
+import { Bot, AlertTriangle, Check, Eye, FolderGit2, FolderPlus, Loader2, Plus, Settings2, X } from 'lucide-react'
 import {
   getObservedSessions,
   getSettings,
@@ -15,6 +15,7 @@ import {
 } from '../../adapters/runtime-client.ts'
 import { t, useLocale, type Locale } from '../../i18n/index.ts'
 import { useRuntimeOverview } from './runtime-hooks.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 import { formatRelative, isFinished } from './format.ts'
 import { EmptyState, TaskStatusBadge } from './task-bits.tsx'
 import { AddProjectDialog } from './add-project-dialog.tsx'
@@ -37,7 +38,7 @@ export function ProjectsPage() {
     let disposed = false
     setLoading(true)
     listProjects().then((next) => { if (!disposed) { setProjects(next); setError(null) } })
-      .catch((cause) => { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)) })
+      .catch((cause) => { if (!disposed) setError(runtimeErrorText(cause)) })
       .finally(() => { if (!disposed) setLoading(false) })
     return () => { disposed = true }
   }, [tick])
@@ -187,7 +188,7 @@ export function AgentsPage() {
     let disposed = false
     listAgents()
       .then((next) => { if (!disposed) { setAgents(next); setError(null) } })
-      .catch((cause) => { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)) })
+      .catch((cause) => { if (!disposed) setError(runtimeErrorText(cause)) })
       .finally(() => { if (!disposed) setLoading(false) })
     // Observe stats are advisory: a bridge without observe sources still renders
     // the runtime cards, so a failure here must not blank the page.
@@ -277,15 +278,19 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadTick, setLoadTick] = useState(0)
 
   useEffect(() => {
     let disposed = false
+    setLoading(true)
+    setLoadError(null)
     getSettings()
       .then((next) => { if (!disposed) { setSettings(next); setDraft(next); setError(null) } })
-      .catch((cause) => { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)) })
+      .catch((cause) => { if (!disposed) setLoadError(runtimeErrorText(cause)) })
       .finally(() => { if (!disposed) setLoading(false) })
     return () => { disposed = true }
-  }, [])
+  }, [loadTick])
 
   async function save() {
     if (!draft || busy) return
@@ -298,7 +303,7 @@ export function SettingsPage() {
       setDraft(next)
       setSaved(true)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setBusy(false)
     }
@@ -325,7 +330,12 @@ export function SettingsPage() {
         <StorageCard />
         <section className="panel-card">
           <header className="panel-card-head"><h2><Settings2 aria-hidden="true" />{t('console.settings.schedulerTitle')}</h2></header>
-          {loading || !draft ? <div className="page-loading"><Loader2 className="spin" aria-hidden="true" />{t('common.loading')}</div> : (
+          {loading && !draft ? <div className="page-loading"><Loader2 className="spin" aria-hidden="true" />{t('common.loading')}</div> : !draft ? (
+            <div className="settings-load-failed">
+              <p className="console-banner error" role="alert"><AlertTriangle aria-hidden="true" />{loadError ?? t('console.error.unknown')}</p>
+              <button type="button" className="button ghost" onClick={() => setLoadTick((value) => value + 1)}>{t('common.retry')}</button>
+            </div>
+          ) : (
             <div className="settings-form">
               <label className="field">
                 <span>{t('console.settings.maxConcurrent')}</span>
@@ -350,6 +360,7 @@ export function SettingsPage() {
               </label>
               <label className="toggle-row">
                 <input
+                  className="pd-switch"
                   type="checkbox"
                   checked={draft.decisionSound}
                   onChange={(event) => setDraft({ ...draft, decisionSound: event.target.checked })}

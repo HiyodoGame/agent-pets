@@ -10,6 +10,7 @@ import {
   type TaskDetail,
 } from '../../adapters/runtime-client.ts'
 import { skipWhileRunning } from '../../adapters/poll-gate.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 
 export interface RuntimeOverview {
   tasks: Task[]
@@ -48,7 +49,7 @@ export function useRuntimeOverview(intervalMs = 4000, enabled = true): RuntimeOv
         setError(null)
       } catch (cause) {
         if (disposed) return
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setError(runtimeErrorText(cause))
       } finally {
         if (!disposed) setLoading(false)
       }
@@ -92,7 +93,7 @@ export function useTaskDetail(taskId: string | null, intervalMs = 4000): TaskDet
         const next = await getTaskDetail(taskId)
         if (!disposed) { setDetail(next); setError(null) }
       } catch (cause) {
-        if (!disposed) setError(cause instanceof Error ? cause.message : String(cause))
+        if (!disposed) setError(runtimeErrorText(cause))
       } finally {
         if (!disposed) setLoading(false)
       }
@@ -141,7 +142,7 @@ export function usePendingDecisions(intervalMs = 4000, enabled = true): PendingD
         setError(null)
       } catch (cause) {
         if (disposed) return
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setError(runtimeErrorText(cause))
       } finally {
         if (!disposed) setLoading(false)
       }

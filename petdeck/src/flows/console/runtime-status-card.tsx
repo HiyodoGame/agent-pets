@@ -12,6 +12,7 @@ import {
 import { openNodeLicenses, restartBridge } from '../../desktop/bridge-config.ts'
 import { isTauri } from '../../desktop/window.ts'
 import { t, useLocale } from '../../i18n/index.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 import { formatClock } from './format.ts'
 
 function formatUptime(seconds: number): string {
@@ -67,7 +68,7 @@ export function RuntimeStatusCard() {
       setError(null)
     } catch (cause) {
       setStatus(null)
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     }
   }, [])
 
@@ -114,7 +115,7 @@ export function RuntimeStatusCard() {
     try {
       setExported(await exportDiagnostics())
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setExporting(false)
     }
@@ -125,7 +126,7 @@ export function RuntimeStatusCard() {
     try {
       setLicensePath(await openNodeLicenses())
     } catch (cause) {
-      setLicenseError(cause instanceof Error ? cause.message : String(cause))
+      setLicenseError(runtimeErrorText(cause))
     }
   }
 
@@ -138,7 +139,7 @@ export function RuntimeStatusCard() {
       await restartBridge()
       await loadWithRetry()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setRestarting(false)
     }

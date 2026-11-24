@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bot, Check, ChevronDown, Loader2, Pencil, Send, Settings2, Sparkles, X } from 'lucide-react'
 import {
@@ -17,6 +17,7 @@ import {
 } from '../../adapters/runtime-client.ts'
 import { t, useLocale } from '../../i18n/index.ts'
 import { formatRelative } from './format.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 
 const AGENT_OPTIONS = ['claude-code', 'kimi-code', 'opencode'] as const
 
@@ -38,12 +39,14 @@ export function ManagerPanel({ projects, onDispatched }: ManagerPanelProps) {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [busyProposal, setBusyProposal] = useState<string | null>(null)
+  const [loadTick, setLoadTick] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [editing, setEditing] = useState<Proposal | null>(null)
   const [editItems, setEditItems] = useState<ProposalItem[]>([])
   const [editTitle, setEditTitle] = useState('')
   const messagesRef = useRef<HTMLDivElement | null>(null)
+  const composerHintId = useId()
 
   useEffect(() => {
     if (projects.length === 0) { setProjectId(''); return }
@@ -65,14 +68,14 @@ export function ManagerPanel({ projects, onDispatched }: ManagerPanelProps) {
         setProposals(nextProposals)
         setError(null)
       } catch (cause) {
-        if (!disposed) setError(cause instanceof Error ? cause.message : String(cause))
+        if (!disposed) setError(runtimeErrorText(cause))
       } finally {
         if (!disposed) setLoading(false)
       }
     }
     void load()
     return () => { disposed = true }
-  }, [])
+  }, [loadTick])
 
   useEffect(() => {
     let disposed = false
@@ -116,7 +119,7 @@ export function ManagerPanel({ projects, onDispatched }: ManagerPanelProps) {
       setDraft('')
       await reloadConversation()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setSending(false)
     }
@@ -136,7 +139,7 @@ export function ManagerPanel({ projects, onDispatched }: ManagerPanelProps) {
       await reloadConversation()
       onDispatched()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setBusyProposal(null)
     }
@@ -152,7 +155,7 @@ export function ManagerPanel({ projects, onDispatched }: ManagerPanelProps) {
       setEditing(null)
       await reloadConversation()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setBusyProposal(null)
     }
@@ -178,7 +181,7 @@ export function ManagerPanel({ projects, onDispatched }: ManagerPanelProps) {
       setEditing(null)
       await reloadConversation()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setBusyProposal(null)
     }
@@ -291,14 +294,21 @@ export function ManagerPanel({ projects, onDispatched }: ManagerPanelProps) {
       </div>
 
       {notice ? <p className="manager-notice" role="status">{notice}</p> : null}
-      {error ? <p className="console-banner error" role="alert">{error}</p> : null}
+      {error ? (
+        <div className="settings-load-failed">
+          <p className="console-banner error" role="alert">{error}</p>
+          <button type="button" className="button ghost" onClick={() => setLoadTick((value) => value + 1)}>{t('common.retry')}</button>
+        </div>
+      ) : null}
 
       <div className="manager-composer">
         <textarea
           rows={3}
+          aria-label={t('console.manager.composerLabel')}
+          aria-describedby={composerHintId}
           value={draft}
           maxLength={8000}
-          placeholder={manager?.ready ? t('console.manager.placeholder') : t('console.manager.configure')}
+          placeholder={manager?.ready ? t('console.manager.placeholder') : t('console.manager.placeholderUnconfigured')}
           disabled={!manager?.ready || sending || !projectId}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -306,7 +316,7 @@ export function ManagerPanel({ projects, onDispatched }: ManagerPanelProps) {
           }}
         />
         <div className="manager-composer-foot">
-          <span>Ctrl + Enter</span>
+          <span id={composerHintId}>Ctrl + Enter</span>
           <button type="button" className="button primary small" disabled={!canSend} onClick={() => void submit()}>
             {sending ? <Loader2 className="spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
             {sending ? t('console.manager.sending') : t('console.manager.send')}

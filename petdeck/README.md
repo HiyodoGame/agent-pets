@@ -1,6 +1,6 @@
 # PetDeck — Agent Pets 桌面宠物
 
-Windows 优先的 Agent 桌面宠物：透明、无边框、置顶的小窗常驻桌面，通过本机 bridge（HTTP + SSE）观察并接力本地 Agent CLI。主面板按需打开；会话内容与缓存全部留在本机。
+Windows 优先的 Agent 桌面宠物：透明、无边框、置顶的小窗常驻桌面，通过本机 bridge（HTTP + SSE）观察本地 Agent 会话、编排任务并验收交付。主面板使用自定义标题栏按需打开；会话内容与缓存全部留在本机。
 
 ## 桌面版前置条件
 
@@ -70,16 +70,16 @@ npm run tauri:build
 
 使用驱动的轻量成长，不引入饥饿或衰减惩罚：
 
-- 完成任务 / 接力完成：+10 XP
+- 完成任务：+10 XP
 - 抚摸宠物：+2 XP（30 秒冷却，防止连点刷经验）
 - 连续活跃天数自动累计；等级、称号与进度保存在本机
-- 宠物快捷面板显示等级、称号、进度条与完成任务数；主面板标题栏显示等级
+- 宠物快捷面板显示等级、称号、进度条与完成任务数；侧栏底部显示等级
 
 等级阈值与文案见 `src/flows/shared/pet/growth.ts` 与 `src/i18n/messages.ts`。
 
 ## 跨机器会话（SSH observe）
 
-设置 `PETDECK_REMOTE_HOSTS=me@build-box,dev2` 后重启 PetDeck。远程主机的 Claude Code / Codex 会话会以只读形式出现在面板，带 `@host` 标记；远程会话不可接力/注入。需要远程主机有 `node`，且本机已配置 SSH 密钥与 `known_hosts`。
+设置 `PETDECK_REMOTE_HOSTS=me@build-box,dev2` 后重启 PetDeck。远程主机的 Claude Code / Codex 会话会以只读形式出现在今日页「观察中的会话」，带 `@host` 标记；可在抽屉里复制交接包，但远程会话不可注入。需要远程主机有 `node`，且本机已配置 SSH 密钥与 `known_hosts`。
 
 安全细节、限制与验证方式见 [远程会话](../docs/远程会话.md)。
 

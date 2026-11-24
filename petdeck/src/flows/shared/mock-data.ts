@@ -7,12 +7,10 @@
 
 import type {
   Agent,
-  AgentCatalogEntry,
   Artifact,
   Message,
   PetEvent,
   Project,
-  RelayDraft,
   Session,
 } from './types'
 
@@ -192,30 +190,6 @@ export const mockEvents: PetEvent[] = [
   { id: 'e1', type: 'relay-ready', projectId: 'p1', sessionId: 's1', agentId: 'a1', agentName: 'Codex', projectName: 'App 发版管线', sessionTitle: '生成 v2.1 应用内素材包', text: 'Codex 素材生成完成，可接力给 Qoder 部署', timestamp: '2026-11-13T18:20:00+08:00', handled: false },
   { id: 'e2', type: 'decision', projectId: 'p1', sessionId: 's3', agentId: 'a3', agentName: 'kimi work', projectName: 'App 发版管线', sessionTitle: '撰写小红书/抖音宣传文案', text: 'kimi work 等你拍板：宣传主打方向', timestamp: '2026-11-13T18:32:00+08:00', handled: false },
   { id: 'e3', type: 'done', projectId: 'p3', sessionId: 's5', agentId: 'a2', agentName: 'Qoder', projectName: '官网维护', sessionTitle: '更新官网展示内容', text: '官网内容更新完成', timestamp: '2026-11-13T17:50:00+08:00', handled: true },
-]
-
-export const mockRelayDrafts: RelayDraft[] = [
-  {
-    id: 'rd1',
-    sourceSessionId: 's1',
-    targetAgentId: 'a2',
-    contextSummary: 'App v2.1 素材已由 Codex 生成完毕：12 张应用内图片 + 3 张商店截图，风格沿用 v2.0。产物已打包。',
-    instruction: '上传素材包到服务器，更新 App 资源引用，完成后告诉我部署状态。',
-    artifactIds: ['art1', 'art2'],
-    status: 'draft',
-  },
-]
-
-export const mockCatalog: AgentCatalogEntry[] = [
-  { id: 'c1', name: 'Qoder', form: 'cli', capability: 'full', detectHint: '检测本地 Qoder 安装与 CLI 桥接', supported: true },
-  { id: 'c2', name: 'Codex', form: 'cli', capability: 'full', detectHint: '检测 codex CLI 与会话日志', supported: true },
-  { id: 'c3', name: 'opencode', form: 'cli', capability: 'observe-only', detectHint: '检测 opencode 进程与日志', supported: true },
-  { id: 'c4', name: 'kimi code', form: 'cli', capability: 'observe-only', detectHint: '检测 kimi code CLI', supported: true },
-  { id: 'c5', name: 'zcode', form: 'cli', capability: 'observe-only', detectHint: '检测 zcode 本地安装', supported: true },
-  { id: 'c6', name: 'kimi work', form: 'web', capability: 'observe-only', detectHint: '浏览器扩展读取会话状态', supported: true },
-  { id: 'c7', name: 'MiniMaxDesign', form: 'web', capability: 'manual', detectHint: '手动 check-in + 产物下载', supported: true },
-  { id: 'c8', name: '小艺work', form: 'web', capability: 'manual', detectHint: '手动 check-in', supported: true },
-  { id: 'c9', name: 'GrokBot', form: 'web', capability: 'manual', detectHint: '尚未支持，可请求适配', supported: false },
 ]
 
 // ── 查询辅助（值 export，普通 import） ──

@@ -33,9 +33,10 @@ test('core: exportJSON parses to events array', () => {
   assert.equal(arr.length, 1);
 });
 
-test('core: EVENT names include NSM-critical events', () => {
-  assert.equal(EVENT.relayDone, 'relay_done');
-  assert.equal(EVENT.relayInjectResult, 'relay_inject_result');
+test('core: EVENT names include the surviving lifecycle events', () => {
+  assert.equal(EVENT.appSessionStart, 'app_session_start');
+  assert.equal(EVENT.offlineEntered, 'offline_entered');
+  assert.equal(EVENT.connectionRecovered, 'connection_recovered');
 });
 
 // --- Task 7: debounced persistence + pagehide flush (no sync write per track) ---

@@ -8,6 +8,7 @@ import {
   type Project,
 } from '../../adapters/runtime-client.ts'
 import { t, useLocale } from '../../i18n/index.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 import { formatRelative } from './format.ts'
 import { EmptyState } from './task-bits.tsx'
 
@@ -46,7 +47,7 @@ export function ReportsView() {
         setReports(next)
         setError(null)
       })
-      .catch((cause) => { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)) })
+      .catch((cause) => { if (!disposed) setError(runtimeErrorText(cause)) })
       .finally(() => { if (!disposed) setLoading(false) })
     return () => { disposed = true }
   }, [projectId])
@@ -67,7 +68,7 @@ export function ReportsView() {
       setReports((current) => [report, ...current.filter((item) => item.id !== report.id)])
       setSelectedId(report.id)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setGenerating(false)
     }

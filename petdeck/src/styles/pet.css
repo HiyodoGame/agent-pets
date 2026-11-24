@@ -233,47 +233,6 @@ html[data-pet-window="true"] #root {
   cursor: pointer;
 }
 
-.pet-check-field input {
-  position: relative;
-  inline-size: var(--pd-control-md);
-  block-size: var(--pd-space-5);
-  flex: none;
-  margin: 0;
-  appearance: none;
-  border: 0.0625rem solid var(--color-border);
-  border-radius: 999rem;
-  background: var(--color-fill-secondary);
-  cursor: pointer;
-  transition: background-color var(--pd-duration-fast) var(--pd-ease-out), border-color var(--pd-duration-fast) var(--pd-ease-out);
-}
-
-.pet-check-field input::after {
-  position: absolute;
-  inset-block-start: var(--pd-space-1);
-  inset-inline-start: var(--pd-space-1);
-  inline-size: var(--pd-space-3);
-  block-size: var(--pd-space-3);
-  border-radius: 50%;
-  background: var(--color-text-secondary);
-  content: "";
-  transition: transform var(--pd-duration-fast) var(--pd-ease-out), background-color var(--pd-duration-fast) var(--pd-ease-out);
-}
-
-.pet-check-field input:checked {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-}
-
-.pet-check-field input:checked::after {
-  background: var(--color-text-on-primary);
-  transform: translateX(var(--pd-space-4));
-}
-
-.pet-check-field input:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .pet-check-field:has(input:disabled) {
   opacity: 0.65;
   cursor: not-allowed;

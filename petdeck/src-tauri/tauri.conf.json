@@ -70,6 +70,8 @@
         "height": 760,
         "minWidth": 720,
         "minHeight": 540,
+        "decorations": false,
+        "shadow": true,
         "visible": false
       }
     ]

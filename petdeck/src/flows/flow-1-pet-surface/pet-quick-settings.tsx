@@ -151,11 +151,11 @@ export function PetQuickSettings({ settings, onChange, onClose }: {
         </div>
       </div>
       <label className="pet-check-field">
-        <input type="checkbox" checked={settings.roaming} disabled={settings.motion === 'off' || settings.motion === 'reduced'} onChange={(event) => onChange({ roaming: event.target.checked })} />
+        <input className="pd-switch" type="checkbox" checked={settings.roaming} disabled={settings.motion === 'off' || settings.motion === 'reduced'} onChange={(event) => onChange({ roaming: event.target.checked })} />
         <span>{t('settings.roaming')}</span>
       </label>
       <label className="pet-check-field">
-        <input type="checkbox" checked={settings.alwaysOnTop} onChange={(event) => onChange({ alwaysOnTop: event.target.checked })} />
+        <input className="pd-switch" type="checkbox" checked={settings.alwaysOnTop} onChange={(event) => onChange({ alwaysOnTop: event.target.checked })} />
         <span>{t('settings.alwaysOnTop')}</span>
       </label>
       <div className="pet-field pet-update-field">

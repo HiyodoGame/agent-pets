@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  ArrowRightLeft,
   Bot,
   FileBarChart,
   FlaskConical,
@@ -9,10 +8,7 @@ import {
   LayoutDashboard,
   Link2,
   ListTodo,
-  MessagesSquare,
   Moon,
-  PawPrint,
-  PlugZap,
   Settings2,
   Sun,
 } from 'lucide-react'
@@ -26,30 +22,17 @@ import { getDemoPreference, setDemoPreference } from '../../desktop/demo-prefere
 import { useGrowth } from '../shared/pet/use-growth.ts'
 import { useRuntimeOverview } from '../console/runtime-hooks.ts'
 import { t, useLocale } from '../../i18n/index.ts'
+import { TitleBar } from './title-bar.tsx'
 
 const ThemedRoutes = lazy(() => import('./themed-routes').then((m) => ({ default: m.ThemedRoutes })))
 
-const NAV_GROUPS = [
-  {
-    key: 'shell.navConsole' as const,
-    items: [
-      { path: '/today', key: 'nav.today' as const, icon: LayoutDashboard },
-      { path: '/tasks', key: 'nav.tasks' as const, icon: ListTodo },
-      { path: '/projects', key: 'nav.projects' as const, icon: FolderGit2 },
-      { path: '/agents', key: 'nav.agents' as const, icon: Bot },
-      { path: '/reports', key: 'nav.reports' as const, icon: FileBarChart },
-      { path: '/settings', key: 'nav.settings' as const, icon: Settings2 },
-    ],
-  },
-  {
-    key: 'shell.navLegacy' as const,
-    items: [
-      { path: '/panel', key: 'nav.panel' as const, icon: MessagesSquare },
-      { path: '/relay', key: 'nav.relay' as const, icon: ArrowRightLeft },
-      { path: '/connect', key: 'nav.connect' as const, icon: PlugZap },
-      { path: '/pet', key: 'nav.pet' as const, icon: PawPrint },
-    ],
-  },
+const NAV_ITEMS = [
+  { path: '/today', key: 'nav.today' as const, icon: LayoutDashboard },
+  { path: '/tasks', key: 'nav.tasks' as const, icon: ListTodo },
+  { path: '/projects', key: 'nav.projects' as const, icon: FolderGit2 },
+  { path: '/agents', key: 'nav.agents' as const, icon: Bot },
+  { path: '/reports', key: 'nav.reports' as const, icon: FileBarChart },
+  { path: '/settings', key: 'nav.settings' as const, icon: Settings2 },
 ]
 
 type Appearance = 'light' | 'dark'
@@ -78,7 +61,8 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: {
     let unlisten: (() => void) | null = null
     listenForPanelNavigation((target) => {
       if (target.taskId) navigate('/tasks/' + target.taskId)
-      else if (target.projectId || target.sessionId) navigate('/panel', { state: target })
+      else if (target.sessionId) navigate('/today?observe=' + encodeURIComponent(target.sessionId))
+      else if (target.projectId) navigate('/projects')
       else navigate('/today')
     }).then((fn) => {
       if (active) unlisten = fn
@@ -105,30 +89,24 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: {
       : connState === 'reconnecting'
         ? t('shell.reconnecting')
         : clock ? t('shell.offlineAt', { time: clock }) : t('shell.offline')
+  const connectionState = demo ? 'live' : offline ? 'offline' : connState === 'reconnecting' ? 'reconnecting' : 'live'
 
   return (
     <div data-theme={appearance} data-style="soft" className="app-shell">
       <a className="app-skip-link" href="#main-content">{t('shell.skipToContent')}</a>
-      <aside className="app-sidebar">
-        <NavLink to="/today" className="app-brand" aria-label="PetDeck">
-          <img src="/brand-mark.png" width="42" height="42" alt="" className="app-brand-mark" />
-          <span className="app-brand-copy">
-            <strong>PetDeck</strong>
-            <span>{t('shell.tagline')}</span>
-          </span>
-        </NavLink>
+      <TitleBar
+        connectionLabel={connectionLabel}
+        connectionState={connectionState}
+        running={t('common.running', { n: fmtCount(running) })}
+      />
 
+      <aside className="app-sidebar">
         <nav className="app-nav" aria-label={t('shell.mainNav')}>
-          {NAV_GROUPS.map((group) => (
-            <div className="app-nav-group" key={group.key}>
-              <span className="app-nav-group-label">{t(group.key)}</span>
-              {group.items.map(({ path, key, icon: Icon }) => (
-                <NavLink key={path} to={path} className={({ isActive }) => `app-nav-link${isActive ? ' is-active' : ''}`}>
-                  <Icon aria-hidden="true" />
-                  <span>{t(key)}</span>
-                </NavLink>
-              ))}
-            </div>
+          {NAV_ITEMS.map(({ path, key, icon: Icon }) => (
+            <NavLink key={path} to={path} className={({ isActive }) => `app-nav-link${isActive ? ' is-active' : ''}`}>
+              <Icon aria-hidden="true" />
+              <span>{t(key)}</span>
+            </NavLink>
           ))}
         </nav>
 
@@ -156,23 +134,13 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: {
       </aside>
 
       <div className="app-workspace">
-        <header className="app-topbar">
-          <div className={`app-connection${offline ? ' is-offline' : connState === 'reconnecting' ? ' is-reconnecting' : ''}`} role="status">
-            <Link2 aria-hidden="true" />
-            <span>{connectionLabel}</span>
-          </div>
-          <div className="app-topbar-summary tabular-nums">
-            <span>{t('common.running', { n: fmtCount(running) })}</span>
-          </div>
-        </header>
-
         {offline && (
           <div className="app-offline" role="alert">
             <div>
               <strong>{bridgeStartupError ? t('shell.bridgeStartupTitle') : t('shell.offlineTitle')}</strong>
               <span>{bridgeStartupError ?? (clock ? t('shell.offlineCached', { time: clock }) : t('shell.offlineNoBridge'))}</span>
             </div>
-            <button type="button" onClick={reconnect}>{t('shell.reconnect')}</button>
+            <button type="button" onClick={reconnect}><Link2 aria-hidden="true" />{t('shell.reconnect')}</button>
           </div>
         )}
 

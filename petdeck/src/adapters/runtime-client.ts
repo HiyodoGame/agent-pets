@@ -334,7 +334,9 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = TIME
       signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (error) {
-    throw new RuntimeClientError(error instanceof Error ? error.message : 'network error', 0)
+    // Keep engine text out of the UI: the code drives the localized message.
+    const aborted = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+    throw new RuntimeClientError(aborted ? 'timeout' : 'network error', 0, aborted ? 'TIMEOUT' : 'NETWORK')
   }
   let body: unknown = null
   try { body = await response.json() } catch { /* non-JSON error page */ }

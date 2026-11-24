@@ -19,11 +19,12 @@ import {
   type TaskDetail,
 } from '../../adapters/runtime-client.ts'
 import { t, useLocale } from '../../i18n/index.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 import { formatBytes, formatClock } from './format.ts'
 import { shouldCommitTaskRequest, type TaskRequestStamp } from './task-request.ts'
 
 function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause)
+  return runtimeErrorText(cause)
 }
 
 function detailsOf(cause: unknown): Record<string, unknown> | null {

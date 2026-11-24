@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Check, Loader2 } from 'lucide-react'
 import { answerDecision, type Decision } from '../../adapters/runtime-client.ts'
 import { t } from '../../i18n/index.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 
 export interface DecisionCardProps {
   decision: Decision
@@ -26,7 +27,7 @@ export function DecisionCard({ decision, compact = false, onAnswered }: Decision
       setFreeform('')
       onAnswered?.()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setBusy(false)
     }

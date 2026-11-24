@@ -27,6 +27,7 @@
   --pd-duration-none: 0ms;
   --pd-ease-out: cubic-bezier(0, 0, 0.2, 1);
   --pd-sidebar-width: 14.5rem;
+  --pd-titlebar-height: 2.25rem;
   --pd-content-max: 90rem;
   --pd-text-max: 68ch;
   --pd-shadow-overlay: 0 1.25rem 3.75rem rgb(44 33 51 / 16%), 0 0.25rem 1rem rgb(44 33 51 / 8%);

@@ -8,11 +8,13 @@
 html,
 body,
 #root {
+  block-size: 100%;
   min-block-size: 100%;
 }
 
 body {
   margin: 0;
+  overflow: hidden;
   background: var(--color-bg-base);
   color: var(--color-text);
   font-family: var(--pd-font-ui);

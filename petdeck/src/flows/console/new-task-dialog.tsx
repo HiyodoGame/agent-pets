@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Loader2, X } from 'lucide-react'
 import { createTask, listAgents, type AgentInfo, type Project, type Task } from '../../adapters/runtime-client.ts'
 import { t } from '../../i18n/index.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 import { useFocusTrap } from './focus-trap.ts'
 
 const MODE_LABEL: Record<string, Parameters<typeof t>[0]> = {
@@ -76,7 +77,7 @@ export function NewTaskDialog({ projects, tasks = [], defaultProjectId, onClose,
       const task = await createTask({ projectId, title: title.trim(), prompt: prompt.trim(), agent, permissionMode, dependsOn })
       onCreated(task)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(runtimeErrorText(cause))
     } finally {
       setBusy(false)
     }

@@ -16,7 +16,7 @@ test('entryRedirect: nested dir keeps its trailing slash', () => {
 
 test('entryRedirect: real routes are untouched', () => {
   assert.equal(entryRedirect('/'), null);
-  assert.equal(entryRedirect('/panel'), null);
+  assert.equal(entryRedirect('/today'), null);
   assert.equal(entryRedirect('/pet.html'), null);
   assert.equal(entryRedirect('/index.html.bak'), null);
 });

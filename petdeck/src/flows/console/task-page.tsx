@@ -18,6 +18,7 @@ import {
   type TaskDetail,
 } from '../../adapters/runtime-client.ts'
 import { t, useLocale } from '../../i18n/index.ts'
+import { runtimeErrorText } from './runtime-error.ts'
 import { useTaskDetail } from './runtime-hooks.ts'
 import { eventText, formatClock, formatDuration, formatMs, formatRelative, shortPath, summarizeToolInput } from './format.ts'
 import { DecisionCard } from './decision-card.tsx'
@@ -131,7 +132,7 @@ export function TaskPage() {
           onError: () => { if (!disposed) setStreamError(t('console.task.streamLost')) },
         })
       } catch (cause) {
-        if (!disposed) setStreamError(cause instanceof Error ? cause.message : String(cause))
+        if (!disposed) setStreamError(runtimeErrorText(cause))
       }
     }
     void attach()
@@ -183,7 +184,7 @@ export function TaskPage() {
         if (view) view.scrollTop = prevTop + (view.scrollHeight - prevHeight)
       })
     } catch (cause) {
-      if (currentRequest(request)) setStreamError(cause instanceof Error ? cause.message : String(cause))
+      if (currentRequest(request)) setStreamError(runtimeErrorText(cause))
     } finally {
       if (currentRequest(request)) {
         loadingOlderRef.current = false
@@ -218,7 +219,7 @@ export function TaskPage() {
       if (next) applyDetail(next)
       refresh()
     } catch (cause) {
-      if (currentRequest(request)) setActionError(cause instanceof Error ? cause.message : String(cause))
+      if (currentRequest(request)) setActionError(runtimeErrorText(cause))
     } finally {
       if (currentRequest(request)) {
         actionBusyRef.current = null
@@ -260,7 +261,7 @@ export function TaskPage() {
         if (proceed) return runCleanup(true, request)
         return // cancelled: keep the worktree, branch and commits, report nothing
       }
-      setActionError(t('console.cleanup.failed', { message: cause instanceof Error ? cause.message : String(cause) }))
+      setActionError(t('console.cleanup.failed', { message: runtimeErrorText(cause) }))
     }
   }
 

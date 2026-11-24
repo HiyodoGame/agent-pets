@@ -1,18 +1,6 @@
 // Local-first telemetry core. Pure logic (unit-tested). Only behavior events, never content.
 export const EVENT = {
-  relayStarted: 'relay_started',
-  relayPreviewConfirmed: 'relay_preview_confirmed',
-  relayInjectResult: 'relay_inject_result',
-  relayDone: 'relay_done',
-  connectStarted: 'connect_started',
-  connectSuccess: 'connect_success',
-  ambientGlance: 'ambient_glance',
   appSessionStart: 'app_session_start',
-  dndToggle: 'dnd_toggle',
-  notificationSuppressed: 'notification_suppressed',
-  relayStopped: 'relay_stopped',
-  petPoke: 'pet_poke',
-  panelDrilldown: 'panel_drilldown',
   offlineEntered: 'offline_entered',
   connectionRecovered: 'connection_recovered',
 } as const

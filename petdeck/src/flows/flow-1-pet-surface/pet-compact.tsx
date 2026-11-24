@@ -91,7 +91,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
     const added = newEventsAfter(events, watermarkRef.current)
     watermarkRef.current = eventWatermark(events)
     if (added.length === 0) return
-    // Usage-driven growth: completed tasks (and completed relays) grant XP. Only the
+    // Usage-driven growth: completed tasks grant XP. Only the
     // persistent pet window awards, so an open main panel cannot double-count.
     const completed = added.filter((event) => event.type === 'done' || event.type === 'relay-ready').length
     if (completed > 0) awardTaskGrowth(completed)
@@ -417,7 +417,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
             <PanelTop className="h-4 w-4" /> {t('pet.openPanel')}
           </button>
           <label className="pet-check-field pet-dnd-field">
-            <input type="checkbox" checked={dnd} onChange={toggleDnd} />
+            <input className="pd-switch" type="checkbox" checked={dnd} onChange={toggleDnd} />
             <span>{t('pet.dnd')}</span>
           </label>
         </section>
