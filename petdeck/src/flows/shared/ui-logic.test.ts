@@ -103,13 +103,14 @@ test('live connect: healthy and target discovered succeeds', () => {
   assert.equal(decideLiveConnect({ healthy: true, agentIds: ['a1', 'a2'], selectedId: 'a2' }), 'ok');
 });
 
-// ---- 追问结果决策：只有 mode=inject 才声称已发送；clipboard 给出真实可复制交接内容 ----
+// ---- 追问结果决策：live inject 是新接力，不能冒充原 session 的追问 ----
 
-test('follow-up: only a real inject decision claims sent', () => {
+test('follow-up: live inject starts a new relay without appending to the original session', () => {
   const d: InjectDecision = { mode: 'inject', response: 'ack', sessionID: 'sess-1' };
   const plan = planFollowUp(d);
-  assert.equal(plan.outcome, 'sent');
-  assert.equal(plan.toast, '已发送追问');
+  assert.equal(plan.outcome, 'relay');
+  assert.equal(plan.appendLocal, false);
+  assert.equal(plan.toast, '已创建新的接力会话；原会话未追加此消息');
   assert.equal(plan.copyText, undefined);
 });
 
@@ -240,20 +241,20 @@ test('watermark: same-millisecond burst is disambiguated by the frontier id set'
 test('dnd routing: decision events route to tap, never to the suppressed queue', () => {
   const base = 1_700_000_000_000;
   const d1 = { ...ev('d1', base + 1000), type: 'decision' as const };
-  const { quiet, decision } = routeDndArrivals([ev('q1', base + 2000), d1, ev('q2', base + 3000)]);
+  const { quiet, decisions } = routeDndArrivals([ev('q1', base + 2000), d1, ev('q2', base + 3000)]);
   assert.deepEqual(quiet.map((e) => e.id), ['q1', 'q2']);
-  assert.equal(decision?.id, 'd1');
+  assert.deepEqual(decisions.map((e) => e.id), ['d1']);
 });
 
-test('dnd routing: same-batch decisions collapse to a single tap representative; empty batch routes nothing', () => {
+test('dnd routing: every same-batch decision is retained for sequential prompts; empty batch routes nothing', () => {
   const base = 1_700_000_000_000;
   const d1 = { ...ev('d1', base + 1000), type: 'decision' as const };
   const d2 = { ...ev('d2', base + 2000), type: 'decision' as const };
   const both = routeDndArrivals([d1, d2]);
-  assert.equal(both.decision?.id, 'd1');
+  assert.deepEqual(both.decisions.map((event) => event.id), ['d1', 'd2']);
   assert.deepEqual(both.quiet, []);
   const none = routeDndArrivals([]);
-  assert.equal(none.decision, null);
+  assert.deepEqual(none.decisions, []);
   assert.deepEqual(none.quiet, []);
 });
 
@@ -339,9 +340,16 @@ test('follow-up: live clipboard fallback keeps prior behavior (no local append, 
   assert.ok(!plan.toast.includes('已发送'));
 });
 
-test('follow-up: default options keep live semantics (inject claims sent, clipboard does not)', () => {
-  assert.equal(planFollowUp({ mode: 'inject' }).appendLocal, true);
+test('follow-up: default options keep live semantics (inject is a separate relay, clipboard does not append)', () => {
+  assert.equal(planFollowUp({ mode: 'inject' }).appendLocal, false);
   assert.equal(planFollowUp({ mode: 'clipboard', package: 'p' }).appendLocal, false);
+});
+
+test('follow-up: demo inject appends locally but explicitly says nothing was really sent', () => {
+  const plan = planFollowUp({ mode: 'inject' }, { live: false });
+  assert.equal(plan.outcome, 'relay');
+  assert.equal(plan.appendLocal, true);
+  assert.ok(plan.toast.includes('未真实发送'));
 });
 
 test('streaming: observed live snapshots render as completed Markdown instead of a fake stream', () => {

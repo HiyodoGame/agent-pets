@@ -18,10 +18,10 @@ export function AddProjectDialog({ onClose, onRegistered }: {
   useFocusTrap(dialogRef)
   useEffect(() => { pathRef.current?.focus() }, [])
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, busy])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -40,14 +40,14 @@ export function AddProjectDialog({ onClose, onRegistered }: {
   }
 
   return (
-    <div className="console-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <div className="console-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (!busy && event.target === event.currentTarget) onClose() }}>
       <div ref={dialogRef} className="console-dialog narrow" role="dialog" aria-modal="true" aria-labelledby="add-project-title">
         <header className="console-dialog-head">
           <div>
             <h2 id="add-project-title">{t('console.addProject.title')}</h2>
             <p>{t('console.addProject.hint')}</p>
           </div>
-          <button type="button" className="icon-button" aria-label={t('common.close')} onClick={onClose}><X aria-hidden="true" /></button>
+          <button type="button" className="icon-button" aria-label={t('common.close')} disabled={busy} onClick={() => { if (!busy) onClose() }}><X aria-hidden="true" /></button>
         </header>
         <form className="console-form" onSubmit={submit}>
           <label className="field">
@@ -60,7 +60,7 @@ export function AddProjectDialog({ onClose, onRegistered }: {
           </label>
           {error && <p className="form-error" role="alert">{error}</p>}
           <footer className="console-dialog-actions">
-            <button type="button" className="button ghost" onClick={onClose}>{t('common.cancel')}</button>
+            <button type="button" className="button ghost" disabled={busy} onClick={() => { if (!busy) onClose() }}>{t('common.cancel')}</button>
             <button type="submit" className="button primary" disabled={busy}>
               {busy ? <Loader2 className="spin" aria-hidden="true" /> : null}
               {t('console.addProject.submit')}

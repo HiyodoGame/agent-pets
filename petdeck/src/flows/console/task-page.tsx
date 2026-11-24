@@ -23,6 +23,7 @@ import { DecisionCard } from './decision-card.tsx'
 import { AcceptancePanel, ArtifactPanel, MergePanel } from './review-panels.tsx'
 import { EmptyState, TaskStatusBadge, statusLabel } from './task-bits.tsx'
 import { InterruptBanner } from './interrupt-banner.tsx'
+import { shouldCommitTaskRequest, type TaskRequestStamp } from './task-request.ts'
 
 type TaskAction = 'start' | 'stop' | 'resume' | 'pause' | 'continue'
 
@@ -35,7 +36,11 @@ export function TaskPage() {
   const { taskId = '' } = useParams()
   const navigate = useNavigate()
   const { locale } = useLocale()
-  const { detail, loading, error, applyDetail, refresh } = useTaskDetail(taskId)
+  const { detail: storedDetail, loading, error, applyDetail, refresh } = useTaskDetail(taskId)
+  // Route changes render before effects run. Never show the previous task during
+  // that frame, even though its stored snapshot has not been cleared yet.
+  const detail = storedDetail?.task.id === taskId ? storedDetail : null
+  const routeChanged = Boolean(storedDetail && storedDetail.task.id !== taskId)
   const [events, setEvents] = useState<RuntimeEvent[]>([])
   const [hasOlder, setHasOlder] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
@@ -45,16 +50,30 @@ export function TaskPage() {
   const [busy, setBusy] = useState<TaskAction | null>(null)
   const [cleanupBusy, setCleanupBusy] = useState(false)
   const [agents, setAgents] = useState<AgentInfo[]>([])
-  const [mergeToken, setMergeToken] = useState<string | null>(null)
-  const [mergeExpires, setMergeExpires] = useState<number | null>(null)
+  const [mergeAuthorization, setMergeAuthorization] = useState<{ taskId: string; token: string | null; expiresAt: number | null } | null>(null)
   const [follow, setFollow] = useState(true)
   const streamRef = useRef<HTMLDivElement>(null)
   const lastIdRef = useRef(0)
   const followRef = useRef(true)
   const flushRef = useRef<() => void>(() => {})
   const loadingOlderRef = useRef(false)
+  const actionBusyRef = useRef<TaskAction | null>(null)
+  const taskRevisionRef = useRef(0)
+  const currentTaskIdRef = useRef<string | null>(null)
+
+  function currentRequest(request: TaskRequestStamp): boolean {
+    return shouldCommitTaskRequest(request, currentTaskIdRef.current, taskRevisionRef.current)
+  }
 
   useEffect(() => {
+    taskRevisionRef.current++
+    currentTaskIdRef.current = taskId || null
+    setMergeAuthorization(null)
+    setActionError(null)
+    setStreamError(null)
+    setBusy(null)
+    actionBusyRef.current = null
+    setCleanupBusy(false)
     setEvents([])
     setHasOlder(false)
     setUnread(0)
@@ -107,8 +126,8 @@ export function TaskPage() {
             schedule()
             if (event.type === 'decision.requested' || event.type === 'decision.answered') refresh()
           },
-          onOpen: () => setStreamError(null),
-          onError: () => setStreamError(t('console.task.streamLost')),
+          onOpen: () => { if (!disposed) setStreamError(null) },
+          onError: () => { if (!disposed) setStreamError(t('console.task.streamLost')) },
         })
       } catch (cause) {
         if (!disposed) setStreamError(cause instanceof Error ? cause.message : String(cause))
@@ -117,6 +136,8 @@ export function TaskPage() {
     void attach()
     return () => {
       disposed = true
+      taskRevisionRef.current++
+      currentTaskIdRef.current = null
       flushRef.current = () => {}
       if (flushTimer !== null) window.clearTimeout(flushTimer)
       close?.()
@@ -135,6 +156,7 @@ export function TaskPage() {
     if (!taskId || loadingOlderRef.current || !hasOlder) return
     const oldest = events[0]?.id
     if (!oldest) return
+    const request = { taskId, revision: taskRevisionRef.current }
     loadingOlderRef.current = true
     setLoadingOlder(true)
     setFollow(false)
@@ -144,6 +166,7 @@ export function TaskPage() {
     const prevTop = node?.scrollTop ?? 0
     try {
       const older = await listEvents(taskId, { before: oldest, limit: EVENTS_PAGE })
+      if (!currentRequest(request)) return
       setHasOlder(older.length >= EVENTS_PAGE)
       if (older.length === 0) return
       setEvents((current) => {
@@ -154,14 +177,17 @@ export function TaskPage() {
         return merged.length > EVENTS_WINDOW ? merged.slice(0, EVENTS_WINDOW) : merged
       })
       window.requestAnimationFrame(() => {
+        if (!currentRequest(request)) return
         const view = streamRef.current
         if (view) view.scrollTop = prevTop + (view.scrollHeight - prevHeight)
       })
     } catch (cause) {
-      setStreamError(cause instanceof Error ? cause.message : String(cause))
+      if (currentRequest(request)) setStreamError(cause instanceof Error ? cause.message : String(cause))
     } finally {
-      loadingOlderRef.current = false
-      setLoadingOlder(false)
+      if (currentRequest(request)) {
+        loadingOlderRef.current = false
+        setLoadingOlder(false)
+      }
     }
   }
 
@@ -172,46 +198,61 @@ export function TaskPage() {
   }, [])
 
   async function runAction(kind: TaskAction) {
-    if (!detail || busy) return
+    if (!detail || actionBusyRef.current) return
     if (kind === 'stop' && !window.confirm(t('console.task.stopConfirm'))) return
     if (kind === 'pause' && !window.confirm(t('console.task.pauseConfirm'))) return
+    const actionTaskId = taskId
+    const request = { taskId: actionTaskId, revision: taskRevisionRef.current }
+    actionBusyRef.current = kind
     setBusy(kind)
     setActionError(null)
     try {
-      if (kind === 'start') await startTask(taskId)
-      else if (kind === 'resume') await resumeTask(taskId)
-      else if (kind === 'stop') applyDetail(await stopTask(taskId))
-      else if (kind === 'pause') applyDetail(await pauseTask(taskId))
-      else applyDetail(await continueTask(taskId))
+      let next: TaskDetail | null = null
+      if (kind === 'start') await startTask(actionTaskId)
+      else if (kind === 'resume') await resumeTask(actionTaskId)
+      else if (kind === 'stop') next = await stopTask(actionTaskId)
+      else if (kind === 'pause') next = await pauseTask(actionTaskId)
+      else next = await continueTask(actionTaskId)
+      if (!currentRequest(request)) return
+      if (next) applyDetail(next)
       refresh()
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : String(cause))
+      if (currentRequest(request)) setActionError(cause instanceof Error ? cause.message : String(cause))
     } finally {
-      setBusy(null)
+      if (currentRequest(request)) {
+        actionBusyRef.current = null
+        setBusy(null)
+      }
     }
   }
 
   function handleAccepted(result: AcceptResult) {
+    if (result.task.id !== currentTaskIdRef.current) return
     setActionError(null)
-    setMergeToken(result.merge_token)
-    setMergeExpires(result.merge_token_expires)
+    setMergeAuthorization({ taskId: result.task.id, token: result.merge_token, expiresAt: result.merge_token_expires })
     refresh()
   }
 
   function handleDetail(next: TaskDetail) {
+    if (next.task.id !== currentTaskIdRef.current) return
     applyDetail(next)
-    setMergeToken(null)
-    setMergeExpires(null)
+    setMergeAuthorization(null)
   }
 
   async function cleanup() {
     if (cleanupBusy || !canCleanup) return
     if (!window.confirm(t('console.cleanup.confirm'))) return
+    const request = { taskId, revision: taskRevisionRef.current }
     setCleanupBusy(true)
     setActionError(null)
-    try { applyDetail(await cleanupTask(taskId)) }
-    catch (cause) { setActionError(t('console.cleanup.failed', { message: cause instanceof Error ? cause.message : String(cause) })) }
-    finally { setCleanupBusy(false) }
+    try {
+      const next = await cleanupTask(taskId)
+      if (currentRequest(request)) applyDetail(next)
+    } catch (cause) {
+      if (currentRequest(request)) setActionError(t('console.cleanup.failed', { message: cause instanceof Error ? cause.message : String(cause) }))
+    } finally {
+      if (currentRequest(request)) setCleanupBusy(false)
+    }
   }
 
   const task = detail?.task
@@ -221,6 +262,7 @@ export function TaskPage() {
   const canStart = task ? task.status === 'ready' || task.status === 'stopped' || task.status === 'failed' : false
   const canResume = Boolean(task?.session_id) && !task?.active && (task?.status === 'stopped' || task?.status === 'failed')
   const canCleanup = Boolean(task && (task.status === 'merged' || task.status === 'completed' || task.status === 'stopped') && (task.branch || task.worktree_path))
+  const currentMergeAuthorization = task && mergeAuthorization?.taskId === task.id ? mergeAuthorization : null
   const meta = useMemo(() => {
     if (!detail) return [] as [string, string][]
     const run = detail.runs.find((item) => item.active) ?? detail.runs[0] ?? null
@@ -241,7 +283,7 @@ export function TaskPage() {
     ] as [string, string][]
   }, [detail, locale])
 
-  if (loading && !detail) {
+  if ((loading || routeChanged) && !detail) {
     return <section className="console-page"><div className="page-loading"><Loader2 className="spin" aria-hidden="true" />{t('common.loading')}</div></section>
   }
 
@@ -337,8 +379,8 @@ export function TaskPage() {
       {task.status === 'pending_merge' ? (
         <MergePanel
           task={task}
-          token={task.status === 'pending_merge' ? mergeToken : null}
-          expiresAt={task.status === 'pending_merge' ? mergeExpires : null}
+          token={currentMergeAuthorization?.token ?? null}
+          expiresAt={currentMergeAuthorization?.expiresAt ?? null}
           onToken={handleAccepted}
           onChanged={handleDetail}
         />

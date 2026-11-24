@@ -34,7 +34,7 @@ export function TodayPage() {
   const [addProjectOpen, setAddProjectOpen] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [preview, setPreview] = useState<RuntimeEvent[]>([])
+  const [previewSnapshot, setPreviewSnapshot] = useState<{ taskId: string; events: RuntimeEvent[] } | null>(null)
 
   const grouped = useMemo(() => groupTasks(tasks), [tasks])
   const selected = tasks.find((task) => task.id === selectedId) ?? tasks[0] ?? null
@@ -44,15 +44,23 @@ export function TodayPage() {
     if (tasks.length > 0) setSelectedId(tasks[0].id)
   }, [tasks, selectedId])
 
+  const selectedTaskId = selected?.id
+  const selectedStatus = selected?.status
   useEffect(() => {
-    if (!selected) { setPreview([]); return }
+    if (!selectedTaskId) { setPreviewSnapshot(null); return }
+    const previewTaskId = selectedTaskId
     let disposed = false
+    let inFlight = false
     async function load() {
+      if (inFlight) return
+      inFlight = true
       try {
-        const events = await listEvents(selected.id, { before: Number.MAX_SAFE_INTEGER, limit: 200 })
-        if (!disposed) setPreview(events.slice(-7))
+        const events = await listEvents(previewTaskId, { before: Number.MAX_SAFE_INTEGER, limit: 200 })
+        if (!disposed) setPreviewSnapshot({ taskId: previewTaskId, events: events.slice(-7) })
       } catch {
-        if (!disposed) setPreview([])
+        if (!disposed) setPreviewSnapshot({ taskId: previewTaskId, events: [] })
+      } finally {
+        inFlight = false
       }
     }
     void load()
@@ -60,7 +68,9 @@ export function TodayPage() {
       if (document.visibilityState === 'visible') void load()
     }, 4000)
     return () => { disposed = true; window.clearInterval(timer) }
-  }, [selected?.id, selected?.status])
+  }, [selectedTaskId, selectedStatus])
+  // 任务切换的当次 render 就不再展示上一任务的事件；无需等待 effect 清空。
+  const preview = selected && previewSnapshot?.taskId === selected.id ? previewSnapshot.events : []
 
   function refreshAll() {
     refresh()

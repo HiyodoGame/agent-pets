@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FileText, Image as ImageIcon, Loader2, Plus, Send, ShieldCheck, Trash2, TriangleAlert, Video } from 'lucide-react'
 import {
   abandonMerge,
@@ -20,6 +20,7 @@ import {
 } from '../../adapters/runtime-client.ts'
 import { t, useLocale } from '../../i18n/index.ts'
 import { formatBytes, formatClock } from './format.ts'
+import { shouldCommitTaskRequest, type TaskRequestStamp } from './task-request.ts'
 
 function messageOf(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause)
@@ -200,17 +201,36 @@ export function MergePanel({
   const [error, setError] = useState<string | null>(null)
   const [conflicts, setConflicts] = useState<string[]>([])
   const [expired, setExpired] = useState(false)
+  const revisionRef = useRef(0)
+  const currentTaskRef = useRef<string | null>(null)
+
+  function currentRequest(request: TaskRequestStamp): boolean {
+    return shouldCommitTaskRequest(request, currentTaskRef.current, revisionRef.current)
+  }
 
   useEffect(() => {
-    let disposed = false
+    const revision = ++revisionRef.current
+    currentTaskRef.current = task.id
+    setPreview(null)
+    setBusy(null)
+    setExpired(false)
     setLoading(true)
     setError(null)
     setConflicts([])
     getMergePreview(task.id)
-      .then((next) => { if (!disposed) setPreview(next) })
-      .catch((cause) => { if (!disposed) setError(t('console.merge.previewFailed', { message: messageOf(cause) })) })
-      .finally(() => { if (!disposed) setLoading(false) })
-    return () => { disposed = true }
+      .then((next) => {
+        if (shouldCommitTaskRequest({ taskId: task.id, revision }, currentTaskRef.current, revisionRef.current)) setPreview(next)
+      })
+      .catch((cause) => {
+        if (shouldCommitTaskRequest({ taskId: task.id, revision }, currentTaskRef.current, revisionRef.current)) setError(t('console.merge.previewFailed', { message: messageOf(cause) }))
+      })
+      .finally(() => {
+        if (shouldCommitTaskRequest({ taskId: task.id, revision }, currentTaskRef.current, revisionRef.current)) setLoading(false)
+      })
+    return () => {
+      revisionRef.current++
+      currentTaskRef.current = null
+    }
   }, [task.id])
 
   useEffect(() => {
@@ -222,46 +242,64 @@ export function MergePanel({
     return () => window.clearTimeout(timer)
   }, [expiresAt])
 
+  const currentPreview = preview?.task_id === task.id ? preview : null
+  const previewReady = !loading && currentPreview !== null
+
   async function authorize() {
-    if (busy) return
+    if (busy || !previewReady) return
+    const request = { taskId: task.id, revision: revisionRef.current }
     setBusy('authorize')
     setError(null)
-    try { onToken(await authorizeMerge(task.id)) }
-    catch (cause) { setError(messageOf(cause)) }
-    finally { setBusy(null) }
+    try {
+      const result = await authorizeMerge(task.id)
+      if (currentRequest(request)) onToken(result)
+    } catch (cause) {
+      if (currentRequest(request)) setError(messageOf(cause))
+    } finally {
+      if (currentRequest(request)) setBusy(null)
+    }
   }
 
   async function merge() {
-    if (busy || !token || expired) return
-    const base = preview?.base_branch ?? '—'
+    if (busy || !token || expired || !previewReady || !currentPreview) return
+    const request = { taskId: task.id, revision: revisionRef.current }
+    const base = currentPreview.base_branch
     if (!window.confirm(t('console.merge.confirmPrompt', { branch: task.branch ?? '—', base }))) return
     setBusy('merge')
     setError(null)
     setConflicts([])
     try {
-      onChanged(await mergeTask(task.id, token))
+      const next = await mergeTask(task.id, token)
+      if (currentRequest(request)) onChanged(next)
     } catch (cause) {
+      if (!currentRequest(request)) return
       setError(t('console.merge.mergeFailed', { message: messageOf(cause) }))
       setConflicts(stringsOf(detailsOf(cause)?.conflicts))
       if (cause instanceof RuntimeClientError && cause.code === 'MERGE_TOKEN_EXPIRED') setExpired(true)
     } finally {
-      setBusy(null)
+      if (currentRequest(request)) setBusy(null)
     }
   }
 
   async function abandon() {
     if (busy) return
     if (!window.confirm(t('console.merge.abandonConfirm'))) return
+    const request = { taskId: task.id, revision: revisionRef.current }
     setBusy('abandon')
     setError(null)
-    try { onChanged(await abandonMerge(task.id)) }
-    catch (cause) { setError(messageOf(cause)) }
-    finally { setBusy(null) }
+    try {
+      const next = await abandonMerge(task.id)
+      if (currentRequest(request)) onChanged(next)
+    } catch (cause) {
+      if (currentRequest(request)) setError(messageOf(cause))
+    } finally {
+      if (currentRequest(request)) setBusy(null)
+    }
   }
 
-  const blocked = preview ? !preview.merge_clean : false
-  const dirty = preview ? !preview.working_tree_clean : false
-  const wrongBranch = Boolean(preview && preview.current_branch && preview.current_branch !== preview.base_branch)
+  const blocked = currentPreview ? !currentPreview.merge_clean : false
+  const dirty = currentPreview ? !currentPreview.working_tree_clean : false
+  const wrongBranch = Boolean(currentPreview && currentPreview.current_branch && currentPreview.current_branch !== currentPreview.base_branch)
 
   return (
     <section className="panel-card merge-panel" aria-label={t('console.merge.title')}>
@@ -274,37 +312,37 @@ export function MergePanel({
       </header>
       <p className="review-summary">{t('console.merge.description')}</p>
       {loading ? <p className="preview-muted"><Loader2 className="spin" aria-hidden="true" /> {t('console.merge.loading')}</p> : null}
-      {preview ? (
+      {currentPreview ? (
         <dl className="merge-facts">
-          <div><dt>{t('console.merge.branch')}</dt><dd>{preview.branch}</dd></div>
-          <div><dt>{t('console.merge.base')}</dt><dd>{preview.base_branch}</dd></div>
-          <div><dt>{t('console.merge.commits')}</dt><dd>{preview.commits.length}</dd></div>
-          <div className="merge-diff"><dt>{t('console.merge.diff')}</dt><dd><pre>{preview.diff_stat || '—'}</pre></dd></div>
+          <div><dt>{t('console.merge.branch')}</dt><dd>{currentPreview.branch}</dd></div>
+          <div><dt>{t('console.merge.base')}</dt><dd>{currentPreview.base_branch}</dd></div>
+          <div><dt>{t('console.merge.commits')}</dt><dd>{currentPreview.commits.length}</dd></div>
+          <div className="merge-diff"><dt>{t('console.merge.diff')}</dt><dd><pre>{currentPreview.diff_stat || '—'}</pre></dd></div>
         </dl>
       ) : null}
       {blocked || conflicts.length > 0 ? (
         <div className="merge-warning">
           <strong><TriangleAlert aria-hidden="true" />{t('console.merge.conflictTitle')}</strong>
           <p>{t('console.merge.conflictHint')}</p>
-          {(conflicts.length > 0 ? conflicts : preview?.conflicts ?? []).length > 0 ? (
-            <ul>{(conflicts.length > 0 ? conflicts : preview?.conflicts ?? []).map((file) => <li key={file}>{file}</li>)}</ul>
+          {(conflicts.length > 0 ? conflicts : currentPreview?.conflicts ?? []).length > 0 ? (
+            <ul>{(conflicts.length > 0 ? conflicts : currentPreview?.conflicts ?? []).map((file) => <li key={file}>{file}</li>)}</ul>
           ) : null}
         </div>
       ) : null}
       {dirty ? <p className="console-banner">{t('console.merge.dirtyHint')}</p> : null}
       {wrongBranch ? <p className="console-banner">{t('console.merge.wrongBranch')}</p> : null}
-      {preview && !blocked && !dirty && !wrongBranch ? <p className="merge-ok">{t('console.merge.cleanHint')}</p> : null}
+      {currentPreview && !blocked && !dirty && !wrongBranch ? <p className="merge-ok">{t('console.merge.cleanHint')}</p> : null}
       {error ? <p className="form-error" role="alert">{error}</p> : null}
       <div className="review-actions">
         <button type="button" className="button ghost" disabled={busy !== null} onClick={() => void abandon()}>
           {busy === 'abandon' ? <Loader2 className="spin" aria-hidden="true" /> : null}{t('console.merge.abandon')}
         </button>
         {!token || expired ? (
-          <button type="button" className="button primary" disabled={busy !== null} onClick={() => void authorize()}>
+          <button type="button" className="button primary" disabled={busy !== null || !previewReady} onClick={() => void authorize()}>
             {busy === 'authorize' ? <Loader2 className="spin" aria-hidden="true" /> : <ShieldCheck aria-hidden="true" />}{t('console.merge.authorize')}
           </button>
         ) : (
-          <button type="button" className="button primary" disabled={busy !== null || blocked || dirty || wrongBranch} onClick={() => void merge()}>
+          <button type="button" className="button primary" disabled={busy !== null || !previewReady || blocked || dirty || wrongBranch} onClick={() => void merge()}>
             {busy === 'merge' ? <Loader2 className="spin" aria-hidden="true" /> : <ShieldCheck aria-hidden="true" />}{t('console.merge.confirm')}
           </button>
         )}
@@ -359,7 +397,7 @@ export function ArtifactPanel({ taskId, artifacts, onChanged }: { taskId: string
         </ul>
       )}
       <div className="artifact-add">
-        <input value={path} onChange={(event) => setPath(event.target.value)} placeholder={t('console.artifacts.placeholder')} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void add() } }} />
+        <input value={path} onChange={(event) => setPath(event.target.value)} placeholder={t('console.artifacts.placeholder')} aria-label={t('console.artifacts.placeholder')} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void add() } }} />
         <button type="button" className="button ghost small" disabled={busy !== null || !path.trim()} onClick={() => void add()}>
           {busy === 'add' ? <Loader2 className="spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}{busy === 'add' ? t('console.artifacts.adding') : t('console.artifacts.add')}
         </button>

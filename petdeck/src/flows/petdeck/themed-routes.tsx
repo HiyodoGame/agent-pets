@@ -1,7 +1,6 @@
 // =============================================
 // ThemedRoutes — 路由表 + Spark ThemeStyleProvider
-// 控制台页面（today/tasks/projects/agents/reports/settings）直接随本 chunk 加载；
-// 旧版 flow-1..4 仍按需 lazy，保留在侧栏「旧版」分组。
+// 控制台页面与旧版 flow-1..4 都按路由 lazy；侧栏入口共享同一个 Suspense 加载态。
 // =============================================
 import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
@@ -9,9 +8,15 @@ import { ThemeStyleProvider } from 'sparkdesign'
 import type { Session } from '../shared/types'
 import { usePetData } from '../../adapters'
 import { t } from '../../i18n/index.ts'
-import { TodayPage } from '../console/today-page.tsx'
-import { TaskPage } from '../console/task-page.tsx'
-import { ProjectsPage, TasksPage, AgentsPage, ReportsPage, SettingsPage } from '../console/pages.tsx'
+// Route-level code splitting keeps the desktop shell small without fragile manual
+// vendor groups. Each console surface loads on demand inside the existing Suspense.
+const TodayPage = lazy(() => import('../console/today-page.tsx').then((m) => ({ default: m.TodayPage })))
+const TaskPage = lazy(() => import('../console/task-page.tsx').then((m) => ({ default: m.TaskPage })))
+const ProjectsPage = lazy(() => import('../console/pages.tsx').then((m) => ({ default: m.ProjectsPage })))
+const TasksPage = lazy(() => import('../console/pages.tsx').then((m) => ({ default: m.TasksPage })))
+const AgentsPage = lazy(() => import('../console/pages.tsx').then((m) => ({ default: m.AgentsPage })))
+const ReportsPage = lazy(() => import('../console/pages.tsx').then((m) => ({ default: m.ReportsPage })))
+const SettingsPage = lazy(() => import('../console/pages.tsx').then((m) => ({ default: m.SettingsPage })))
 
 const Flow1_PetSurface = lazy(() => import('../flow-1-pet-surface/flow1-pet-surface').then((m) => ({ default: m.Flow1_PetSurface })))
 const Flow2_ConnectAgent = lazy(() => import('../flow-2-connect-agent/flow2-connect-agent').then((m) => ({ default: m.Flow2_ConnectAgent })))

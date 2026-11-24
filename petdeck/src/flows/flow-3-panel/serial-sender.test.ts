@@ -27,3 +27,19 @@ test('serial sender: failures release the lock for an explicit retry', async () 
   assert.equal(sender.isBusy(), false)
   assert.equal(await sender.run(async () => {}), true)
 })
+
+test('serial sender: an in-flight mutation cannot be duplicated by a visible cancellation', async () => {
+  const sender = createSerialSender()
+  let releaseOld: () => void = () => {}
+  const oldGate = new Promise<void>((resolve) => { releaseOld = resolve })
+  let retryCalls = 0
+  const oldRun = sender.run(() => oldGate)
+  assert.equal(await sender.run(async () => { retryCalls++ }), false)
+  assert.equal(retryCalls, 0)
+  assert.equal(sender.isBusy(), true)
+  releaseOld()
+  await oldRun
+  assert.equal(sender.isBusy(), false)
+  assert.equal(await sender.run(async () => { retryCalls++ }), true)
+  assert.equal(retryCalls, 1)
+})

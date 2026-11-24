@@ -56,6 +56,7 @@ import { kanbanColumns } from './kanban'
 import { createSerialSender } from './serial-sender.ts'
 import { firstProjectSessionId, summarizeProjectSessions } from './project-summary.ts'
 import { usePetData, mergeSessions, type SessionOverlay } from '../../adapters'
+import { loadPanelViewState, savePanelViewState } from '../../adapters/live-sessions'
 import { track, EVENT } from '../../telemetry'
 import { EdgeAlert } from '../shared/edge-kit'
 import { LazyResponse } from '../shared/lazy-response'
@@ -386,8 +387,14 @@ function Screen3_SessionThread({
                     variant="ghost"
                     aria-label={t('panel.copyReply')}
                     onClick={() => {
-                      navigator.clipboard?.writeText(m.content)
-                      toast(t('panel.copiedReply'))
+                      if (!navigator.clipboard?.writeText) {
+                        toast(t('panel.copyReplyFailed'))
+                        return
+                      }
+                      navigator.clipboard.writeText(m.content).then(
+                        () => toast(t('panel.copiedReply')),
+                        () => toast(t('panel.copyReplyFailed')),
+                      )
                     }}
                   >
                     <Copy className="h-4 w-4" />
@@ -687,11 +694,19 @@ function Screen2_PanelShell({
 
 export function Flow3_Panel({ onRelay, onConnect, focusTarget }: { onRelay?: (s: Session) => void; onConnect: () => void; focusTarget?: { projectId?: string; sessionId?: string } | null }) {
   const { sessions: baseSessions, inject, mode } = usePetData()
+  const [initialViewState] = useState(() => {
+    try { return loadPanelViewState(window.localStorage) }
+    catch { return loadPanelViewState(null) }
+  })
   const [view, setView] = useState<'home' | 'panel'>(focusTarget ? 'panel' : 'home')
   const [projectId, setProjectId] = useState<string | null>(focusTarget?.projectId ?? null)
   const [sessionId, setSessionId] = useState<string | null>(focusTarget?.sessionId ?? null)
-  const [overlays, setOverlays] = useState<Record<string, SessionOverlay>>({})
-  const [deleted, setDeleted] = useState<string[]>([])
+  const [overlays, setOverlays] = useState<Record<string, SessionOverlay>>(initialViewState.overlays)
+  const [deleted, setDeleted] = useState<string[]>(initialViewState.deleted)
+  useEffect(() => {
+    try { savePanelViewState(window.localStorage, { overlays, deleted }) }
+    catch { /* localStorage unavailable: retain this mounted view only */ }
+  }, [overlays, deleted])
   // clipboard 降级的真实交接内容：展示为可选中的只读文本块，供自动复制失败时手动复制。
   const [handoff, setHandoff] = useState<{ sessionId: string; text: string } | null>(null)
   // live base（随 SSE 实时刷新）+ 本地编辑 overlay（rename/archive/delete/followUp）
@@ -706,9 +721,8 @@ export function Flow3_Panel({ onRelay, onConnect, focusTarget }: { onRelay?: (s:
     if (sessionId === id) setSessionId(null)
     toast(t('panel.deletedToast'), { action: { label: t('common.undo'), onClick: () => setDeleted((d) => d.filter((x) => x !== id)) } })
   }
-  // 追问走真实 inject：mode=inject 才声称已发送并本地追加；live 降级 clipboard 不追加
-  // （消息未送达，不得显得已发出），只展示可复制交接内容；演示模式本地追加用户消息 +
-  // 如实交接复制，toast 绝不谎称已发送。
+  // 当前 inject 契约不能 resume 观察中的原 session：live 成功只表示创建了新接力，
+  // 绝不向原线程追加消息，也不编造新 session id；clipboard 降级继续提供真实交接内容。
   const followUp = async (s: Session, text: string) => {
     const context = s.messages.map((m) => `${m.role}: ${m.content}`).join('\n')
     const decision = await inject({ from: 'petdeck', to: s.agentId, context, instruction: text })
@@ -717,7 +731,7 @@ export function Flow3_Panel({ onRelay, onConnect, focusTarget }: { onRelay?: (s:
       const msg = { id: `m-${Date.now()}`, role: 'user' as const, content: text, timestamp: new Date().toISOString(), artifactIds: [] }
       setOverlays((o) => ({ ...o, [s.id]: { ...o[s.id], extraMessages: [...(o[s.id]?.extraMessages ?? []), msg] } }))
     }
-    if (plan.outcome === 'sent') {
+    if (plan.outcome === 'relay') {
       setHandoff(null)
       toast(plan.toast)
       return

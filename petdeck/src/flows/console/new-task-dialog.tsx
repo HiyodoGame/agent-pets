@@ -38,10 +38,10 @@ export function NewTaskDialog({ projects, tasks = [], defaultProjectId, onClose,
   useFocusTrap(dialogRef)
   useEffect(() => { titleRef.current?.focus() }, [])
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, busy])
 
   useEffect(() => {
     let disposed = false
@@ -52,7 +52,10 @@ export function NewTaskDialog({ projects, tasks = [], defaultProjectId, onClose,
   }, [])
 
   const current = agents.find((item) => item.id === agent) ?? agents[0]
-  const modes = current?.capabilities.permissionModes?.length ? current.capabilities.permissionModes : ['default']
+  const modes = useMemo(
+    () => current?.capabilities.permissionModes?.length ? current.capabilities.permissionModes : ['default'],
+    [current],
+  )
   const candidates = useMemo(
     () => tasks.filter((task) => task.project_id === projectId && task.status !== 'completed'),
     [tasks, projectId],
@@ -80,14 +83,14 @@ export function NewTaskDialog({ projects, tasks = [], defaultProjectId, onClose,
   }
 
   return (
-    <div className="console-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <div className="console-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (!busy && event.target === event.currentTarget) onClose() }}>
       <div ref={dialogRef} className="console-dialog" role="dialog" aria-modal="true" aria-labelledby="new-task-title">
         <header className="console-dialog-head">
           <div>
             <h2 id="new-task-title">{t('console.newTask.title')}</h2>
             <p>{t('console.newTask.hint')}</p>
           </div>
-          <button type="button" className="icon-button" aria-label={t('common.close')} onClick={onClose}><X aria-hidden="true" /></button>
+          <button type="button" className="icon-button" aria-label={t('common.close')} disabled={busy} onClick={() => { if (!busy) onClose() }}><X aria-hidden="true" /></button>
         </header>
         <form className="console-form" onSubmit={submit}>
           <label className="field">
@@ -140,7 +143,7 @@ export function NewTaskDialog({ projects, tasks = [], defaultProjectId, onClose,
           </fieldset>
           {error && <p className="form-error" role="alert">{error}</p>}
           <footer className="console-dialog-actions">
-            <button type="button" className="button ghost" onClick={onClose}>{t('common.cancel')}</button>
+            <button type="button" className="button ghost" disabled={busy} onClick={() => { if (!busy) onClose() }}>{t('common.cancel')}</button>
             <button type="submit" className="button primary" disabled={busy || projects.length === 0}>
               {busy ? <Loader2 className="spin" aria-hidden="true" /> : null}
               {t('console.newTask.create')}

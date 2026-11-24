@@ -69,6 +69,7 @@ export function DecisionCard({ decision, compact = false, onAnswered }: Decision
             value={freeform}
             onChange={(event) => setFreeform(event.target.value)}
             placeholder={t('console.task.decisionFreeform')}
+            aria-label={t('console.task.decisionFreeform')}
             disabled={busy}
           />
           <button type="submit" className="button primary" disabled={busy || !freeform.trim()}>

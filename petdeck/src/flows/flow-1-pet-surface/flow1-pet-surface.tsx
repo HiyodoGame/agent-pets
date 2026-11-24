@@ -275,6 +275,8 @@ export function Flow1_PetSurface({
   // DND 抑制的是真实事件对象（不是计数），关闭免打扰后逐条补提示，绝不静默丢弃。
   const [suppressed, setSuppressed] = useState<PetEvent[]>([])
   const [replay, setReplay] = useState<PetEvent[]>([])
+  // DND 不静默 decision；同批多条按到达顺序逐条提示，不能只留下代表项。
+  const [decisionReplay, setDecisionReplay] = useState<PetEvent[]>([])
   const [inboxOpen, setInboxOpen] = useState(false)
   const [eventError, setEventError] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -285,7 +287,8 @@ export function Flow1_PetSurface({
   const [eventIdx, setEventIdx] = useState(0)
   const event = events[eventIdx % Math.max(events.length, 1)]
   const replayHead = replay[0]
-  const activeEvent = replayHead ?? event
+  const decisionHead = decisionReplay[0]
+  const activeEvent = decisionHead ?? replayHead ?? event
   useEffect(() => subscribePetSettings(setSettings), [])
 
   // 真实联动：以 (timestamp, 同毫秒 id 集合) 水位线识别新事件 —— 事件列表恒被截断到 50 条时也不会漏检。
@@ -302,16 +305,14 @@ export function Flow1_PetSurface({
     watermarkRef.current = eventWatermark(events)
     if (added.length === 0) return
     if (dnd) {
-      // DND：非「需拍板」的逐条进入静默收件箱；decision 仍走轻拍——无论用户当前身处哪个 screen，
-      // 否则水位线已推进、事件又不入队，拍板事件会被静默丢弃。
-      const { quiet, decision } = routeDndArrivals(added)
+      // DND：普通事件进入静默收件箱；所有 decision 进入独立的逐条提示队列。
+      const { quiet, decisions } = routeDndArrivals(added)
       if (quiet.length > 0) {
         setSuppressed((s) => [...quiet, ...s])
         track('pet', EVENT.notificationSuppressed, { count: quiet.length })
       }
-      if (decision) {
-        const idx = events.findIndex((e) => e.id === decision.id)
-        setEventIdx(idx >= 0 ? idx : 0)
+      if (decisions.length > 0) {
+        setDecisionReplay((current) => [...current, ...decisions])
         setEventError(false)
         setScreen(2)
       }
@@ -393,9 +394,12 @@ export function Flow1_PetSurface({
       {screen === 2 && activeEvent && (replayHead || activeEvent.type === 'decision' || !dnd) && (
         <Screen2_EventTap
           event={activeEvent}
-          fromSuppressed={Boolean(replayHead)}
+          fromSuppressed={!decisionHead && Boolean(replayHead)}
           onOpen={(e) => {
-            if (replayHead) {
+            if (decisionHead) {
+              setDecisionReplay((current) => current.slice(1))
+              if (decisionReplay.length <= 1 && !replayHead) setScreen(1)
+            } else if (replayHead) {
               setReplay((r) => r.slice(1))
               if (replay.length <= 1) setScreen(1)
             } else {
@@ -404,7 +408,10 @@ export function Flow1_PetSurface({
             openPanel(e.projectId, e.sessionId)
           }}
           onDismiss={() => {
-            if (replayHead) {
+            if (decisionHead) {
+              setDecisionReplay((current) => current.slice(1))
+              if (decisionReplay.length <= 1 && !replayHead) setScreen(1)
+            } else if (replayHead) {
               setReplay((r) => r.slice(1))
               if (replay.length <= 1) setScreen(1)
             } else {

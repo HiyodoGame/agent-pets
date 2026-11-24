@@ -31,6 +31,8 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
   const [dnd, setDnd] = useState(false)
   const [suppressed, setSuppressed] = useState<PetEvent[]>([])
   const [activeEvent, setActiveEvent] = useState<PetEvent | null>(null)
+  const [decisionReplay, setDecisionReplay] = useState<PetEvent[]>([])
+  const visibleEvent = decisionReplay[0] ?? activeEvent
   const [menu, setMenu] = useState<PetMenuPoint | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [desktopError, setDesktopError] = useState(false)
@@ -61,7 +63,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
   const growth = useGrowth()
   const attention = summary.waiting + summary.stuck
   const hasError = Boolean(bridgeError || desktopError)
-  const overlayOpen = expanded || settingsOpen || menu !== null || activeEvent !== null || hasError
+  const overlayOpen = expanded || settingsOpen || menu !== null || visibleEvent !== null || hasError
   const onWalk = useCallback((direction: 'left' | 'right') => {
     movePetBy(direction).catch(() => setDesktopError(true))
   }, [])
@@ -69,7 +71,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
   const { eventArrived, dragEnd, poke } = behavior
   const settings = behavior.settings
   const petSize = Math.round(128 * settings.scale)
-  const windowMode: PetWindowMode = petOverlayMode({ settingsOpen, menuOpen: menu !== null, activeEvent: activeEvent !== null, expanded, hasError })
+  const windowMode: PetWindowMode = petOverlayMode({ settingsOpen, menuOpen: menu !== null, activeEvent: visibleEvent !== null, expanded, hasError })
   const previousScale = useRef(settings.scale)
 
   useEffect(() => {
@@ -82,6 +84,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
       eventModeRef.current = mode
       watermarkRef.current = eventWatermark(events)
       setActiveEvent(null)
+      setDecisionReplay([])
       setSuppressed([])
       return
     }
@@ -104,9 +107,9 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
       setActiveEvent(added[0])
       return
     }
-    const { quiet, decision } = routeDndArrivals(added)
+    const { quiet, decisions } = routeDndArrivals(added)
     if (quiet.length > 0) setSuppressed((current) => [...quiet, ...current])
-    if (decision) setActiveEvent(decision)
+    if (decisions.length > 0) setDecisionReplay((current) => [...current, ...decisions])
   }, [events, dnd, eventArrived, mode, dispatchNotification])
 
   useEffect(() => {
@@ -165,7 +168,9 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
     const next = decision?.id ?? null
     if (!next) {
       lastDecisionRef.current = null
-      decisionPrimedRef.current = false
+      // Empty is a real idle state, not a new mount. Keep priming complete so the
+      // next genuinely new decision after an empty interval still plays sound.
+      decisionPrimedRef.current = true
       return
     }
     if (lastDecisionRef.current === next) return
@@ -418,16 +423,20 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
         </section>
       )}
 
-      {windowMode === 'event' && activeEvent && (
+      {windowMode === 'event' && visibleEvent && (
         <PetEventCard
-          event={activeEvent}
+          event={visibleEvent}
           onDismiss={() => {
             setExpanded(false)
             setSettingsOpen(false)
             setMenu(null)
-            setActiveEvent(null)
+            if (decisionReplay.length > 0) setDecisionReplay((current) => current.slice(1))
+            else setActiveEvent(null)
           }}
-          onOpen={() => void openPanel({ projectId: activeEvent.projectId, sessionId: activeEvent.sessionId })}
+          onOpen={() => {
+            if (decisionReplay.length > 0) setDecisionReplay((current) => current.slice(1))
+            void openPanel({ projectId: visibleEvent.projectId, sessionId: visibleEvent.sessionId })
+          }}
         />
       )}
 
@@ -445,7 +454,7 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
       )}
 
       {windowMode === 'settings' && settingsOpen && <PetQuickSettings settings={settings} onChange={changeSettings} onClose={() => { setSettingsOpen(false); petButtonRef.current?.focus() }} />}
-      {windowMode === 'event' && hasError && !activeEvent && (
+      {windowMode === 'event' && hasError && !visibleEvent && (
         <div className="pet-popover pet-error-panel" role="alert">
           {bridgeError && <p className="pet-error">{bridgeError}</p>}
           {desktopError && <p className="pet-error">{t('pet.desktopError')}</p>}

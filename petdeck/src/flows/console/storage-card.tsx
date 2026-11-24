@@ -53,10 +53,12 @@ export function StorageCard() {
 
   async function clean() {
     if (cleaning) return
+    const days = usage?.runKeepDays ?? 30
+    if (!window.confirm(t('console.settings.storageCleanConfirm', { days }))) return
     setCleaning(true)
     setError(null)
     try {
-      const result = await cleanupRunTranscripts(usage?.runKeepDays ?? 30)
+      const result = await cleanupRunTranscripts(days)
       setCleaned(result)
       await load()
     } catch (cause) {

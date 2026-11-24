@@ -9,6 +9,7 @@ import {
   type Task,
   type TaskDetail,
 } from '../../adapters/runtime-client.ts'
+import { skipWhileRunning } from '../../adapters/poll-gate.ts'
 
 export interface RuntimeOverview {
   tasks: Task[]
@@ -38,7 +39,7 @@ export function useRuntimeOverview(intervalMs = 4000, enabled = true): RuntimeOv
   useEffect(() => {
     if (!enabled) return
     let disposed = false
-    async function load() {
+    const load = skipWhileRunning(async () => {
       try {
         const [nextTasks, nextProjects] = await Promise.all([listTasks(), listProjects()])
         if (disposed) return
@@ -51,7 +52,7 @@ export function useRuntimeOverview(intervalMs = 4000, enabled = true): RuntimeOv
       } finally {
         if (!disposed) setLoading(false)
       }
-    }
+    })
     void load()
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void load()
@@ -75,15 +76,17 @@ export function useTaskDetail(taskId: string | null, intervalMs = 4000): TaskDet
   const [loading, setLoading] = useState(Boolean(taskId))
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
+  const activeTaskId = useRef<string | null>(taskId || null)
   const refresh = useCallback(() => setTick((value) => value + 1), [])
 
   useEffect(() => {
+    activeTaskId.current = taskId || null
     setDetail(null)
     setError(null)
     setLoading(Boolean(taskId))
     if (!taskId) return
     let disposed = false
-    async function load() {
+    const load = skipWhileRunning(async () => {
       if (!taskId) return
       try {
         const next = await getTaskDetail(taskId)
@@ -93,15 +96,22 @@ export function useTaskDetail(taskId: string | null, intervalMs = 4000): TaskDet
       } finally {
         if (!disposed) setLoading(false)
       }
-    }
+    })
     void load()
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void load()
     }, intervalMs)
-    return () => { disposed = true; window.clearInterval(timer) }
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+      if (activeTaskId.current === taskId) activeTaskId.current = null
+    }
   }, [taskId, intervalMs, tick])
 
-  return { detail, loading, error, refresh, applyDetail: setDetail }
+  const applyDetail = useCallback((next: TaskDetail) => {
+    if (next.task.id === activeTaskId.current) setDetail(next)
+  }, [])
+  return { detail, loading, error, refresh, applyDetail }
 }
 
 export interface PendingDecisionsState {
@@ -123,7 +133,7 @@ export function usePendingDecisions(intervalMs = 4000, enabled = true): PendingD
   useEffect(() => {
     if (!enabled) return
     let disposed = false
-    async function load() {
+    const load = skipWhileRunning(async () => {
       try {
         const next = await listDecisions()
         if (disposed) return
@@ -135,7 +145,7 @@ export function usePendingDecisions(intervalMs = 4000, enabled = true): PendingD
       } finally {
         if (!disposed) setLoading(false)
       }
-    }
+    })
     void load()
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void load()

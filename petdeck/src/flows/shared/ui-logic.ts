@@ -111,21 +111,21 @@ export function decideLiveConnect(input: { healthy: boolean; agentIds: string[];
 }
 
 export interface FollowUpPlan {
-  /** sent=真实 inject 成功；clipboard=未能直达，需复制交接内容。 */
-  outcome: 'sent' | 'clipboard'
+  /** relay=新建了接力会话；clipboard=未能直达，需复制交接内容。 */
+  outcome: 'relay' | 'clipboard'
   toast: string
   /** clipboard 模式下可复制到剪贴板的真实交接内容（InjectDecision.package）。 */
   copyText?: string
-  /** 是否把这条用户消息本地追加进线程：真实送达（inject）与演示模式都追加；live 降级 clipboard 不追加（消息并未送达，不得显得已发出）。 */
+  /** 是否把这条用户消息本地追加进线程。live inject 不能 resume 原会话，绝不追加；
+   *  演示模式可追加；live clipboard 未送达，也不追加。 */
   appendLocal: boolean
 }
 
-/** 追问结果决策：只有 mode=inject 才声称已发送；clipboard 给出真实可复制交接内容。
- *  opts.live 缺省按 true（真实链路）：live 降级不追加本地消息；演示模式（live:false）本地追加、
- *  如实展示交接复制，toast 绝不谎称「已发送」。 */
+/** 当前 inject 契约只会创建新接力，不能 resume 观察中的原 session。
+ *  因而 live 下即使注入成功也不污染原线程，只如实提示新接力已创建。 */
 export function planFollowUp(d: { mode: 'inject' | 'clipboard'; package?: string }, opts?: { live?: boolean }): FollowUpPlan {
   const live = opts?.live ?? true
-  if (d.mode === 'inject') return { outcome: 'sent', toast: t('followUp.sent'), appendLocal: true }
+  if (d.mode === 'inject') return { outcome: 'relay', toast: live ? t('followUp.relayStarted') : t('followUp.demoRelay'), appendLocal: !live }
   if (!live) {
     return {
       outcome: 'clipboard',
@@ -219,14 +219,14 @@ export function fieldErrorState(input: { value: string; touched: boolean; submit
 
 // ---- DND 到达分流：decision 必须轻拍（绝不入静默队列、绝不因水位线推进而丢失）；其余静默入队 ----
 
-/** 免打扰下新到事件的处置分流。decision 返回需轻拍的代表事件（同批多条时取最早到达者，逐条补提示语义不变）；
- *  调用方拿到 decision 后必须执行轻拍副作用，且不得附加 screen 门槛——用户身处 screen 2/3 时拍板事件同样要打断。 */
-export function routeDndArrivals(added: PetEvent[]): { quiet: PetEvent[]; decision: PetEvent | null } {
-  let decision: PetEvent | null = null
+/** 免打扰下新到事件的处置分流。每条 decision 都返回给调用方逐条轻拍；
+ *  其它事件才进入静默队列。调用方不得给 decision 附加 screen 门槛。 */
+export function routeDndArrivals(added: PetEvent[]): { quiet: PetEvent[]; decisions: PetEvent[] } {
+  const decisions: PetEvent[] = []
   const quiet: PetEvent[] = []
   for (const e of added) {
-    if (e.type === 'decision') decision ??= e
+    if (e.type === 'decision') decisions.push(e)
     else quiet.push(e)
   }
-  return { quiet, decision }
+  return { quiet, decisions }
 }

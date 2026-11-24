@@ -12,6 +12,8 @@ export function createSerialSender() {
         await task()
         return true
       } finally {
+        // An inject already accepted by the bridge cannot be recalled by returning to
+        // the editor. Only its real completion may unlock another attempt.
         busy = false
       }
     },

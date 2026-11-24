@@ -53,20 +53,32 @@ export async function fetchHealth(): Promise<boolean> {
 }
 
 const FETCH_TIMEOUT_MS = 3000
+const INJECT_TIMEOUT_MS = 70_000 // server CLI adapters time out at 60s; let their structured result arrive first
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   // 读端点与 inject 同一套 token：本机其它进程不应读取会话内容（server 侧 readGuard 强制）。
   return bridgeConfig.token ? { 'X-Petdeck-Token': bridgeConfig.token, ...extra } : extra
 }
 
+async function fetchArray<T>(path: '/api/agents' | '/api/sessions', label: string): Promise<T[]> {
+  const r = await fetch(`${bridgeConfig.url}${path}`, { headers: authHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+  if (!r.ok) throw new Error(`bridge ${label}: HTTP ${r.status}`)
+  let body: unknown
+  try {
+    body = await r.json()
+  } catch {
+    throw new Error(`bridge ${label}: malformed JSON response`)
+  }
+  if (!Array.isArray(body)) throw new Error(`bridge ${label}: expected an array response`)
+  return body as T[]
+}
+
 export async function fetchAgents(): Promise<Agent[]> {
-  const r = await fetch(`${bridgeConfig.url}/api/agents`, { headers: authHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-  return r.json()
+  return fetchArray<Agent>('/api/agents', 'agents')
 }
 
 export async function fetchSessions(): Promise<ObservedSession[]> {
-  const r = await fetch(`${bridgeConfig.url}/api/sessions`, { headers: authHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-  return r.json()
+  return fetchArray<ObservedSession>('/api/sessions', 'sessions')
 }
 
 export function subscribeEvents(
@@ -105,6 +117,7 @@ export async function inject(payload: InjectPayload): Promise<InjectDecision> {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(INJECT_TIMEOUT_MS),
     })
   } catch (e) {
     throw new BridgeInjectError(e instanceof Error ? e.message : 'network error', 0)

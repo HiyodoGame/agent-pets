@@ -2,7 +2,7 @@
 // Run: node --test src/adapters/live-sessions.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeSessions } from './live-sessions.ts';
+import { loadPanelViewState, mergeSessions, savePanelViewState } from './live-sessions.ts';
 import type { Session } from '../flows/shared/types';
 
 const base = (id: string, over: Partial<Session> = {}): Session => ({
@@ -43,4 +43,34 @@ test('merge: live base refresh surfaces new sessions and keeps overlays', () => 
   assert.equal(r1.length, 1);
   assert.deepEqual(r2.map((s) => s.id), ['a', 'c']);
   assert.equal(r2[0].title, 'keep');
+});
+
+test('panel view state persists rename/archive/hide across remounts, not transient messages', () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+  };
+  savePanelViewState(storage, {
+    overlays: {
+      a: { title: 'renamed', status: 'archived', extraMessages: [{ id: 'temporary', role: 'user', content: 'not persisted', timestamp: '', artifactIds: [] }] },
+    },
+    deleted: ['b'],
+  });
+  const restored = loadPanelViewState(storage);
+  assert.deepEqual(restored.deleted, ['b']);
+  assert.equal(restored.overlays.a.title, 'renamed');
+  assert.equal(restored.overlays.a.status, 'archived');
+  assert.equal(restored.overlays.a.extraMessages, undefined);
+  const merged = mergeSessions([base('a'), base('b')], restored.overlays, restored.deleted);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].title, 'renamed');
+  assert.equal(merged[0].status, 'archived');
+});
+
+test('panel view state recovers from corrupt or unavailable storage', () => {
+  const corrupt = { getItem: () => '{bad', setItem: () => {} };
+  assert.deepEqual(loadPanelViewState(corrupt), { overlays: {}, deleted: [] });
+  assert.deepEqual(loadPanelViewState(null), { overlays: {}, deleted: [] });
+  savePanelViewState(null, { overlays: {}, deleted: [] });
 });

@@ -77,17 +77,19 @@ test('inject: network error rejects with status 0', async (t) => {
   assert.equal((err as BridgeInjectError).status, 0);
 });
 
-test('inject: sends payload to the inject endpoint as JSON POST', async (t) => {
+test('inject: sends payload to the inject endpoint as JSON POST with a timeout signal', async (t) => {
   t.after(() => { globalThis.fetch = origFetch; });
   let seenUrl = '';
   let seenMethod = '';
   let seenBody = '';
   let seenContentType = '';
+  let seenSignal: AbortSignal | null | undefined;
   fakeFetch(async (url, init) => {
     seenUrl = url;
     seenMethod = init.method ?? '';
     seenBody = String(init.body);
     seenContentType = (init.headers as Record<string, string>)['Content-Type'] ?? '';
+    seenSignal = init.signal as AbortSignal | null | undefined;
     return new Response(JSON.stringify({ ok: true, mode: 'inject' }), { status: 200 });
   });
   await inject(payload);
@@ -95,6 +97,8 @@ test('inject: sends payload to the inject endpoint as JSON POST', async (t) => {
   assert.equal(seenMethod, 'POST');
   assert.equal(seenContentType, 'application/json');
   assert.deepEqual(JSON.parse(seenBody), { from: 'kimi', to: 'codex', context: 'ctx', instruction: 'deploy it' });
+  assert.ok(seenSignal instanceof AbortSignal, 'inject must not wait forever');
+  assert.equal((seenSignal as AbortSignal).aborted, false);
 });
 
 test('inject: valid {ok:true,mode:"inject"} decision passes through unchanged', async (t) => {
@@ -152,3 +156,23 @@ test('fetchAgents: a hanging bridge rejects via the 3s timeout (no infinite hang
   assert.ok(elapsed >= 2900, `timeout should fire near 3s (saw ${elapsed}ms)`);
   assert.ok(elapsed < 10000, `timeout should not be far beyond 3s (saw ${elapsed}ms)`);
 });
+
+for (const [label, load] of [['agents', fetchAgents], ['sessions', fetchSessions]] as const) {
+  test(`${label}: non-OK responses reject instead of committing an error body`, async (t) => {
+    t.after(() => { globalThis.fetch = origFetch; });
+    fakeFetch(async () => new Response(JSON.stringify({ ok: false, error: 'boom' }), { status: 500 }));
+    await assert.rejects(load(), /HTTP 500/);
+  });
+
+  test(`${label}: malformed JSON rejects through the normal connection failure path`, async (t) => {
+    t.after(() => { globalThis.fetch = origFetch; });
+    fakeFetch(async () => new Response('<html>oops</html>', { status: 200 }));
+    await assert.rejects(load(), /malformed JSON/);
+  });
+
+  test(`${label}: a successful non-array body is rejected`, async (t) => {
+    t.after(() => { globalThis.fetch = origFetch; });
+    fakeFetch(async () => new Response(JSON.stringify({ ok: true, [label]: [] }), { status: 200 }));
+    await assert.rejects(load(), /expected an array/);
+  });
+}

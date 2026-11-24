@@ -161,6 +161,7 @@ function Screen2_Preview({
             value={draft.instruction}
             onChange={(event) => setDraft({ ...draft, instruction: event.target.value })}
             placeholder={t('relay.instructionPlaceholder')}
+            aria-label={t('relay.instruction')}
             rows={4}
             onBlur={() => setInstructionTouched(true)}
             aria-invalid={instructionError.ariaInvalid}
@@ -173,7 +174,7 @@ function Screen2_Preview({
         <div className="relay-preview-field">
           <TypographyMuted>{t('relay.target')}</TypographyMuted>
           <Select value={draft.targetAgentId} onValueChange={(v) => setDraft({ ...draft, targetAgentId: v })}>
-            <SelectTrigger>
+            <SelectTrigger aria-label={t('relay.target')}>
               <SelectValue placeholder={t('relay.selectTarget')} />
             </SelectTrigger>
             <SelectContent>
@@ -541,7 +542,15 @@ export function Flow4_Relay({ sourceSession, onExit }: { sourceSession?: Session
             onCopy={copyPackage}
             onDone={() => { track('relay', EVENT.relayDone, { to: draft?.targetAgentId, live: isLive }); setScreen(4) }}
             onSimFail={() => setSendState('failed')}
-            onStop={() => { relayRevision.current++; track('relay', EVENT.relayStopped, { live: isLive }); setScreen(2) }}
+            onStop={() => {
+              if (relaySender.current.isBusy()) {
+                toast(t('relay.sendInProgress'))
+                return
+              }
+              relayRevision.current++
+              track('relay', EVENT.relayStopped, { live: isLive })
+              setScreen(2)
+            }}
           />
         )}
         {screen === 4 && target && (
