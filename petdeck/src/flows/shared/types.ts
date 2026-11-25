@@ -56,6 +56,33 @@ export interface TokenUsage {
   total?: number
 }
 
+/** Agent 正在终端里等待回答的选择题（目前仅 Claude 的 AskUserQuestion）。
+ *  observe 只读：桌宠可以展示并复制选项，真正的回答仍发生在终端里。 */
+export interface AgentAskOption {
+  label: string
+  description?: string
+}
+
+export interface AgentAskQuestion {
+  question: string
+  header?: string
+  multiSelect?: boolean
+  options: AgentAskOption[]
+}
+
+export interface AgentAsk {
+  toolUseId: string
+  questions: AgentAskQuestion[]
+}
+
+/** Claude Notification hook 捕获到的等待信号（权限确认/空闲）。
+ *  jsonl 里没有这类记录，只有 hook 能可靠区分「等确认」与「工具执行中」。 */
+export interface AgentNotify {
+  message: string
+  type?: string
+  at: number
+}
+
 export interface Session {
   id: string
   projectId: string
@@ -72,6 +99,10 @@ export interface Session {
   host?: string
   stale?: boolean
   lastSeen?: number
+  /** 终端里正在等待回答的问题；有值时桌宠展示选项而不是「正在工作」。 */
+  ask?: AgentAsk
+  /** Claude 权限确认/空闲等待的 hook 信号。 */
+  notify?: AgentNotify
 }
 
 /** 5 小时滚动用量窗口（订阅限额口径，对标 petdash）。均为推算值，UI 必须标注「估」。 */
