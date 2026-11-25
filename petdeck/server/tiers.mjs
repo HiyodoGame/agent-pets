@@ -10,6 +10,8 @@ export const TIER = {
   dsh: 'observe-only',
   cursor: 'observe-only',
   gemini: 'observe-only',
+  // DevEco Code（基于 OpenCode 扩展的 HarmonyOS CLI）：headless inject 未验证，先只读
+  deveco: 'observe-only',
   // 远程 SSH 只读观察：会话不可接力/注入
   remote: 'observe-only',
 };

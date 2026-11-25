@@ -146,7 +146,7 @@ function readBounded(file, maxBytes = 8 * 1024 * 1024) {
  *  filesystem guess. ENOENT degrades to an empty list. */
 export function readTranscript(entry, { limit = TRANSCRIPT_LIMIT_DEFAULT, maxChars = 500 } = {}) {
   const base = { agent: entry.agent, session: entry.session, path: entry.path ? entry.path : null };
-  if (!entry.path || entry.agent === 'zcode') return { ...base, lines: [], unsupported: true };
+  if (!entry.path || entry.agent === 'zcode' || entry.agent === 'deveco') return { ...base, lines: [], unsupported: true };
   let lines = [];
   if (entry.agent === 'dsh') {
     let buffer;
@@ -233,6 +233,8 @@ export function buildObserveSnapshot({
       path: row.path ?? null,
       stale: row.stale === true,
       tokens: row.tokens ?? null,
+      ask: row.ask ?? null,
+      notify: row.notify ?? null,
     }))
     .sort((a, b) => (b.updatedAt ?? b.lastSeen ?? 0) - (a.updatedAt ?? a.lastSeen ?? 0)
       || (a.agent < b.agent ? -1 : a.agent > b.agent ? 1 : 0)

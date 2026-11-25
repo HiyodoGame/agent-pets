@@ -35,6 +35,7 @@ export const AGENT_CLI = {
   zcode: 'zcode',
   dsh: 'dsh',
   gemini: 'gemini',
+  deveco: 'deveco',
 };
 
 /** Mask a secret, keeping only the last 4 chars so support can compare fingerprints. */

@@ -152,6 +152,27 @@ export function safeJson(line) {
   try { return JSON.parse(line); } catch { return null; }
 }
 
+/** 一个 turn 静默超过这么久就当作已中断。长任务（大构建、长命令）通常仍会
+ *  周期性写日志；实测 4 天前被杀的 kimi 会话会因为「最后事件是 turn.prompt」
+ *  被永久当成 running，必须用真实写入时间兜底。 */
+export const RUNNING_STALE_MS = 60 * 60 * 1000;
+
+/**
+ * running 只有在最近有写入时才成立。updatedAt 缺失时不做推断（宁可按原状态），
+ * 因为「没有时间证据」和「证据表明已中断」是两件事。
+ */
+export function settleRunningStatus(status, updatedAt, now = Date.now(), staleMs = RUNNING_STALE_MS) {
+  if (status !== 'running') return status;
+  const at = Number(updatedAt);
+  if (!Number.isFinite(at) || at <= 0) return status;
+  return now - at > staleMs ? 'unknown' : status;
+}
+
+/** 文件 mtime（毫秒）；读不到返回 0。观察适配器用它作为会话的最后写入时间。 */
+export function mtimeOf(file) {
+  try { return fs.statSync(file).mtimeMs; } catch { return 0; }
+}
+
 /** Basename that understands both Windows and POSIX separators. Adapter records can
  *  carry a Windows cwd while the test/CI process runs on POSIX (and vice versa), so
  *  path.basename alone would return the whole string instead of the last segment. */

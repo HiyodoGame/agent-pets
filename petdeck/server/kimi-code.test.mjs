@@ -121,3 +121,25 @@ test('observe: v2 store wins over the legacy one, archived sessions are skipped'
   assert.equal(rows[0].projectName, 'CatWanted');
   assert.equal(rows[0].source, 'kimi-code-wire');
 });
+
+test('observe: an unfinished turn that stopped writing days ago is not running', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'petdeck-kimi-stale-'));
+  const root = path.join(home, '.kimi-code');
+  const dir = path.join(root, 'sessions', 'wd_catwanted_067c8361cf15', 'session_dead');
+  fs.mkdirSync(path.join(dir, 'agents', 'main'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ id: 'session_dead', cwd: 'F:\\WorkSpace\\X', title: '中断的会话' }));
+  const wireFile = path.join(dir, 'agents', 'main', 'wire.jsonl');
+  fs.writeFileSync(wireFile, wire([
+    { type: 'turn.prompt', input: [{ type: 'text', text: '继续' }] },
+    { type: 'llm.request', provider: 'openai', model: 'k3.1-pro' },
+  ]));
+
+  // 4 天前进程被杀，wire 里没有 turn.ended；状态机本身仍停在 running。
+  const fourDaysAgo = (Date.now() - 4 * 24 * 3600_000) / 1000;
+  fs.utimesSync(wireFile, fourDaysAgo, fourDaysAgo);
+
+  const rows = await observe({ home, now: Date.now() });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, 'unknown', 'a dead turn must not be reported as running');
+  assert.ok(Math.abs(rows[0].updatedAt - fourDaysAgo * 1000) < 1000, 'activity time comes from the wire file, not state.json');
+});

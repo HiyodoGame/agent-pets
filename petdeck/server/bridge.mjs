@@ -18,6 +18,7 @@ import zcode from './adapters/zcode.mjs';
 import dsh from './adapters/dsh.mjs';
 import cursor from './adapters/cursor.mjs';
 import gemini from './adapters/gemini.mjs';
+import deveco from './adapters/deveco.mjs';
 import remote from './adapters/remote.mjs';
 import { TIER, injectDecision } from './tiers.mjs';
 import { createBus, toPetEventType } from './bus.mjs';
@@ -35,7 +36,7 @@ import {
   TRANSCRIPT_LIMIT_DEFAULT, TRANSCRIPT_LIMIT_MAX, trackObservePoll,
 } from './observe.mjs';
 
-const REAL_ADAPTERS = [codex, claude, opencode, kimi, kimiCode, zcode, dsh, cursor, gemini, remote];
+const REAL_ADAPTERS = [codex, claude, opencode, kimi, kimiCode, zcode, dsh, cursor, gemini, deveco, remote];
 // Reported by /api/health for the desktop status card. Read once: the file ships with
 // the app, so a reload per request would be pure waste.
 export function resolveAppVersion(env = process.env) {

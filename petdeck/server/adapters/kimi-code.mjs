@@ -17,7 +17,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { basenameAny, latestFiles, rethrowReadFault, tailLines, safeJson } from './shared.mjs';
+import { basenameAny, latestFiles, rethrowReadFault, tailLines, safeJson, mtimeOf, settleRunningStatus } from './shared.mjs';
 
 export const id = 'kimi-code';
 export const name = 'Kimi Code';
@@ -90,7 +90,7 @@ export function parseKimi(lines, _now = Date.now()) {
 }
 
 /** v2 store: read the newest state.json files, then each session's wire tail. */
-function observeV2(root) {
+function observeV2(root, now = Date.now()) {
   const files = latestFiles(path.join(root, 'sessions'), (n) => n === 'state.json', 5);
   const out = [];
   for (const f of files) {
@@ -111,11 +111,15 @@ function observeV2(root) {
     // projectDir 形如 wd_<slug>_<hash>：去掉前缀与哈希后缀即人类可读的项目名。
     const projectDir = path.basename(path.dirname(dir));
     const slug = projectDir.replace(/^wd_/, '').replace(/_[0-9a-f]{12}$/, '');
-    let updatedAt = Number(state.updatedAt) || 0;
+    // 真实活动时间取 wire 的写入时间：state.json 只在改标题等元数据时写，用它会让
+    // 一个 4 天前的会话看起来像「刚刚更新」（也是幽灵 running 的来源之一）。
+    const wireAt = wire && fs.existsSync(wire) ? mtimeOf(wire) : 0;
+    let updatedAt = Math.max(Number(state.updatedAt) || 0, wireAt);
     if (!updatedAt) { try { updatedAt = fs.statSync(f).mtimeMs; } catch { updatedAt = 0; } }
     out.push({
       agent: id, source: 'kimi-code-wire', session: state.id || path.basename(dir),
-      title: title.slice(0, 200), status: r.status,
+      title: title.slice(0, 200),
+      status: settleRunningStatus(r.status, updatedAt, now),
       lastMessage: r.lastMessage.slice(0, 200), turn: '',
       cwd, projectId: projectDir, projectName: cwd ? basenameAny(cwd) : slug,
       tokens: r.tokens, path: fs.existsSync(wire) ? wire : f, updatedAt: updatedAt || null,
@@ -136,7 +140,7 @@ function observeLegacy(home, now) {
     const r = parseKimi(text.split('\n'), now);
     if (r.status === 'unknown' && !r.lastMessage) continue;
     const project = path.basename(path.dirname(path.dirname(f)));
-    out.push({ agent: id, source: 'kimi-jsonl', session: path.basename(path.dirname(f)), title: r.title.slice(0, 200), projectId: project, projectName: project, status: r.status, lastMessage: r.lastMessage.slice(0, 200), turn: '', tokens: { total: r.tokens }, path: f, updatedAt: st.mtimeMs });
+    out.push({ agent: id, source: 'kimi-jsonl', session: path.basename(path.dirname(f)), title: r.title.slice(0, 200), projectId: project, projectName: project, status: settleRunningStatus(r.status, st.mtimeMs, now), lastMessage: r.lastMessage.slice(0, 200), turn: '', tokens: { total: r.tokens }, path: f, updatedAt: st.mtimeMs });
   }
   return out;
 }
@@ -145,7 +149,7 @@ function observeLegacy(home, now) {
 export async function observe({ home = process.env.PETDECK_OBSERVE_HOME || os.homedir(), now = Date.now() } = {}) {
   const v2 = path.join(home, '.kimi-code');
   if (fs.existsSync(path.join(v2, 'session_index.jsonl')) || fs.existsSync(path.join(v2, 'sessions'))) {
-    return observeV2(v2);
+    return observeV2(v2, now);
   }
   return observeLegacy(home, now);
 }

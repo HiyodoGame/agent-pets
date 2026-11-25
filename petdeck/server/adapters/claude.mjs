@@ -3,7 +3,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { runCli, guardDash } from './exec.mjs';
-import { tailLines, latestFiles, safeJson } from './shared.mjs';
+import { tailLines, latestFiles, safeJson, mtimeOf, settleRunningStatus } from './shared.mjs';
 import { handoffPackage } from '../tiers.mjs';
 import { computeUsageWindow } from '../usage-window.mjs';
 
@@ -15,8 +15,13 @@ export const tier = 'full';
  *  Status is derived from an explicit terminal signal; absence never claims 'done'.
  *  tokens = 观察窗口内 assistant usage 的聚合（input/output/cacheRead），非会话全历史。
  *  usageMarks = 带时间戳的逐条 usage（供账户级 5h 窗口计算）；缺 timestamp 的 usage 不产生 mark。 */
-/** 非用户提问的 user 行（实测出现的噪声来源）：图片占位、hook 反馈、命令回显。 */
-const NON_PROMPT_PREFIXES = ['[Image:', 'Stop hook feedback:', '<command-', '<local-command', '<system-reminder', 'Caveat:', 'API Error'];
+/** 非用户提问的 user 行（实测出现的噪声来源）：图片占位、hook 反馈、命令回显、
+ *  以及 Claude 跨会话消息（`Another Claude session sent a message: <cross-session-message…`）。
+ *  后者曾是弹窗标题：桌宠卡片把整段 XML 协议文本当成会话名显示。 */
+const NON_PROMPT_PREFIXES = [
+  '[Image:', 'Stop hook feedback:', '<command-', '<local-command', '<system-reminder', 'Caveat:', 'API Error',
+  'Another Claude session sent a message:', '<cross-session-message',
+];
 
 function looksLikePrompt(text) {
   const t = String(text ?? '').trimStart();
@@ -62,10 +67,77 @@ export function parseClaude(lines) {
   return { status, lastMessage, cwd, title, tokens, usageMarks };
 }
 
+/** Pure: the newest AskUserQuestion tool_use that has no tool_result yet.
+ *  Claude 的「询问」是终端里的一个工具调用，jsonl 里留有完整的问题与选项；
+ *  用户答复后才会出现对应 tool_result。未配对 = 正在等用户回答。
+ *  只解析 AskUserQuestion（ExitPlanMode 的 input.plan 是长文本，不是选择题）。 */
+export function parsePendingAsk(lines) {
+  const uses = [];
+  const answered = new Set();
+  for (const ln of lines) {
+    const j = safeJson(ln);
+    const content = j?.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part?.type === 'tool_use' && part.name === 'AskUserQuestion' && part.id) uses.push(part);
+      else if (part?.type === 'tool_result' && part.tool_use_id) answered.add(part.tool_use_id);
+    }
+  }
+  for (let i = uses.length - 1; i >= 0; i -= 1) {
+    const use = uses[i];
+    if (answered.has(use.id)) continue;
+    const questions = Array.isArray(use.input?.questions) ? use.input.questions : [];
+    const parsed = questions
+      .filter((q) => q && typeof q.question === 'string')
+      .map((q) => ({
+        question: q.question,
+        header: typeof q.header === 'string' ? q.header : '',
+        multiSelect: q.multiSelect === true,
+        options: Array.isArray(q.options)
+          ? q.options.filter((o) => o && typeof o.label === 'string')
+            .map((o) => ({ label: o.label, description: typeof o.description === 'string' ? o.description : '' }))
+          : [],
+      }));
+    if (!parsed.length) continue;
+    return { toolUseId: use.id, questions: parsed };
+  }
+  return null;
+}
+
+/** Claude 的 Notification hook 事件文件（权限确认/空闲等待）。
+ *  路径规则与 runtime/db.mjs 的 resolveDataDir 保持一致；避免 adapter 依赖 sqlite 模块。 */
+export function hookEventsFile(env = process.env) {
+  if (env.PETDECK_HOOK_EVENTS) return env.PETDECK_HOOK_EVENTS;
+  const dir = env.PETDECK_DATA_DIR
+    || (process.platform === 'win32'
+      ? path.join(env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'PetDeck')
+      : path.join(env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'petdeck'));
+  return path.join(dir, 'claude-hook-events.jsonl');
+}
+
+/** Pure: newest Notification per session, ignoring events older than maxAgeMs.
+ *  同一会话多次通知只保留最后一条，避免旧的权限提示长期挂在桌宠上。 */
+export function parseHookEvents(lines, now = Date.now(), maxAgeMs = 30 * 60 * 1000) {
+  const bySession = new Map();
+  for (const ln of lines) {
+    const j = safeJson(ln);
+    if (!j || typeof j.session_id !== 'string' || !j.session_id) continue;
+    const ts = Number(j.ts) || 0;
+    if (!ts || now - ts > maxAgeMs) continue;
+    bySession.set(j.session_id, {
+      message: String(j.message ?? '').slice(0, 300),
+      type: String(j.notification_type ?? ''),
+      at: ts,
+    });
+  }
+  return bySession;
+}
+
 export function observe(now = Date.now()) {
   const home = process.env.PETDECK_OBSERVE_HOME || os.homedir();
   const dir = path.join(home, '.claude', 'projects');
   const files = latestFiles(dir, (n) => n.endsWith('.jsonl'), 5);
+  const hooks = parseHookEvents(tailLines(hookEventsFile(), 200), now);
   const out = [];
   const marks = [];
   for (const f of files) {
@@ -73,7 +145,19 @@ export function observe(now = Date.now()) {
     const r = parseClaude(tailLines(f, 400));
     marks.push(...r.usageMarks);
     if (r.status === 'unknown' && !r.lastMessage) continue;
-    out.push({ agent: id, source: 'projects-jsonl', session: path.basename(f), status: r.status, title: r.title.slice(0, 200), lastMessage: r.lastMessage.slice(0, 200), cwd: r.cwd, tokens: r.tokens });
+    // 文件 mtime 才是这一轮 turn 的最后写入时间：running 必须在最近仍被写入，
+    // 否则一个被中断的旧 turn 会永久显示「运行中」（kimi 适配器踩过同样的坑）。
+    const updatedAt = mtimeOf(f);
+    const ask = parsePendingAsk(tailLines(f, 600));
+    // Notification hook 是权限确认/空闲等待的唯一可靠信号：jsonl 里看不到它。
+    const notify = hooks.get(path.basename(f, '.jsonl'));
+    out.push({
+      agent: id, source: 'projects-jsonl', session: path.basename(f),
+      status: notify || ask ? 'waiting' : settleRunningStatus(r.status, updatedAt, now),
+      title: r.title.slice(0, 200), lastMessage: r.lastMessage.slice(0, 200), cwd: r.cwd,
+      tokens: r.tokens, updatedAt: updatedAt || null,
+      ask: ask ?? undefined, notify: notify ?? undefined,
+    });
   }
   // 5h 窗口是账户级的（订阅限额不分会话）：跨全部扫描文件聚合，同一份结果挂到每行 claude 会话。
   const usageWindow = computeUsageWindow(marks, now);

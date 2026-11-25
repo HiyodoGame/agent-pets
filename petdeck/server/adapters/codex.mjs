@@ -11,7 +11,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { runCli, guardDash } from './exec.mjs';
-import { tailLines, headLines, latestFiles, safeJson } from './shared.mjs';
+import { tailLines, headLines, latestFiles, safeJson, mtimeOf, settleRunningStatus } from './shared.mjs';
 import { handoffPackage } from '../tiers.mjs';
 
 export const id = 'codex';
@@ -64,7 +64,7 @@ export function parseRollout(lines) {
   return { status, lastMessage, turn, cwd, title };
 }
 
-export function observe() {
+export function observe({ now = Date.now() } = {}) {
   const home = process.env.PETDECK_OBSERVE_HOME || os.homedir();
   const dir = path.join(home, '.codex', 'sessions');
   const files = latestFiles(dir, (n) => n.startsWith('rollout-') && n.endsWith('.jsonl'), 5);
@@ -75,7 +75,13 @@ export function observe() {
     // 落在第 9–13 行；只读 8 行时标题会空。长会话的用户提问也在前 60 行内。
     const r = parseRollout([...headLines(f, 60), ...tailLines(f, 400)]);
     if (r.status === 'unknown' && !r.lastMessage && !r.title) continue;
-    out.push({ agent: id, source: 'rollout-jsonl', session: path.basename(f), status: r.status, title: r.title.slice(0, 200), lastMessage: r.lastMessage.slice(0, 200), turn: r.turn, cwd: r.cwd });
+    const updatedAt = mtimeOf(f);
+    out.push({
+      agent: id, source: 'rollout-jsonl', session: path.basename(f),
+      status: settleRunningStatus(r.status, updatedAt, now),
+      title: r.title.slice(0, 200), lastMessage: r.lastMessage.slice(0, 200),
+      turn: r.turn, cwd: r.cwd, updatedAt: updatedAt || null,
+    });
   }
   return out;
 }

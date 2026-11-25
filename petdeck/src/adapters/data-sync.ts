@@ -40,11 +40,13 @@ export function observedToSessions(rows: ObservedSession[], now: string): Sessio
       ? [{ id: `${r.session}-m`, role: 'agent' as const, content: r.lastMessage, timestamp: now, artifactIds: [] }]
       : [],
     artifactIds: [],
-    updatedAt: now,
+    updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : now,
     tokens: r.tokens,
     usageWindow: r.usageWindow,
     host: r.host,
     stale: r.stale,
     lastSeen: r.lastSeen,
+    ask: r.ask ?? undefined,
+    notify: r.notify ?? undefined,
   }))
 }

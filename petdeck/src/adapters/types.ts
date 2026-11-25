@@ -1,5 +1,5 @@
 // Adapter-layer contracts (frontend). Domain types live in flows/shared/types.
-import type { Agent, Artifact, CapabilityTier, PetEvent, Project, Session, TokenUsage, UsageWindow } from '../flows/shared/types'
+import type { Agent, AgentAsk, AgentNotify, Artifact, CapabilityTier, PetEvent, Project, Session, TokenUsage, UsageWindow } from '../flows/shared/types'
 
 /** Unified observe row emitted by every server adapter. */
 export interface ObservedSession {
@@ -21,6 +21,12 @@ export interface ObservedSession {
   temp?: boolean
   stale?: boolean
   lastSeen?: number
+  /** 会话文件/记录最后一次写入的毫秒时间戳；缺失时观察层回填轮询时刻。 */
+  updatedAt?: number | null
+  /** 终端里等待回答的选择题（Claude AskUserQuestion），未回答时存在。 */
+  ask?: AgentAsk | null
+  /** Claude Notification hook：权限确认/空闲等待。 */
+  notify?: AgentNotify | null
 }
 
 /** Raw bus event (newest-first) used to derive relay tracking status. */

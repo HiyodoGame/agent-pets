@@ -230,11 +230,30 @@ test('opencode execution events drive live running status', () => {
   resetOpenCodeRuntime();
 });
 
-test('opencode execution events: explicit terminal outcome wins over stale running set', () => {
+test('opencode execution events: a live execution is not overridden by the previous turn outcome', () => {
   resetOpenCodeRuntime();
   applyExecutionEvent({ type: 'session.execution.started', data: { sessionID: 'ses_x' } });
-  assert.equal(mapServeStatus({ id: 'ses_x', outcome: 'succeeded' }), 'done');
+  // v2 的 outcome 是上一轮 turn 的结果，正在执行时不会被清空；live 状态必须优先，
+  // 否则所有活跃会话都会被标成 done（真机 2026-11-25）。
+  assert.equal(mapServeStatus({ id: 'ses_x', outcome: 'succeeded' }), 'running');
   resetOpenCodeRuntime();
+});
+
+test('opencode mapServeStatus: busy > idle means executing; stale executions are not running', () => {
+  const now = Date.parse('2026-11-25T12:00:00.000Z');
+  assert.equal(mapServeStatus({
+    id: 'ses_busy', outcome: 'succeeded',
+    time: { created: now - 60_000, updated: now - 5_000, busy: now - 5_000, idle: now - 60_000 },
+  }, now), 'running');
+  assert.equal(mapServeStatus({
+    id: 'ses_idle', outcome: 'succeeded',
+    time: { created: now - 60_000, updated: now - 60_000, busy: now - 60_000, idle: now - 55_000 },
+  }, now), 'done');
+  // busy 比 idle 新但两小时没写入：进程中途退出，不能永久「运行中」。
+  assert.equal(mapServeStatus({
+    id: 'ses_dead', outcome: null,
+    time: { updated: now - 2 * 60 * 60 * 1000, busy: now - 2 * 60 * 60 * 1000, idle: now - 3 * 60 * 60 * 1000 },
+  }, now), 'unknown');
 });
 
 test('opencode watcher: stop aborts the active SSE read and leaves no retry pending', async (t) => {

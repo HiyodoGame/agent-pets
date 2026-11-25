@@ -3,7 +3,7 @@
 // Throws when unreachable (freshness contract).
 // inject: opencode run --format json (validated in spike; stable).
 import { runCli } from './exec.mjs';
-import { safeJson } from './shared.mjs';
+import { safeJson, settleRunningStatus } from './shared.mjs';
 import { handoffPackage } from '../tiers.mjs';
 
 export const id = 'opencode';
@@ -60,17 +60,31 @@ export function resetOpenCodeRuntime() {
 }
 
 /** Pure: map a serve/API session row to a normalized status.
- *  Priority: explicit status/outcome > live SSE execution set > fresh-update fallback
- *  > unknown (never fabricate running/done). */
+ *  Priority: live execution (busy > idle / SSE set) > explicit status > last outcome
+ *  > fresh-update fallback > unknown (never fabricate running/done).
+ *
+ *  v2 的 `outcome` 是「上一轮 turn 的结果」，不是当前状态：一个正在跑的长任务
+ *  仍然带着 `outcome: "succeeded"`，旧实现因此把所有活跃会话都标成 done（真机
+ *  2026-11-25：桌宠看不到正在使用的 opencode 会话）。 */
 export function mapServeStatus(s = {}, now = Date.now()) {
-  const signal = s.status ?? s.outcome;
-  if (typeof signal === 'string' && SERVE_STATUS[signal]) return SERVE_STATUS[signal];
-  if (s.id && runningSessions.has(s.id)) return 'running';
+  const time = s.time ?? {};
+  const busy = typeof time.busy === 'number' ? time.busy : null;
+  const idle = typeof time.idle === 'number' ? time.idle : null;
+  const updated = typeof time.updated === 'number' ? time.updated : null;
+  const activityAt = updated ?? busy ?? idle;
+  // v2 只在 turn 开始时写 busy、turn 结束时写 idle：busy 比 idle 新即「执行中」。
+  const executing = busy != null && (idle == null || busy > idle);
+  if (executing || (s.id && runningSessions.has(s.id))) {
+    return settleRunningStatus('running', activityAt, now);
+  }
+  if (typeof s.status === 'string' && SERVE_STATUS[s.status]) return SERVE_STATUS[s.status];
+  const outcome = s.outcome ?? s.idle_outcome;
+  if (typeof outcome === 'string' && SERVE_STATUS[outcome]) return SERVE_STATUS[outcome];
   if (s.time?.completed || s.completed) return 'done';
   // Fallback only when the SSE watcher is unavailable: a null-outcome row updated
   // recently is *probably* running. With a live watcher, absence from the execution
   // set means not running (no freshness guessing).
-  if (!watcherLive && s.outcome == null && typeof s.time?.updated === 'number' && now - s.time.updated < RUNNING_FRESH_MS) return 'running';
+  if (!watcherLive && s.outcome == null && updated != null && now - updated < RUNNING_FRESH_MS) return 'running';
   return 'unknown';
 }
 
@@ -92,6 +106,9 @@ export function directoryOf(s = {}) {
 const toRow = (source, now) => (s) => ({
   agent: id, source, session: s.id ?? '', status: mapServeStatus(s, now),
   title: (s.title ?? '').slice(0, 200), lastMessage: '', cwd: directoryOf(s) || undefined,
+  // 真实更新时间用于「近 24h 活跃」判定和观察页的相对时间；缺失时由观察层回填轮询时刻。
+  updatedAt: typeof s.time?.updated === 'number' ? s.time.updated
+    : typeof s.time?.created === 'number' ? s.time.created : null,
 });
 
 function delay(ms, signal) {
