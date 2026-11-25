@@ -1,6 +1,8 @@
 import { Activity, AlertTriangle, Check, MessageCircle, X } from 'lucide-react'
-import type { PetEvent } from '../shared/types'
+import type { AgentAsk, AgentNotify, PetEvent } from '../shared/types'
 import { t } from '../../i18n/index.ts'
+import { petEventText, sanitizePetEventText } from './pet-view'
+import { PetAskBody } from './pet-ask-card'
 
 function eventKind(event: PetEvent): string {
   if (event.type === 'started') return t('eventCard.kindStarted')
@@ -10,8 +12,13 @@ function eventKind(event: PetEvent): string {
   return t('eventCard.kindDone')
 }
 
-export function PetEventCard({ event, onOpen, onDismiss }: {
+/** Pet event card: a task-card layout (agent · kind, project, one readable line)
+ *  with two direct actions. The raw transcript line is sanitized and clamped so a
+ *  long protocol message can never turn the popover into a scroll box. */
+export function PetEventCard({ event, ask, notify, onOpen, onDismiss }: {
   event: PetEvent
+  ask?: AgentAsk
+  notify?: AgentNotify
   onOpen: () => void
   onDismiss: () => void
 }) {
@@ -23,6 +30,7 @@ export function PetEventCard({ event, onOpen, onDismiss }: {
         ? AlertTriangle
         : Activity
   const kind = eventKind(event)
+  const summary = sanitizePetEventText(event.text) || petEventText(event)
   return (
     <section className="pet-popover pet-event-card" aria-label={`${event.agentName} · ${kind}`}>
       <div className="pet-event-heading">
@@ -35,10 +43,25 @@ export function PetEventCard({ event, onOpen, onDismiss }: {
       <div className="pet-event-context">
         <span>{event.projectName}</span>
         <h2>{event.sessionTitle}</h2>
+        {ask || notify ? null : <p className="pet-event-text">{summary}</p>}
       </div>
-      <button type="button" className="pet-primary-button" onClick={onOpen}>
-        {event.type === 'decision' ? t('eventCard.reviewDecision') : t('eventCard.viewDetail')}
-      </button>
+      {notify ? (
+        <div className="pet-ask">
+          <p className="pet-ask-hint">{notify.message || t('petAsk.permission')}</p>
+        </div>
+      ) : null}
+      {ask ? (
+        <PetAskBody ask={ask} onOpen={onOpen} />
+      ) : (
+        <div className="pet-event-actions">
+          <button type="button" className="pet-secondary-button" onClick={onDismiss}>
+            {t('eventCard.dismissAction')}
+          </button>
+          <button type="button" className="pet-primary-button" onClick={onOpen}>
+            {event.type === 'decision' ? t('eventCard.reviewDecision') : t('eventCard.viewDetail')}
+          </button>
+        </div>
+      )}
     </section>
   )
 }

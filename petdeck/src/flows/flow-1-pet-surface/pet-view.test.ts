@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { compactPetStatus, notificationDecision, petEventText, petOverlayMode, shouldResetEventWatermark, summarizeSessions } from './pet-view.ts'
+import { compactPetStatus, isRecentlyActive, notificationDecision, petEventText, petOverlayMode, sanitizePetEventText, shouldResetEventWatermark, summarizeSessions } from './pet-view.ts'
 
 test('pet view: aggregates running, done, waiting and stuck independently', () => {
   const summary = summarizeSessions([
@@ -61,4 +61,23 @@ test('pet view: source switches reset the event watermark in both directions', (
   assert.equal(shouldResetEventWatermark('live', 'mock'), true)
   assert.equal(shouldResetEventWatermark('mock', 'live'), true)
   assert.equal(shouldResetEventWatermark('live', 'live'), false)
+})
+
+test('pet view: only sessions with activity in the last 24h count as working', () => {
+  const now = Date.parse('2026-11-25T12:00:00.000Z')
+  assert.equal(isRecentlyActive({ updatedAt: '2026-11-25T11:59:00.000Z' }, now), true)
+  assert.equal(isRecentlyActive({ updatedAt: '2026-11-24T11:00:00.000Z' }, now), false, 'a 4-day-old turn must not take a slot')
+  assert.equal(isRecentlyActive({ updatedAt: '', lastSeen: now - 60_000 }, now), true, 'lastSeen is the fallback')
+  assert.equal(isRecentlyActive({ updatedAt: '' }, now), true, 'no time evidence must not hide the session')
+  assert.equal(isRecentlyActive({ updatedAt: 'not-a-date' }, now), true)
+})
+
+test('pet view: event summaries strip protocol markup and clamp to one readable line', () => {
+  const raw = 'Another Claude session sent a message:\n<cross-session-message from="local_5d829830-b648" from-name="后续可做事项">未来发布时间差异已修正。</cross-session-message>'
+  const clean = sanitizePetEventText(raw)
+  assert.ok(!clean.includes('<cross-session-message'))
+  assert.ok(!clean.includes('from='))
+  assert.ok(clean.includes('未来发布时间差异已修正'))
+  assert.ok(Array.from(sanitizePetEventText('字'.repeat(400))).length <= 160)
+  assert.equal(sanitizePetEventText('   '), '')
 })

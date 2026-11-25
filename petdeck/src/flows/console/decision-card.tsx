@@ -50,7 +50,7 @@ export function DecisionCard({ decision, compact = false, onAnswered }: Decision
               disabled={busy}
               onClick={() => void answer({ optionIndex: index })}
             >
-              {busy ? <Loader2 className="spin" aria-hidden="true" /> : <span className="decision-option-index">{index + 1}</span>}
+              {busy ? <Loader2 className="spin" aria-hidden="true" /> : compact ? null : <span className="decision-option-index">{index + 1}</span>}
               {label}
             </button>
           ))}

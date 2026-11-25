@@ -5,7 +5,7 @@ import type { AgentStatus, PetEvent } from '../shared/types'
 import { PetAvatar } from '../shared/pet-avatar'
 import { statusLabel } from '../shared/status-tokens'
 import { eventWatermark, newEventsAfter, routeDndArrivals, fmtCount, type EventWatermark } from '../shared/ui-logic'
-import { compactPetStatus, petOverlayMode, shouldResetEventWatermark, summarizeSessions } from './pet-view'
+import { compactPetStatus, isRecentlyActive, petOverlayMode, shouldResetEventWatermark, summarizeSessions } from './pet-view'
 import { hidePet, getDnd, listenForDndChange, movePetBy, openMainPanel, persistPetPositionOnMove, quitPetDeck, savePetPosition, setDesktopDnd, setPetAlwaysOnTop, startPetDragging, updatePetWindowLayout, type PanelTarget } from '../../desktop/window'
 import { t } from '../../i18n/index.ts'
 import { useI18n } from '../../i18n/context.ts'
@@ -17,6 +17,7 @@ import { usePetBehavior } from './use-pet-behavior'
 import { beginNativePetDrag, beginPetGesture, confirmPetDrag, endPetGesture, movePetGesture, type PetGesture } from './pet-gesture'
 import { PetContextMenu, type PetMenuPoint } from './pet-context-menu'
 import { PetEventCard } from './pet-event-card'
+import { PetAskCard } from './pet-ask-card'
 import { PetQuickSettings } from './pet-quick-settings'
 import { presentSession, prioritizeSessions } from '../shared/session-presentation.ts'
 import { createNotificationDispatcher, sendPetSystemNotification } from '../../desktop/notifications'
@@ -47,7 +48,10 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
   const finishGestureRef = useRef<() => void>(() => {})
   const petButtonRef = useRef<HTMLButtonElement>(null)
   const events = unhandledEvents()
-  const summary = summarizeSessions(sessions)
+  // 桌宠只统计/罗列近 24h 活跃的会话：4 天前被中断的 kimi 会话曾一直占着
+  // 「正在工作」的名额，把真正在跑的 opencode 挤掉。
+  const activeSessions = sessions.filter((session) => isRecentlyActive(session))
+  const summary = summarizeSessions(activeSessions)
   const runtime = useRuntimeOverview(4000, mode === 'live')
   const decisions = usePendingDecisions(4000, mode === 'live')
   const decision = decisions.decisions[0] ?? null
@@ -56,9 +60,11 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
     : []
   const runtimeRunning = runtimeTasks.filter((task) => task.status === 'running' || task.status === 'paused').length
   const runningCount = Math.max(summary.running, runtimeRunning)
-  const quickSessions = prioritizeSessions(sessions)
+  const quickSessions = prioritizeSessions(activeSessions)
     .filter((session) => session.status === 'waiting' || session.status === 'stuck' || session.status === 'active')
     .slice(0, 3)
+  // 终端里正在等回答的会话优先于普通任务卡：这是唯一需要用户立刻动手的状态。
+  const askSession = activeSessions.find((session) => session.ask || session.notify)
   const status: AgentStatus = runtimeRunning > 0 ? 'running' : compactPetStatus(connState, summary)
   const growth = useGrowth()
   const attention = summary.waiting + summary.stuck
@@ -329,6 +335,12 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
               <Settings2 className="h-4 w-4" />
             </button>
           </div>
+          {askSession && (
+            <PetAskCard
+              session={askSession}
+              onOpen={() => void openPanel({ projectId: askSession.projectId, sessionId: askSession.id })}
+            />
+          )}
           {decision && (
             <div className="pet-decision-block">
               <span className="pet-task-shortlist-label">{t('pet.decisionsTitle')}</span>
@@ -426,6 +438,8 @@ export function CompactPet({ bridgeError = null }: { bridgeError?: string | null
       {windowMode === 'event' && visibleEvent && (
         <PetEventCard
           event={visibleEvent}
+          ask={activeSessions.find((session) => session.id === visibleEvent.sessionId)?.ask}
+          notify={activeSessions.find((session) => session.id === visibleEvent.sessionId)?.notify}
           onDismiss={() => {
             setExpanded(false)
             setSettingsOpen(false)
