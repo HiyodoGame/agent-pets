@@ -6,6 +6,10 @@
 
 ### 变更
 
+- **观察状态以真实活动时间为准**：所有观察适配器现在返回会话最后一次写入的 `updatedAt`（claude/codex 取 jsonl mtime，kimi-code 取 wire.jsonl，opencode 取 `time.updated`，deveco 取 `time_updated`），`running` 只有在最近 60 分钟内仍被写入时才成立。桌宠只统计/罗列近 24 小时活跃的会话，历史会话仍留在观察页但不占「正在工作」名额。
+- **新增 DevEco Code 观察适配器**：读取 `~/.local/share/deveco/deveco.db`（SQLite，与 opencode 同源的表结构），按最后一条 assistant message 是否有 `time.completed` 推导状态；归档与子会话跳过，observe-only（不回写、不注入）。
+- **桌宠卡片改为任务卡样式**：事件卡用「Agent · 类型 / 项目 / 标题 / 一句摘要」布局，标题与摘要各自限行、卡片不再出现滚动条；摘要会去掉 `<cross-session-message>` 等协议标签与 markdown 包裹。决策卡在宠物里改为整行选项、不再显示一排编号。
+- **Claude 询问与权限提醒**：解析 claude 会话里未配对的 `AskUserQuestion`，桌宠显示问题与选项（点击复制选项，回答仍在终端完成，observe-only 不回写）；新增 Notification hook 安装脚本，把「需要你确认」写入 `<数据目录>/claude-hook-events.jsonl`，claude 适配器据此把会话标为 waiting。
 - **界面统一**：移除侧栏「旧版」四入口（会话 / 接力 / 连接 / 伙伴）及对应页面，导航固定为今日 / 任务 / 项目 / Agent / 汇报 / 设置。观察会话的发消息/接力并入今日观察抽屉：生成并复制交接包（不注入、不启动新会话），支持本地重命名、归档与撤销；旧 `petdeck.panel.view.v1` 视图状态自动迁移到新键。
 - **自定义标题栏**：主窗口改为无系统默认装饰的自定义标题栏（品牌、连接状态、运行数、最小化/最大化/还原/关闭到托盘），空白区可拖动、双击最大化；关闭仍是隐藏到托盘。新增仅作用于主窗口的窗口控制权限，桌宠窗口不受影响。
 - **控件与走查**：新增主题化细滚动条与统一 `.pd-switch` 开关（修正选中态滑块不对称）；修复浅色主题下观察卡片悬停变暗、更新进度条轨道深浅语义相反、浅色小字对比度不足、窄窗口顶部留白过多等走查问题。
@@ -13,6 +17,7 @@
 
 ### 修复
 
+- **观察状态误报**：`kimi-code` 把 4 天前被中断的 turn（wire 最后是 `llm.request`，没有 `turn.ended`）永久显示为「运行中」；`opencode` 把 v2 的 `outcome`（上一轮结果）当成当前状态，正在执行的会话反而显示「已完成」。前者改用 wire 写入时间做时效判定，后者先看 `time.busy > time.idle` 与 SSE 执行集，再看历史 outcome。claude/codex 存在同样的潜在问题，一并加上时效判定。
 - **暂停/继续从未真正生效**：`server/runtime/process-control.mjs` 经 `-Command -` 把脚本从 stdin 交给 Windows PowerShell 5.1，脚本里的 C# here-string 吞掉剩余输入后以 exit 0 提前结束，任务会被标成「已暂停」而 Agent 进程继续运行。改用 `-EncodedCommand`（UTF-16LE + Base64）执行同一脚本，并用真实 `node.exe` 进程树验证：挂起后两个 900 ms 窗口 CPU 时间均为 0，恢复后回到满核；不存在的 PID 由 exit 0 误报改为 `control-failed`，同时过滤 PowerShell 的 CLIXML stderr 噪声。补 `process-control` 与 `supervisor` 单测（此前函数覆盖为 0）。
 - **错误态与加载**：运行时页面统一使用本地化错误文案，不再直接显示英文 `Failed to fetch` 或服务端英文消息；设置页调度卡与经理卡在加载失败时显示可读错误与「重试」，不再永久停在「加载中」；经理输入框补充可访问名称与 Ctrl+Enter 说明。
 - **深链**：桌宠/托盘的会话目标跳转到「今日」并自动打开对应观察抽屉（`/today?observe=`）；旧 `/panel`、`/relay`、`/connect`、`/pet` 地址安全回落到今日。

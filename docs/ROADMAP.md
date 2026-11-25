@@ -64,11 +64,19 @@
 - **i18next（经 `sparkdesign` 传递）**：2026-11-25 全面检查时 `npm audit --registry=https://registry.npmjs.org` 报 2 条 moderate（GHSA-6jcc-5g8w-32mx / CVE-2026-63402：`addResourceBundle(deep, overwrite)` 的原型链 DoS，影响 `<26.3.4`）。处理：`package.json` 的 `overrides` 提升到 `i18next@26.7.2`（`react-i18next@16.6.6` 的 peer 为 `>=25.10.9`；26.0.0 的破坏性变更只删除了 v24 起已废弃的选项），`npm audit` 归零。核查结论：构建产物不含 i18next 核心（`addResourceBundle` 未进 bundle），本应用也未调用该 API，实际暴露面为零。`sparkdesign` 自身仍声明 `^25.8.7`，升级该包时先复核，视情况移除 override。
   > 注：本机默认 registry（npmmirror）不实现 `/-/npm/v1/security/*`，直接 `npm audit` 会返回 `NOT_IMPLEMENTED`，必须加 `--registry=https://registry.npmjs.org` 才有结果。
 
+### 已知取舍（2026-11-25 观察状态真机修复）
+
+- **状态时效**：各适配器用真实写入时间（jsonl/wire/db 的 mtime 或 `time.updated`）判定 `running`，静默超过 60 分钟降级为 `unknown`。牺牲「超长静默任务」的实时显示，换取被中断的 turn 不再永久挂在「正在工作」。
+- **桌宠 24h 口径**：桌宠只统计近 24 小时有写入的会话；观察页仍展示全部最近 5 条。历史会话不再挤占「正在工作/待处理」名额。
+- **observe-only 的边界**：Claude 的 AskUserQuestion 与权限确认只能被「看到」，不能从宠物回写终端。桌宠提供复制选项与跳转会话；真正的批准仍在 Claude TUI。若未来要做一键作答，需要改走 SDK/ACP 托管，而不是 observe 层。
+- **Claude Notification hook**：写入 `~/.claude/settings.json` 的 `hooks.Notification`，命令指向 PetDeck 内置 node 与 `<数据目录>/hooks/claude-notify.mjs`。安装/卸载 PetDeck 不会自动删除该条；升级内置 node 路径变化时需同步更新命令。原始 settings 已备份为 `settings.json.bak-petdeck-<ts>`。
+
 ### 候选事项（未进入当前迭代）
 
 以下事项只有经过单独评估并移动到上面的优先级后才执行：
 
 - OpenClaw、Antigravity 等新适配器；网页 Agent 注入与 observe-only Agent 的自动注入。
+- DevEco Code 从 observe-only 升级为可注入：先验证 `deveco run`/ACP 的 headless 语法（本机 0.2.6 尚未验证）。
 - 更多皮肤、macOS/鸿蒙、团队协作、自动编排与离线指令队列。
 - 运行时 schema 校验、更完整的组件渲染/E2E 自动化。
 - 收敛 oxlint 的 26 条 warning（`react(set-state-in-effect)`、cleanup 读 ref、渲染期 `new Date`、`only-export-components`）：2026-11-25 逐条核查后多数是与 SSE、计时器、localStorage 同步的既有模式，rc 前不批量改写；要动就按文件确认后加注释豁免，而不是关规则。

@@ -14,6 +14,7 @@
 | Kimi Code | `~/.kimi-code/bin/kimi.exe` | `~/.kimi/sessions/<projHash>/<uuid>/context.jsonl` | JSONL | ✅ 新增 | ❓ 非交互注入语法未验证 → 先 observe-only |
 | zcode | CLI 存放位置待确认 | `~/.zcode/cli/db/db.sqlite`(+wal) | SQLite（node:sqlite 可只读副本解析） | ✅ 新增 | ❓ CLI 注入语法未验证 → 先 observe-only |
 | DeepSeek Harness | `dsh` CLI（npm `@deepseek-ai`） | `~/.dsh/sessions/<workspaceSlug>/<sessionId>/session.v4.jsonl.zstd` | 多帧 zstd 拼接的 JSONL（每帧一条事件，magic `28 B5 2F FD`） | ✅ 新增 | ⚠️ `dsh` CLI 存在但注入语法未验证 → 先 observe-only；发现 `.dsh/profiles/acp` 支持 ACP 协议，未来可走 ACP 注入 |
+| DevEco Code | `deveco` CLI（npm `@deveco/deveco-code`，基于 OpenCode 扩展） | `~/.local/share/deveco/deveco.db`(+wal/shm) | SQLite，表结构与 opencode 同源 | ✅ 新增（2026-11-25 真机） | ❓ headless 注入语法未验证 → observe-only |
 | Antigravity | Antigravity 桌面 | `~/.gemini/antigravity/conversations/<brainId>.db` | SQLite，payload 为 protobuf 二进制（无 schema） | ⚠️ 缓做：需逆向 protobuf | ❌ 无 CLI 注入面 |
 
 ## 各 Agent 关键格式细节
@@ -44,10 +45,19 @@
 ### opencode v2（动态后台服务）
 
 - 服务发现：`opencode service status` 输出 `http://127.0.0.1:<port>`；`opencode service get password` 输出访问密码（Basic Auth 用户名 `opencode`）。
-- 会话列表：`opencode api session.list`（CLI 自动发现/鉴权）→ `{"data":[...]}`；行含 `outcome`（succeeded/interrupted/failed/null）与 `time.{created,updated,idle}`，**没有 status 字段**。
+- 会话列表：`opencode api session.list`（CLI 自动发现/鉴权）→ `{"data":[...]}`；行含 `outcome`（succeeded/interrupted/failed/null）与 `time.{created,updated,busy,idle}`，**没有 status 字段**。
+- **`outcome` 是上一轮 turn 的结果，不是当前状态**（2026-11-25 真机）：正在执行的长任务仍然带着 `outcome:"succeeded"`。当前是否在跑看 `time.busy > time.idle`（busy 在 turn 开始时写、idle 在 turn 结束时写）；`time.updated` 超过 60 分钟未动则视为中断，不再报 running。
 - 运行中状态：SSE `GET /api/event`（Basic Auth）发送 `session.execution.started` / `succeeded` / `failed` / `interrupted`，事件 `data.sessionID` 指向会话。桥接进程维持重连长连接，把 started 后的会话标为 running，终态事件移除。
-- 兜底：仅当 SSE 未连接时，才用 `outcome=null && time.updated < 120s` 推断 running；watcher 在线时不做新鲜度猜测，避免把陈旧会话误报为运行中。
+- 兜底：仅当 SSE 未连接且 `outcome=null` 时，才用 `time.updated < 120s` 推断 running；watcher 在线时不做新鲜度猜测，避免把陈旧会话误报为运行中。
 - `opencode run --format json` 的 inject 不依赖显式 serve（实测约 4.9s）。
+
+### DevEco Code（`~/.local/share/deveco/deveco.db`，2026-11-25 真机）
+
+- 安装形态：`npm i -g @deveco/deveco-code`，bin `deveco`；`deveco debug paths` 可打印 data/config/cache/state 目录（Windows 下 data = `C:\Users\<user>\.local\share\deveco`）。
+- 表结构（与 opencode 同源）：`session`（id/title/directory/parent_id/time_created/time_updated/**time_archived**/tokens_*）、`message`（data JSON：role/time/model/...）、`part`（data JSON：type=text/tool/step-start/step-finish/reasoning）。
+- 状态推断：最后一条 assistant message 的 `data.time.completed` 存在 → done；缺失且 `time_updated` 在 60 分钟内 → running；长期无写入 → unknown。归档（`time_archived` 非空）与子会话（`parent_id` 非空）跳过。
+- 读取方式：与 zcode 相同——先复制 `deveco.db` + `-wal` + `-shm` 到临时目录再用 `node:sqlite` 打开，避免锁住用户正在使用的库。
+- 转录：sqlite 不是文本文件，`readTranscript` 返回 `unsupported`（与 zcode 一致），不做二进制猜测。
 
 ### Cursor（`~/.cursor/projects`）
 
@@ -139,3 +149,11 @@ spawn('opencode.cmd')  -> EINVAL   （Node >= 20.12 禁止 shell:false 直接 sp
 cmd.exe /d /s /c "…"   -> OK       （server/adapters/exec.mjs 现走这条，参数按 cmd 规则加引号）
 ```
 `runCli` 现在会先按 `PATHEXT` 解析出真实可执行文件：`.exe`/`.com` 直连 spawn，`.cmd`/`.bat` 走 `cmd.exe /d /s /c`，无扩展名的 sh shim 跳过。
+
+### Claude 的「等待用户」信号（2026-11-25 真机）
+
+Claude Code 在终端里等用户时，jsonl 里能看到的只有工具调用，没有「权限请求」记录：
+
+- **AskUserQuestion（选择题）**：`message.content[]` 里有 `{"type":"tool_use","id":"toolu_…","name":"AskUserQuestion","input":{"questions":[{"question":"…","header":"…","multiSelect":false,"options":[{"label":"可以","description":"…"}]}]}}`。用户回答后会出现一条 `user` 消息，`content[]` 里是对应 `tool_use_id` 的 `tool_result`。**未配对的 AskUserQuestion = 正在等回答**；`parsePendingAsk` 只认最新一条未回答的，ExitPlanMode 的 `input.plan` 是长文本，不是选项。
+- **权限确认 / 空闲等待**：jsonl 里没有记录，且未配对的普通 tool_use 与「工具正在执行」无法区分。唯一可靠信号是 Claude Code 的 `Notification` hook：stdin 收到 `{session_id, cwd, hook_event_name:"Notification", message, notification_type}`。PetDeck 用一个不写 stdout/stderr 的脚本追加到 `<数据目录>/claude-hook-events.jsonl`，claude 适配器把 30 分钟内的最近一条匹配到会话（文件名 = `<session_id>.jsonl`）并标为 waiting。
+- **边界**：observe-only 不回写终端，桌宠只能在选项上点击复制，真正的批准/回答仍在 Claude 的 TUI 里完成。
