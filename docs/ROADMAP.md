@@ -1,8 +1,8 @@
 # 统一路线图
 
-> 更新：2026-11-21
+> 更新：2026-11-25
 >
-> 基线：`master` / v0.2.0（2026-11-21 发布）。2026-11-20 起项目进入重新设计，主线以[重新设计文档](重新设计/01-产品定义-v0.md)为准：M1 单 Agent、M2 多 Agent/调度/决策、M3 验收/产物/合并、M4 经理/提案/日报均已实施并完成真实端点与 Tauri 验收（2026-11-21）；2026-11-21 制定 [M5 计划](重新设计/09-M5-实施计划.md)（桌面打磨与 v1.0-rc），先发 0.2.0 作为更新链路与自用周基线。本文的 P0/P1 只保留 v0.1.x 的发布与收尾事项，不再作为新功能计划；历史 Phase 文档与调研报告只用于追溯。
+> 基线：`master` / 1.0.0-rc.1（2026-11-24 定版，尚未打 tag；最近一次发布为 v0.2.0）。2026-11-20 起项目进入重新设计，主线以[重新设计文档](重新设计/01-产品定义-v0.md)为准：M1 单 Agent、M2 多 Agent/调度/决策、M3 验收/产物/合并、M4 经理/提案/日报均已实施并完成真实端点与 Tauri 验收（2026-11-21）；2026-11-21 制定 [M5 计划](重新设计/09-M5-实施计划.md)（桌面打磨与 v1.0-rc），先发 0.2.0 作为更新链路与自用周基线。本文的 P0/P1 只保留 v0.1.x 的发布与收尾事项，不再作为新功能计划；历史 Phase 文档与调研报告只用于追溯。
 >
 > 重新设计入口：[产品定义](重新设计/01-产品定义-v0.md) · [交互与信息架构](重新设计/02-交互与信息架构-v1.md) · [架构与技术选型](重新设计/03-架构与技术选型-v2.md) · [M1](重新设计/05-M1-实施计划.md) · [M2](重新设计/06-M2-实施计划.md) · [M3](重新设计/07-M3-实施计划.md) · [M4](重新设计/08-M4-实施计划.md) · [M5](重新设计/09-M5-实施计划.md)
 
@@ -40,6 +40,7 @@
 
 - [ ] 修复会话生命周期与归属链路：running 现在产生 started 事件，完成/卡住/等拍板与系统通知统一携带 Agent、项目和任务；真实项目按 cwd/来源标识分组，通知深链使用复合会话 ID，启动 SSE 回放不触发提示。桌宠快捷面板、会话优先区、侧栏和看板已改为可识别任务视图，项目看板不再串项。自动化、浏览器、真实 bridge 生命周期、DND、原生事件卡与深链均已实测；**唯一未勾选项**是 Windows 系统 toast 的视觉呈现。2026-11-20 检查发现本机 `HKCU\Software\Microsoft\Windows\CurrentVersion\PushNotifications\ToastEnabled=0`（系统级关闭 toast）；应用侧 `Notification.permission='granted'` 且插件返回 true、构造通知不抛错，但未擅自改用户系统设置，视觉仍待确认。
 - [x] 消除项目分组的两个噪声源（2026-11-20 审计新增）：① `%TEMP%\` 下的接力注入临时目录被当作真实项目；② 父子目录拆成两个项目。口径定为「子目录归并到最近的 git 工作树根，系统临时目录单独成桶（临时目录内的真 git 检出仍按项目处理）」，实现于 `server/project-root.mjs` + `server/bridge.mjs` + `src/adapters/session-identity.ts`；真实生产包面板从 13 个项目降到 12 个，`CatWanted` 合并为 6 会话，出现「临时目录」桶。
+- [x] 修复暂停/继续从未真正生效（2026-11-25 全面检查新增）：`server/runtime/process-control.mjs` 用 `-Command -` 把脚本经 stdin 交给 Windows PowerShell 5.1，C# here-string 吞掉剩余输入后 exit 0，任务被标为「已暂停」而 Agent 继续运行；改为 `-EncodedCommand` 后以真实进程树验证挂起/恢复（挂起窗口 CPU 时间为 0），同时补 process-control 脚本/结果映射与 supervisor 挂起接线单测。边界：未在 Tauri 面板上点击复核，证据见[真机实测矩阵](真机实测矩阵.md#2026-11-25-暂停继续真实进程树验证非-tauri-ui)。
 
 ### M5：桌面打磨与 v1.0-rc（2026-11-21 制定）
 
@@ -58,6 +59,11 @@
 - [x] W8 用户手册重写与真机实测矩阵回填（2026-11-22 完成；11 节手册 + 五分钟走通、M5 W1–W9 真机段与未实测边界；按手册在隔离目录从零安装并走通项目→任务→验收→合并→清理→日报→诊断包，健康检查 1.5→5 s 修复后保持「实时」；真正无 Node 机器仍未跑）
 - [x] W9 密钥落盘加固（DPAPI；**rc 阻断项**，不可推迟到 M5.1）（2026-11-21 完成；Windows DPAPI CurrentUser 加密经理密钥、启动迁移明文、失败降级并在运行状态卡标注；单测 4 + 6，真实往返成功；2026-11-22 设置页/SQLite 密文/重启验证通过，跨用户负向未做）
 
+### 已知风险与依赖跟踪
+
+- **i18next（经 `sparkdesign` 传递）**：2026-11-25 全面检查时 `npm audit --registry=https://registry.npmjs.org` 报 2 条 moderate（GHSA-6jcc-5g8w-32mx / CVE-2026-63402：`addResourceBundle(deep, overwrite)` 的原型链 DoS，影响 `<26.3.4`）。处理：`package.json` 的 `overrides` 提升到 `i18next@26.7.2`（`react-i18next@16.6.6` 的 peer 为 `>=25.10.9`；26.0.0 的破坏性变更只删除了 v24 起已废弃的选项），`npm audit` 归零。核查结论：构建产物不含 i18next 核心（`addResourceBundle` 未进 bundle），本应用也未调用该 API，实际暴露面为零。`sparkdesign` 自身仍声明 `^25.8.7`，升级该包时先复核，视情况移除 override。
+  > 注：本机默认 registry（npmmirror）不实现 `/-/npm/v1/security/*`，直接 `npm audit` 会返回 `NOT_IMPLEMENTED`，必须加 `--registry=https://registry.npmjs.org` 才有结果。
+
 ### 候选事项（未进入当前迭代）
 
 以下事项只有经过单独评估并移动到上面的优先级后才执行：
@@ -65,6 +71,7 @@
 - OpenClaw、Antigravity 等新适配器；网页 Agent 注入与 observe-only Agent 的自动注入。
 - 更多皮肤、macOS/鸿蒙、团队协作、自动编排与离线指令队列。
 - 运行时 schema 校验、更完整的组件渲染/E2E 自动化。
+- 收敛 oxlint 的 26 条 warning（`react(set-state-in-effect)`、cleanup 读 ref、渲染期 `new Date`、`only-export-components`）：2026-11-25 逐条核查后多数是与 SSE、计时器、localStorage 同步的既有模式，rc 前不批量改写；要动就按文件确认后加注释豁免，而不是关规则。
 
 ## 维护方式
 
