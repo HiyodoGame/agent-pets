@@ -60,7 +60,7 @@ function Shell({ appearance, onToggleAppearance, demo, onToggleDemo }: {
     let active = true
     let unlisten: (() => void) | null = null
     listenForPanelNavigation((target) => {
-      if (target.taskId) navigate('/tasks/' + target.taskId)
+      if (target.taskId) navigate('/tasks/' + encodeURIComponent(target.taskId))
       else if (target.sessionId) navigate('/today?observe=' + encodeURIComponent(target.sessionId))
       else if (target.projectId) navigate('/projects')
       else navigate('/today')
