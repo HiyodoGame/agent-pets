@@ -12,6 +12,7 @@ export function buildProcessControlScript(pid, action) {
     ? 'if ($ids.Count -gt 0) { $ids.Reverse() }'
     : '# resume root first, then children';
   return `$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $source = @'
 using System;
 using System.Runtime.InteropServices;
@@ -51,20 +52,35 @@ if ($failed -gt 0) { exit 3 }
 `;
 }
 
+function failureDetail(stderr, status) {
+  // A redirected stderr makes Windows PowerShell wrap progress/error records in
+  // CLIXML, which is unreadable in the task page. Keep only plain text lines.
+  const raw = String(stderr ?? '');
+  const plain = raw.includes('#< CLIXML')
+    ? raw.split(/\r?\n/).filter((line) => line && !line.startsWith('#< CLIXML') && !line.startsWith('<')).join(' ')
+    : raw;
+  const text = plain.replace(/\s+/g, ' ').trim();
+  return text ? text.slice(0, 500) : 'exit ' + status;
+}
+
 export function controlProcessTree(pid, action, { platform = process.platform, spawnImpl = spawnSync, timeoutMs = 20_000 } = {}) {
   if (platform !== 'win32') {
     return { ok: false, code: 'unsupported-platform', detail: 'pause is only implemented on Windows' };
   }
   const script = buildProcessControlScript(pid, action);
-  const result = spawnImpl('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '-'], {
-    input: script,
+  // Windows PowerShell 5.1 fed via `-Command -` lets the C# here-string swallow
+  // the rest of stdin: the script exits 0 without ever calling ntdll, so the task
+  // would be marked paused while the agent kept running. -EncodedCommand runs the
+  // exact script with no temp file and no stdin parsing.
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  const result = spawnImpl('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
     encoding: 'utf8',
     windowsHide: true,
     timeout: timeoutMs,
   });
   if (result?.error) return { ok: false, code: 'spawn-error', detail: result.error.message };
   if (result?.status !== 0) {
-    return { ok: false, code: 'control-failed', detail: String(result?.stderr ?? '').trim().slice(0, 500) || 'exit ' + result?.status };
+    return { ok: false, code: 'control-failed', detail: failureDetail(result?.stderr, result?.status) };
   }
   return { ok: true, code: action === 'suspend' ? 'suspended' : 'resumed' };
 }
